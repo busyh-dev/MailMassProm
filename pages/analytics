@@ -1,0 +1,315 @@
+import { useEffect, useState, useMemo } from "react";
+import ProtectedRoute from "../components/auth/ProtectedRoute";
+import { supabase } from "@/utils/supabaseClient";
+import { Mail, Users, Send, BarChart3 } from "lucide-react";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
+
+const Analytics = () => {
+  const [campaigns, setCampaigns] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+
+      // 📌 Campagne (più recenti prima)
+      const { data: campaignsData } = await supabase
+        .from("campaigns")
+        .select("*")
+        .order("sent_at", { ascending: false });
+
+      // 📌 Contatti
+      const { data: contactsData } = await supabase
+        .from("contacts")
+        .select("*");
+
+      setCampaigns(campaignsData || []);
+      setContacts(contactsData || []);
+      setLoading(false);
+    };
+
+    loadData();
+  }, []);
+
+  const totalCampaigns = campaigns.length;
+  const activeContacts = contacts.filter((c) => c.status === "active").length;
+  const totalEmailsSent = campaigns.reduce(
+    (sum, c) => sum + (c.sent_count || 0),
+    0
+  );
+
+  const avgOpenRate = useMemo(() => {
+    const totalOpened = campaigns.reduce(
+      (acc, c) => acc + (c.opened || 0),
+      0
+    );
+    const totalRecipients = campaigns.reduce((acc, c) => {
+      if (Array.isArray(c.recipients)) return acc + c.recipients.length;
+      return acc + (c.recipients || 0);
+    }, 0);
+
+    if (!totalRecipients) return 0;
+    return (totalOpened / totalRecipients) * 100;
+  }, [campaigns]);
+
+  // 📊 Raggruppa per mese (ultimi 6 mesi)
+  const monthlyData = useMemo(() => {
+    const map = new Map();
+
+    campaigns.forEach((c) => {
+      const dateStr = c.sent_at || c.created_at;
+      if (!dateStr) return;
+
+      const d = new Date(dateStr);
+      if (Number.isNaN(d.getTime())) return;
+
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+        2,
+        "0"
+      )}`;
+
+      const prev = map.get(key) || { key, sent: 0 };
+      const increment = c.sent_count || (Array.isArray(c.recipients) ? c.recipients.length : c.recipients || 0);
+      map.set(key, { key, sent: prev.sent + increment });
+    });
+
+    // Trasforma in array e ordina per data
+    let arr = Array.from(map.values()).sort((a, b) =>
+      a.key.localeCompare(b.key)
+    );
+
+    // Tieni solo ultimi 6 mesi
+    arr = arr.slice(-6);
+
+    // Aggiungi label leggibile
+    return arr.map((item) => {
+      const [year, month] = item.key.split("-");
+      const date = new Date(Number(year), Number(month) - 1, 1);
+      return {
+        ...item,
+        label: date.toLocaleDateString("it-IT", {
+          month: "short",
+          year: "2-digit",
+        }),
+      };
+    });
+  }, [campaigns]);
+
+  if (loading) {
+    return (
+      <ProtectedRoute>
+        <div className="text-center py-10 text-gray-500">
+          Caricamento dashboard…
+        </div>
+      </ProtectedRoute>
+    );
+  }
+
+  return (
+    <ProtectedRoute>
+      <div className="space-y-6 p-6">
+        <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          📊 Analytics
+        </h2>
+
+        {/* Statistiche principali */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          {/* Campagne */}
+          <div className="bg-white p-6 rounded-lg shadow-sm border">
+            <div className="flex items-center">
+              <div className="p-3 rounded-full bg-blue-100 text-blue-600">
+                <Mail className="w-6 h-6" />
+              </div>
+              <div className="ml-4">
+                <p className="text-sm text-gray-600">Campagne Totali</p>
+                <p className="text-2xl font-bold">{totalCampaigns}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Contatti */}
+          <div className="bg-white p-6 rounded-lg shadow-sm border">
+            <div className="flex items-center">
+              <div className="p-3 rounded-full bg-green-100 text-green-600">
+                <Users className="w-6 h-6" />
+              </div>
+              <div className="ml-4">
+                <p className="text-sm text-gray-600">Contatti Attivi</p>
+                <p className="text-2xl font-bold">{activeContacts}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Email inviate */}
+          <div className="bg-white p-6 rounded-lg shadow-sm border">
+            <div className="flex items-center">
+              <div className="p-3 rounded-full bg-orange-100 text-orange-600">
+                <Send className="w-6 h-6" />
+              </div>
+              <div className="ml-4">
+                <p className="text-sm text-gray-600">Email Inviate</p>
+                <p className="text-2xl font-bold">{totalEmailsSent}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Open rate */}
+          <div className="bg-white p-6 rounded-lg shadow-sm border">
+            <div className="flex items-center">
+              <div className="p-3 rounded-full bg-purple-100 text-purple-600">
+                <BarChart3 className="w-6 h-6" />
+              </div>
+              <div className="ml-4">
+                <p className="text-sm text-gray-600">Tasso Apertura</p>
+                <p className="text-2xl font-bold">
+                  {avgOpenRate ? avgOpenRate.toFixed(1) + "%" : "-"}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 📊 Grafico invii per mese */}
+        <div className="bg-white rounded-lg shadow-sm border p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">
+              Andamento invii per mese
+            </h3>
+            <span className="text-xs text-gray-500">
+              Ultimi {monthlyData.length} mesi
+            </span>
+          </div>
+
+          {monthlyData.length === 0 ? (
+            <p className="text-gray-500 text-sm">
+              Nessun invio registrato negli ultimi mesi.
+            </p>
+          ) : (
+            <div className="w-full h-60">
+              <ResponsiveContainer>
+                <BarChart data={monthlyData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="sent" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+
+        {/* Campagne recenti (ultime 4) */}
+        <div className="bg-white rounded-lg shadow-sm border">
+          <div className="p-6 border-b flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">
+              Campagne recenti
+            </h3>
+            <a
+              href="/campagne"
+              className="text-blue-600 hover:text-blue-800 text-sm"
+            >
+              Vedi tutte →
+            </a>
+          </div>
+
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">
+                  Campagna
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">
+                  Stato
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">
+                  Destinatari
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">
+                  Aperture
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">
+                  Data
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y">
+              {campaigns
+                .sort(
+                  (a, b) =>
+                    new Date(b.sent_at || b.created_at) -
+                    new Date(a.sent_at || a.created_at)
+                )
+                .slice(0, 4)
+                .map((c) => {
+                  const date = c.sent_at || c.created_at;
+                  const formattedDate = date
+                    ? new Date(date).toLocaleString("it-IT", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "-";
+
+                  const recipientsCount = Array.isArray(c.recipients)
+                    ? c.recipients.length
+                    : c.recipients || 0;
+
+                  return (
+                    <tr key={c.id}>
+                      <td className="px-6 py-4">
+                        <div className="text-sm font-medium text-gray-900">
+                          {c.name}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {c.subject}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span
+                          className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                            c.status === "sent"
+                              ? "bg-green-100 text-green-800"
+                              : "bg-yellow-100 text-yellow-800"
+                          }`}
+                        >
+                          {c.status === "sent" ? "Inviata" : "Bozza"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        {recipientsCount}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        {recipientsCount > 0 && c.opened
+                          ? `${Math.round(
+                              (c.opened / recipientsCount) * 100
+                            )}%`
+                          : "-"}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-700">
+                        {formattedDate}
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </ProtectedRoute>
+  );
+};
+
+export default Analytics;
+
