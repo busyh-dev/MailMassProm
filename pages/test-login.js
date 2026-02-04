@@ -207,7 +207,6 @@ const LoginTestPage = () => {
 
             <div className="mt-12 p-6 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl text-white">
               <blockquote className="text-sm italic mb-3">
-                {/* "MailMassProm ha trasformato completamente la nostra strategia di email marketing. Risultati incredibili!" */}
               </blockquote>
               <div className="flex items-center">
                 <div className="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center mr-3">
