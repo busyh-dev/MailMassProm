@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint"
   },
@@ -12,6 +12,7 @@
     "@lexical/link": "^0.37.0",
     "@lexical/react": "^0.37.0",
     "@prisma/client": "^6.16.2",
+    "@reduxjs/toolkit": "^2.11.2",
     "@sendgrid/mail": "^8.1.6",
     "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@supabase/auth-helpers-react": "^0.5.0",
@@ -48,6 +49,7 @@
     "react-dom": "19.1.0",
     "react-hot-toast": "^2.6.0",
     "react-leaflet": "^5.0.0",
+    "react-redux": "^9.2.0",
     "react-select": "^5.10.2",
     "recharts": "^3.6.0",
     "resend": "^6.2.2",
