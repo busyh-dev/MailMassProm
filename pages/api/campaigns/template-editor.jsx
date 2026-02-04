@@ -6,10 +6,10 @@ import dynamic from "next/dynamic";
 import { supabase } from "../../lib/supabaseClient";
 
 // Import dinamico dell'editor con drag & drop
-const DragDropEmailEditor = dynamic(
-  () => import("../../components/email/DragDropEmailEditor"),
-  { ssr: false }
-);
+// const DragDropEmailEditor = dynamic(
+//   () => import("../../components/email/DragDropEmailEditor"),
+//   { ssr: false }
+// );
 
 export default function TemplateEditorPage() {
   const [user, setUser] = useState(null);

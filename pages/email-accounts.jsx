@@ -1,6 +1,6 @@
 // pages/email-accounts.jsx (o il tuo componente)
 import OnlineStatusBadge from '../components/OnlineStatusBadge';
-import { OnlineStatusToaster } from '../components/OnlineStatusToaster'; // opzionale
+import OnlineStatusToaster from '../components/OnlineStatusToaster';// opzionale
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useEmailAccounts } from '../hooks/useEmailAccounts';
 
