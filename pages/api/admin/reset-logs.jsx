@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { Filter, Check, X, TrendingUp } from "lucide-react";
 import toast from "react-hot-toast";
 

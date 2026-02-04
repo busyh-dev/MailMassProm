@@ -1,7 +1,7 @@
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
-import { supabase } from "../../../lib/supabase";
-import Breadcrumb from "../../../components/Breadcrumb";
+import { supabase } from "@/lib/supabase";
+import Breadcrumb from "@/components/Breadcrumb";
 import { Clock, Check, X } from "lucide-react";
 
 export default function UserResetTimeline() {

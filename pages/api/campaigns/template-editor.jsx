@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import dynamic from "next/dynamic";
-import { supabase } from "../../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";
 
 // Import dinamico dell'editor con drag & drop
 // const DragDropEmailEditor = dynamic(
