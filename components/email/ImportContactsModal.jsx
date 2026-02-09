@@ -21,11 +21,15 @@ const ImportContactsModal = ({ show, onClose, onImport, existingContacts }) => {
   }, []);
 
   const handleFileChange = (e) => setFile(e.target.files[0]);
-
+ const headers = ["name,email,tags,tipologia_canale,periodicita_canale,copertura_canale,ruolo,settore,canale"];
+              const exampleData = [
+                "Mario Rossi,mario@email.com,cliente,Periodici specializzati,Quotidiano,Nazionale,Direttore Editoriale,Edilizia/Costruzioni;Architettura/Casa/Arredamento/Design,Sport - Atletica",
+                "Giulia Verdi,giulia@email.com,prospect,Online specializzati,Settimanale,Nazionale,Capo Redattore,Information technology;Tecnologia/Innovazione,Sport acquatici",
+              ];
   // ✅ Scarica modello CSV
   const handleDownloadTemplate = () => {
     const csvContent =
-      "name,email,tags\nMario Rossi,mario@email.com,cliente\nGiulia Verdi,giulia@email.com,premium";
+      "name,email,tags,tipologia_canale,periodicita_canale,copertura_canale,ruolo,settore,canale\nMario Rossi,mario@email.com,cliente,Periodici specializzati,Quotidiano,Nazionale,Direttore Editoriale,Edilizia/Costruzioni;Architettura/Casa/Arredamento/Design,Sport - Atletica";
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
