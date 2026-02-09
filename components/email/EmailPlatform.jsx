@@ -17281,10 +17281,10 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
                 <div className="text-center">
                     {/* Avatar grande */}
                     <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center text-white text-2xl font-medium mx-auto mb-4">
-                      {getUserInitials(user?.name || 'No_Name')}
+                    {getUserInitials(user?.full_name || user?.name || 'U')}
                     </div>
                     <h2 className="text-xl font-bold text-gray-900 mb-1">
-                      {user?.name || 'No_Name'}
+                    {user?.full_name || user?.name || 'Utente'}
                     </h2>
               <button
                 onClick={() => setShowEditProfile(true)}
@@ -18585,24 +18585,24 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
         <p className="text-gray-500">Nessun utente in attesa di approvazione</p>
       </div>
     ) : (
-      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Utente
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Data Registrazione
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Stato
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                Azioni
-              </th>
-            </tr>
-          </thead>
+                      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                Utente
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                Data Registrazione
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                Stato
+                              </th>
+                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase w-48">
+                                Azioni
+                              </th>
+                            </tr>
+                          </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {pendingUsers.map((user) => (
               <tr key={user.id} className="hover:bg-gray-50">
@@ -18637,8 +18637,8 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
                     {new Date(user.created_at).toLocaleDateString('it-IT')}
                   </div>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  {user.status === 'approved' ? (
+                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            {user.status === 'approved' ? (
                     <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                       <CheckCircle className="w-3 h-3" />
                       Approvato
@@ -18654,27 +18654,30 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
                       In Attesa
                     </span>
                   )}
-                </td>
+                         </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                   <div className="flex justify-end gap-2">
                     {/* Mostra Approva per pending e rejected */}
                     {user.status !== 'approved' && (
                       <button
                         onClick={() => handleApproveUser(user.id, user.full_name, user.email)}
-                        className="flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition"
+                        className="flex items-center gap-1 px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 transition"
+                        title={user.status === 'rejected' ? 'Riapprova' : 'Approva'}
                       >
-                        <CheckCircle className="w-4 h-4" />
-                        {user.status === 'rejected' ? 'Riapprova' : 'Approva'}
+                        <CheckCircle className="w-3 h-3" />
+                        <span className="hidden xl:inline">{user.status === 'rejected' ? 'Riapprova' : 'Approva'}</span>
                       </button>
                     )}
                     {/* Mostra Rifiuta per pending e approved */}
                     {user.status !== 'rejected' && (
                       <button
                         onClick={() => handleRejectUser(user.id, user.full_name, user.email)}
-                        className="flex items-center gap-1 px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 transition"
+                        className="flex items-center gap-1 px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition"
+                        title="Rifiuta"
                       >
-                        <XCircle className="w-4 h-4" />
-                        Rifiuta
+                      <XCircle className="w-3 h-3" />
+                      <span className="hidden xl:inline">Rifiuta</span>
+                       
                       </button>
                     )}
                   </div>
