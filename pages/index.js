@@ -13,18 +13,11 @@ export default function Home() {
           <p className="text-xl text-gray-600 mb-8">
             La piattaforma professionale per email marketing e invii massivi
           </p>
-
           <Link href="/login">
             <button className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg">
-            🚀 Accedi alla Piattaforma
-            </button>
-          </Link>
-                    
-          {/* <Link href="/dashboard">
-            <button className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg text-lg font-semibold transition-colors">
               🚀 Accedi alla Piattaforma
             </button>
-          </Link> */}
+          </Link>
         </div>
 
         {/* Features */}
