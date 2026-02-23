@@ -893,7 +893,8 @@ const [userToApprove, setUserToApprove] = useState(null);
 // State
 const [tagOptions, setTagOptions] = useState([]);
 const [lastContactsLength, setLastContactsLength] = useState(0);
-
+const [loadingProfile, setLoadingProfile] = useState(true);
+const [showRefreshConfirm, setShowRefreshConfirm] = useState(false);
 // Aggiungi questi stati dopo gli altri useState
 const [activeProfileTab, setActiveProfileTab] = useState('info-profilo');
 const [pendingUsers, setPendingUsers] = useState([]);
@@ -1910,6 +1911,7 @@ useEffect(() => {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [showNotificationDropdown, setShowNotificationDropdown] = useState(false);
+  
   // Stato nel componente principale (se non c'è già)
   const [unreadNotifications, setUnreadNotifications] = useState(3); // esempio
    const [showAllNotificationsModal, setShowAllNotificationsModal] = useState(false);
@@ -4620,7 +4622,7 @@ const confirmSend = async () => {
       
       // Carica tutti i contatti dal database
       const { data: contactsData, error: contactsError } = await supabase
-        .from('contacts')
+        .from('contacts_full')
         .select('email')
         .eq('user_id', user.id);
 
@@ -6695,7 +6697,391 @@ const Contacts = () => {
   const { user } = useAuth(); // 👈 importa dal contesto auth
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [showTagFilter, setShowTagFilter] = useState(false);
+  const [availableTags, setAvailableTags] = useState([]);
+  const [hasNoTagFilter, setHasNoTagFilter] = useState(false);
+  const [selectedContacts, setSelectedContacts] = useState([]);
+
+  // Aggiungi la funzione di eliminazione
+const handleDeleteSelected = async () => {
+  try {
+    const { error } = await supabase
+      .from('contacts')
+      .delete()
+      .in('id', selectedContacts);
+
+    if (error) throw error;
+
+    toast.success(`✅ ${selectedContacts.length} contatti eliminati`);
+    setSelectedContacts([]);
+    fetchContacts(); // Ricarica la lista
+  } catch (error) {
+    console.error('Errore eliminazione:', error);
+    toast.error('❌ Errore durante l\'eliminazione');
+  }
+};
+  const fetchContacts = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
   
+      const { data: contactsData, error } = await supabase
+        .from('contacts')
+        .select(`
+          *,
+          contact_tags (
+            tag:tags (
+              id,
+              label,
+              value,
+              color
+            )
+          )
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+  
+      if (error) {
+        console.error('Errore caricamento contatti:', error);
+        return;
+      }
+  
+      // ✅ Trasforma i dati per avere tags come array di stringhe
+      const contactsWithTags = contactsData?.map(contact => ({
+        ...contact,
+        tags: contact.contact_tags?.map(ct => ct.tag.label) || []
+      })) || [];
+  
+      console.log('✅ Contatti con tag:', contactsWithTags.slice(0, 3)); // Debug primi 3
+  
+      setContacts(contactsWithTags);
+    } catch (error) {
+      console.error('Errore:', error);
+    }
+  };
+
+  // Aggiungi questo useEffect per caricare i tag
+  useEffect(() => {
+    const fetchTags = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+  
+        const { data: tags, error } = await supabase
+          .from('tags')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('label', { ascending: true });
+  
+        if (error) {
+          console.error('Errore caricamento tag:', error);
+          return;
+        }
+  
+        console.log('✅ Tag caricati per filtro:', tags);
+        setAvailableTags(tags || []);
+      } catch (error) {
+        console.error('Errore:', error);
+      }
+    };
+  
+    fetchTags();
+  }, []);
+
+  useEffect(() => {
+    fetchContacts();
+  }, []);
+  // 🖨️ Stampa lista contatti
+const printContactsList = () => {
+  try {
+    const printWindow = window.open('', '_blank');
+    
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Lista Contatti - ${new Date().toLocaleDateString('it-IT')}</title>
+        <style>
+          body { 
+            font-family: Arial, sans-serif; 
+            padding: 20px;
+            font-size: 12px;
+          }
+          h1 { 
+            color: #1e40af; 
+            margin-bottom: 20px;
+            font-size: 24px;
+          }
+          .info {
+            margin-bottom: 20px;
+            color: #666;
+          }
+          table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 20px;
+          }
+          th { 
+            background-color: #1e40af; 
+            color: white; 
+            padding: 12px; 
+            text-align: left;
+            font-weight: bold;
+          }
+          td { 
+            padding: 10px; 
+            border-bottom: 1px solid #ddd;
+          }
+          tr:hover { 
+            background-color: #f5f5f5; 
+          }
+          .tag {
+            display: inline-block;
+            background-color: #dbeafe;
+            color: #1e40af;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            margin-right: 4px;
+          }
+          .footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #999;
+            font-size: 10px;
+          }
+          @media print {
+            body { padding: 10px; }
+            button { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>📧 Lista Contatti</h1>
+        <div class="info">
+          <strong>Data esportazione:</strong> ${new Date().toLocaleString('it-IT')}<br>
+          <strong>Totale contatti:</strong> ${filteredContacts.length}
+        </div>
+        
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Nome</th>
+              <th>Email</th>
+              <th>Stato</th>
+              <th>Tags</th>
+              <th>Data Creazione</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filteredContacts.map((contact, index) => `
+              <tr>
+                <td>${index + 1}</td>
+                <td>${contact.name || '-'}</td>
+                <td>${contact.email || '-'}</td>
+                <td>${contact.status || 'Attivo'}</td>
+                <td>
+                  ${(contact.tags || []).map(tag => 
+                    `<span class="tag">${tag}</span>`
+                  ).join('') || 'Nessun tag'}
+                </td>
+                <td>${contact.created_at ? new Date(contact.created_at).toLocaleDateString('it-IT') : '-'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        
+        <div class="footer">
+          Generato da MailMassProm - ${new Date().toLocaleDateString('it-IT')}
+        </div>
+        
+        <script>
+          window.onload = function() {
+            window.print();
+          }
+        </script>
+      </body>
+      </html>
+    `;
+    
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    
+    toast.success('📄 Apertura finestra di stampa...');
+  } catch (error) {
+    console.error('Errore stampa:', error);
+    toast.error('Errore durante la stampa');
+  }
+};
+  
+  // 📥 Esporta in CSV
+const exportToCSV = () => {
+  try {
+    // Header CSV
+    const headers = ['Nome', 'Email', 'Stato', 'Tags', 'Data Creazione'];
+    
+    // Dati
+    const rows = filteredContacts.map(contact => [
+      contact.name || '',
+      contact.email || '',
+      contact.status || 'Attivo',
+      (contact.tags || []).join('; '),
+      contact.created_at ? new Date(contact.created_at).toLocaleDateString('it-IT') : ''
+    ]);
+    
+    // Crea CSV
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+    
+    // Download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `contatti_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast.success(`✅ ${filteredContacts.length} contatti esportati in CSV`);
+  } catch (error) {
+    console.error('Errore export CSV:', error);
+    toast.error('Errore durante l\'esportazione CSV');
+  }
+};
+
+// 📄 Esporta in PDF
+const exportToPDF = () => {
+  try {
+    const printWindow = window.open('', '_blank');
+    
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Lista Contatti - ${new Date().toLocaleDateString('it-IT')}</title>
+        <style>
+          body { 
+            font-family: Arial, sans-serif; 
+            padding: 20px;
+            font-size: 12px;
+          }
+          h1 { 
+            color: #1e40af; 
+            margin-bottom: 20px;
+            font-size: 24px;
+          }
+          .info {
+            margin-bottom: 20px;
+            color: #666;
+          }
+          table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 20px;
+          }
+          th { 
+            background-color: #1e40af; 
+            color: white; 
+            padding: 12px; 
+            text-align: left;
+            font-weight: bold;
+          }
+          td { 
+            padding: 10px; 
+            border-bottom: 1px solid #ddd;
+          }
+          tr:hover { 
+            background-color: #f5f5f5; 
+          }
+          .tag {
+            display: inline-block;
+            background-color: #dbeafe;
+            color: #1e40af;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            margin-right: 4px;
+          }
+          .footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #999;
+            font-size: 10px;
+          }
+          @media print {
+            body { padding: 10px; }
+            button { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>📧 Lista Contatti</h1>
+        <div class="info">
+          <strong>Data esportazione:</strong> ${new Date().toLocaleString('it-IT')}<br>
+          <strong>Totale contatti:</strong> ${filteredContacts.length}
+        </div>
+        
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Nome</th>
+              <th>Email</th>
+              <th>Stato</th>
+              <th>Tags</th>
+              <th>Data Creazione</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filteredContacts.map((contact, index) => `
+              <tr>
+                <td>${index + 1}</td>
+                <td>${contact.name || '-'}</td>
+                <td>${contact.email || '-'}</td>
+                <td>${contact.status || 'Attivo'}</td>
+                <td>
+                  ${(contact.tags || []).map(tag => 
+                    `<span class="tag">${tag}</span>`
+                  ).join('') || 'Nessun tag'}
+                </td>
+                <td>${contact.created_at ? new Date(contact.created_at).toLocaleDateString('it-IT') : '-'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        
+        <div class="footer">
+          Generato da MailMassProm - ${new Date().toLocaleDateString('it-IT')}
+        </div>
+        
+        <script>
+          window.onload = function() {
+            window.print();
+          }
+        </script>
+      </body>
+      </html>
+    `;
+    
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    
+    toast.success('📄 Apertura finestra di stampa...');
+  } catch (error) {
+    console.error('Errore export PDF:', error);
+    toast.error('Errore durante l\'esportazione PDF');
+  }
+};
+
+// 🖨️ Stampa diretta
+const printContacts = () => {
+  exportToPDF(); // Usa la stessa funzione del PDF
+};
   useEffect(() => {
     if (!user?.id) return;
     const loadContacts = async () => {
@@ -6831,14 +7217,22 @@ const filteredContacts = contacts.filter((c) => {
   const matchesSearch =
     c.name.toLowerCase().includes(term) ||
     c.email.toLowerCase().includes(term) ||
-    c.tags.some((tag) => tag.toLowerCase().includes(term));
+    (c.tags || []).some((tag) => tag.toLowerCase().includes(term));
 
   const matchesStatus =
     statusFilter.value === "all" ||
     (statusFilter.value === "active" && c.status === "active") ||
     (statusFilter.value === "inactive" && c.status === "inactive");
 
-  return matchesSearch && matchesStatus;
+  // ✅ Filtro tag modificato
+  const matchesTags =
+    (!hasNoTagFilter && selectedTags.length === 0) || // Nessun filtro attivo
+    (hasNoTagFilter && (!c.tags || c.tags.length === 0)) || // Filtra solo quelli senza tag
+    (selectedTags.length > 0 && c.tags && selectedTags.some(selectedTag => 
+      c.tags.some(contactTag => contactTag.toLowerCase() === selectedTag.label.toLowerCase())
+    ));
+
+  return matchesSearch && matchesStatus && matchesTags;
 });
 
 // ↕️ Ordinamento
@@ -6902,7 +7296,7 @@ return (
 
       <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
         <div className="flex gap-3 flex-1">
-          <div className="relative flex-1">
+          {/* <div className="relative flex-1">
             <input
               type="text"
               placeholder="Cerca per nome, email o tag..."
@@ -6924,12 +7318,13 @@ return (
                 d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"
               />
             </svg>
-          </div>
-
+          </div> */}
+{/* 
           <div className="w-44">
             <Select options={statusOptions} value={statusFilter} onChange={setStatusFilter} className="text-sm" />
-          </div>
+          </div> */}
         </div>
+{/* 🆕 BARRA FILTRI */}
 
         <div className="flex gap-3 justify-end">
           {/* Scarica modello CSV */}
@@ -6964,6 +7359,23 @@ return (
             <Upload className="w-4 h-4" />
             Importa CSV
           </button>
+           {/* 🆕 Bottone Esporta CSV */}
+  <button
+    onClick={exportToCSV}
+    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition"
+  >
+    <Download className="w-4 h-4" />
+    Esporta CSV
+  </button>
+   {/* 🆕 Bottone Stampa/PDF */}
+<button
+  onClick={printContactsList} // ✅ Nome diverso
+  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition"
+>
+  <Printer className="w-4 h-4" />
+  Stampa/PDF
+</button>
+
 
           {/* 🔥 NUOVO BOTTONE - Gestione Tag */}
           <button
@@ -6985,134 +7397,359 @@ return (
         </div>
       </div>
     </div>
-
-    {/* TABELLA CONTATTI */}
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th onClick={() => requestSort("name")} className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase cursor-pointer select-none">
-                Contatto <SortIcon column="name" />
-              </th>
-              <th onClick={() => requestSort("status")} className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase cursor-pointer select-none">
-                Stato <SortIcon column="status" />
-              </th>
-              <th onClick={() => requestSort("tags")} className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase cursor-pointer select-none">
-                Tag <SortIcon column="tags" />
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Azioni</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {currentContacts.length > 0 ? (
-              currentContacts.map((c) => (
-                <tr key={c.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">{c.name}</div>
-                      <div className="text-sm text-gray-500">{c.email}</div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <button
-                      onClick={() => handleToggleStatus(c.id)}
-                      className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full transition-colors ${c.status === "active"
-                          ? "bg-green-100 text-green-800 hover:bg-green-200"
-                          : "bg-red-100 text-red-800 hover:bg-red-200"
-                        }`}
-                    >
-                      {c.status === "active" ? (
-                        <>
-                          <CheckCircle className="w-3.5 h-3.5" /> Attivo
-                        </>
-                      ) : (
-                        <>
-                          <XCircle className="w-3.5 h-3.5" /> Disiscritto
-                        </>
-                      )}
-                    </button>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex gap-1 flex-wrap">
-                      {c.tags.map((t, i) => (
-                        <span key={i} className="bg-blue-100 text-blue-800 px-2 py-1 text-xs rounded-full">
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex gap-2">
-                    <button
-                      onClick={() => {
-                        console.log('🔵 Click modifica, contatto:', c);
-                        setSelectedContact(c);
-                        setShowEditModal(true);
-                        console.log('🔵 Stati impostati');
-                      }}
-                      className="text-blue-600 hover:text-blue-900 p-1 rounded transition-colors"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSelectedContact(c);
-                        setShowDeleteModal(true);
-                      }}
-                      className="text-red-600 hover:text-red-900 p-1 rounded transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan="4" className="text-center py-6 text-gray-500 text-sm">
-                  Nessun contatto trovato
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* PAGINAZIONE */}
-      <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 bg-gray-50 text-sm text-gray-600">
-        <div>
-          {totalContacts > 0
-            ? `Mostrati ${startIndex + 1}-${Math.min(endIndex, totalContacts)} di ${totalContacts} contatti`
-            : "Nessun contatto disponibile"}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => handlePageChange(currentPage - 1)}
-            disabled={currentPage === 1}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-md border text-sm transition-colors ${
-              currentPage === 1
-                ? "text-gray-400 bg-gray-100 cursor-not-allowed"
-                : "text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            <ChevronLeft className="w-4 h-4" /> Precedente
-          </button>
-          <span className="px-2">
-            Pagina <strong>{currentPage}</strong> di {totalPages}
-          </span>
-          <button
-            onClick={() => handlePageChange(currentPage + 1)}
-            disabled={currentPage === totalPages}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-md border text-sm transition-colors ${
-              currentPage === totalPages
-                ? "text-gray-400 bg-gray-100 cursor-not-allowed"
-                : "text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            Successivo <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+    {/* 🆕 BARRA FILTRI - Aggiungi QUI */}
+<div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+    {/* Ricerca */}
+    <div className="relative">
+      <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+      <input
+        type="text"
+        placeholder="Cerca per nome o email..."
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        className="w-full pl-10 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+      />
+      {searchTerm && (
+        <button
+          onClick={() => setSearchTerm('')}
+          className="absolute right-2 top-2.5 text-gray-400 hover:text-gray-600"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      )}
     </div>
+
+    {/* Filtro Stato */}
+    <select
+      value={statusFilter.value}
+      onChange={(e) => {
+        const selectedOption = statusOptions.find(opt => opt.value === e.target.value);
+        setStatusFilter(selectedOption);
+      }}
+      className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+    >
+      <option value="all">Tutti i contatti</option>
+      <option value="active">Attivi</option>
+      <option value="inactive">Non attivi</option>
+    </select>
+
+    {/* Filtro Tag */}
+{/* Filtro Tag */}
+<div className="relative">
+  <button
+    onClick={() => setShowTagFilter(!showTagFilter)}
+    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-left focus:ring-2 focus:ring-blue-500 focus:border-blue-500 flex items-center justify-between bg-white hover:bg-gray-50"
+  >
+    <span className="text-gray-700 truncate">
+      {selectedTags.length > 0 
+        ? `${selectedTags.length} tag` 
+        : hasNoTagFilter 
+        ? 'Senza tag' 
+        : 'Filtra per tag'}
+    </span>
+    <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ml-2 ${showTagFilter ? 'rotate-180' : ''}`} />
+  </button>
+
+  {showTagFilter && (
+    <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+      {/* ✅ Opzione "Nessun tag" */}
+      <label className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100">
+        <input
+          type="checkbox"
+          checked={hasNoTagFilter}
+          onChange={(e) => {
+            setHasNoTagFilter(e.target.checked);
+            if (e.target.checked) {
+              setSelectedTags([]); // Deseleziona gli altri tag
+            }
+          }}
+          className="rounded border-gray-300 text-red-600 focus:ring-red-500 flex-shrink-0"
+        />
+        <span className="text-gray-700 text-xs font-medium">
+          Senza tag
+        </span>
+      </label>
+
+      {/* Tag disponibili */}
+      {availableTags && availableTags.length > 0 ? (
+        availableTags.map(tag => (
+          <label
+            key={tag.id}
+            className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer"
+          >
+            <input
+              type="checkbox"
+              checked={selectedTags.some(t => t.id === tag.id)}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  setSelectedTags([...selectedTags, tag]);
+                  setHasNoTagFilter(false); // Deseleziona "Nessun tag"
+                } else {
+                  setSelectedTags(selectedTags.filter(t => t.id !== tag.id));
+                }
+              }}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+            />
+            <span
+              className="px-2 py-0.5 rounded-full text-xs font-medium truncate"
+              style={{
+                backgroundColor: tag.color + '20',
+                color: tag.color
+              }}
+            >
+              {tag.label}
+            </span>
+          </label>
+        ))
+      ) : (
+        <div className="px-3 py-2 text-xs text-gray-500 text-center">
+          Nessun tag
+        </div>
+      )}
+    </div>
+  )}
+</div>
+
+    {/* Reset filtri */}
+    {(searchTerm || statusFilter.value !== 'all' || selectedTags.length > 0) && (
+      <button
+        onClick={() => {
+          setSearchTerm('');
+          setStatusFilter({ value: 'all', label: 'Tutti i contatti' });
+          setSelectedTags([]);
+          setShowTagFilter(false);
+        }}
+        className="flex items-center justify-center gap-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-sm font-medium"
+      >
+        <X className="w-4 h-4" />
+        Reset Filtri
+      </button>
+    )}
+  </div>
+
+  {/* Info filtri attivi */}
+  {(searchTerm || statusFilter.value !== 'all' || selectedTags.length > 0) && (
+    <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-600">
+      Mostrando <strong className="text-blue-600">{filteredContacts.length}</strong> di {contacts.length} contatti
+    </div>
+  )}
+</div>
+
+{/* TABELLA CONTATTI */}
+<div className="bg-white rounded-lg shadow-sm border border-gray-200">
+  {/* ✅ Barra azioni per contatti selezionati */}
+  {selectedContacts.length > 0 && (
+    <div className="px-6 py-3 bg-blue-50 border-b border-blue-200 flex items-center justify-between">
+      <span className="text-sm font-medium text-blue-900">
+        {selectedContacts.length} contatti selezionati
+      </span>
+      <button
+        onClick={() => {
+          if (confirm(`Eliminare ${selectedContacts.length} contatti selezionati?`)) {
+            handleDeleteSelected();
+          }
+        }}
+        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+      >
+        <Trash2 className="w-4 h-4" />
+        Elimina selezionati
+      </button>
+    </div>
+  )}
+
+  <div className="overflow-x-auto">
+    <table className="min-w-full divide-y divide-gray-200">
+      <thead className="bg-gray-50">
+        <tr>
+          {/* ✅ Colonna checkbox seleziona tutti */}
+          <th className="px-4 py-3 w-12 text-center">
+            <input
+              type="checkbox"
+              checked={selectedContacts.length === currentContacts.length && currentContacts.length > 0}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  setSelectedContacts(currentContacts.map(c => c.id));
+                } else {
+                  setSelectedContacts([]);
+                }
+              }}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+          </th>
+          <th onClick={() => requestSort("name")} className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase cursor-pointer select-none">
+            Contatto <SortIcon column="name" />
+          </th>
+          <th onClick={() => requestSort("status")} className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase cursor-pointer select-none">
+            Stato <SortIcon column="status" />
+          </th>
+          <th onClick={() => requestSort("tags")} className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase cursor-pointer select-none">
+            Tag <SortIcon column="tags" />
+          </th>
+          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Azioni</th>
+        </tr>
+      </thead>
+      <tbody className="bg-white divide-y divide-gray-200">
+        {currentContacts.length > 0 ? (
+          currentContacts.map((c) => (
+            <tr key={c.id} className="hover:bg-gray-50 transition-colors">
+              {/* ✅ Checkbox per singolo contatto */}
+              <td className="px-4 py-4 text-center">
+                <input
+                  type="checkbox"
+                  checked={selectedContacts.includes(c.id)}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedContacts([...selectedContacts, c.id]);
+                    } else {
+                      setSelectedContacts(selectedContacts.filter(id => id !== c.id));
+                    }
+                  }}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div>
+                  <div className="text-sm font-medium text-gray-900">{c.name}</div>
+                  <div className="text-sm text-gray-500">{c.email}</div>
+                </div>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                <button
+                  onClick={() => handleToggleStatus(c.id)}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full transition-colors ${
+                    c.status === "active"
+                      ? "bg-green-100 text-green-800 hover:bg-green-200"
+                      : "bg-red-100 text-red-800 hover:bg-red-200"
+                  }`}
+                >
+                  {c.status === "active" ? (
+                    <>
+                      <CheckCircle className="w-3.5 h-3.5" /> Attivo
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="w-3.5 h-3.5" /> Disiscritto
+                    </>
+                  )}
+                </button>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                <div className="flex gap-1 flex-wrap">
+                  {(c.tags || []).map((t, i) => (
+                    <span key={i} className="bg-blue-100 text-blue-800 px-2 py-1 text-xs rounded-full">
+                      {t}
+                    </span>
+                  ))}
+                  {(!c.tags || c.tags.length === 0) && (
+                    <span className="text-gray-400 text-xs">Nessun tag</span>
+                  )}
+                </div>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex gap-2">
+                <button
+                  onClick={() => {
+                    console.log('🔵 Click modifica, contatto:', c);
+                    setSelectedContact(c);
+                    setShowEditModal(true);
+                    console.log('🔵 Stati impostati');
+                  }}
+                  className="text-blue-600 hover:text-blue-900 p-1 rounded transition-colors"
+                >
+                  <Edit3 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedContact(c);
+                    setShowDeleteModal(true);
+                  }}
+                  className="text-red-600 hover:text-red-900 p-1 rounded transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </td>
+            </tr>
+          ))
+        ) : (
+          <tr>
+            <td colSpan="5" className="text-center py-6 text-gray-500 text-sm">
+              Nessun contatto trovato
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+
+{/* PAGINAZIONE */}
+<div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 bg-gray-50 text-sm text-gray-600">
+  <div>
+    {totalContacts > 0
+      ? `Mostrati ${startIndex + 1}-${Math.min(endIndex, totalContacts)} di ${totalContacts} contatti`
+      : "Nessun contatto disponibile"}
+  </div>
+  <div className="flex items-center gap-2">
+    {/* Bottone Prima Pagina */}
+    <button
+      onClick={() => handlePageChange(1)}
+      disabled={currentPage === 1}
+      className={`flex items-center gap-1 px-3 py-1.5 rounded-md border text-sm transition-colors ${
+        currentPage === 1
+          ? "text-gray-400 bg-gray-100 cursor-not-allowed"
+          : "text-gray-700 hover:bg-gray-200"
+      }`}
+      title="Prima pagina"
+    >
+      ⏮️ Prima
+    </button>
+
+    {/* Bottone Precedente */}
+    <button
+      onClick={() => handlePageChange(currentPage - 1)}
+      disabled={currentPage === 1}
+      className={`flex items-center gap-1 px-3 py-1.5 rounded-md border text-sm transition-colors ${
+        currentPage === 1
+          ? "text-gray-400 bg-gray-100 cursor-not-allowed"
+          : "text-gray-700 hover:bg-gray-200"
+      }`}
+    >
+      <ChevronLeft className="w-4 h-4" /> Precedente
+    </button>
+
+    {/* Info Pagina */}
+    <span className="px-2">
+      Pagina <strong>{currentPage}</strong> di {totalPages}
+    </span>
+
+    {/* Bottone Successivo */}
+    <button
+      onClick={() => handlePageChange(currentPage + 1)}
+      disabled={currentPage === totalPages}
+      className={`flex items-center gap-1 px-3 py-1.5 rounded-md border text-sm transition-colors ${
+        currentPage === totalPages
+          ? "text-gray-400 bg-gray-100 cursor-not-allowed"
+          : "text-gray-700 hover:bg-gray-200"
+      }`}
+    >
+      Successivo <ChevronRight className="w-4 h-4" />
+    </button>
+
+    {/* Bottone Ultima Pagina */}
+    <button
+      onClick={() => handlePageChange(totalPages)}
+      disabled={currentPage === totalPages}
+      className={`flex items-center gap-1 px-3 py-1.5 rounded-md border text-sm transition-colors ${
+        currentPage === totalPages
+          ? "text-gray-400 bg-gray-100 cursor-not-allowed"
+          : "text-gray-700 hover:bg-gray-200"
+      }`}
+      title="Ultima pagina"
+    >
+      Ultima ⏭️
+    </button>
+  </div>
+</div>
+</div>
     {showTagsModal && (
         <TagsManagementModal
           show={showTagsModal}
@@ -16617,10 +17254,16 @@ const cancelConfirm = () => {
     const [user, setUser] = useState(null);
     const [loadingProfile, setLoadingProfile] = useState(true);
     const [isEditing, setIsEditing] = useState(false);
-    const [name, setName] = useState('Massimo');
-    const [surname, setSurname] = useState('Mole');
-    const [email, setEmail] = useState('giovannimole@yopmail.com');
-    const [photo, setPhoto] = useState(null);
+    // const [name, setName] = useState('Massimo');
+    // const [surname, setSurname] = useState('Mole');
+    // const [email, setEmail] = useState('giovannimole@yopmail.com');
+    // const [photo, setPhoto] = useState(null);
+     // ✅ Inizializza con valori vuoti
+     
+  const [name, setName] = useState('');
+  const [surname, setSurname] = useState('');
+  const [email, setEmail] = useState('');
+  const [photo, setPhoto] = useState(null);
     const [resultMessage, setResultMessage] = useState(null);
     const [showMoveToApprovalModal, setShowMoveToApprovalModal] = useState(false);
 const [userToMoveToApproval, setUserToMoveToApproval] = useState(null);
@@ -16669,7 +17312,41 @@ const [registerData, setRegisterData] = useState({
     const [systemSettings, setSystemSettings] = useState({});
     const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 const [saving, setSaving] = useState(false);
-
+// ✅ Carica i dati dell'utente
+useEffect(() => {
+  const loadUserProfile = async () => {
+    try {
+      setLoadingProfile(true);
+      
+      // Ottieni l'utente corrente da Supabase
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      
+      if (authUser) {
+        // Carica il profilo completo dal database
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', authUser.id)
+          .single();
+        
+        if (profile) {
+          setUser(profile);
+          setName(profile.full_name || '');
+          setSurname(profile.surname || '');
+          setEmail(profile.email || authUser.email || '');
+          setPhoto(profile.avatar_url || null);
+        }
+      }
+    } catch (error) {
+      console.error('Errore caricamento profilo:', error);
+      toast.error('Errore nel caricamento del profilo');
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
+  
+  loadUserProfile();
+}, []); // ✅ Esegui al mount del componente
 const handleClose = () => {
   if (saving) {
     setShake(true);
@@ -16727,7 +17404,7 @@ const cancelClose = () => {
 };
     
     const [profileData, setProfileData] = useState({
-      name: profile?.name || '',
+      name: profile?.full_name || '',
       email: profile?.email || '',
       role: profile?.role || 'user',
       language: profile?.language || 'it',
@@ -16890,30 +17567,44 @@ const cancelClose = () => {
       try {
         setSaving(true);
     
-        let avatarUrl = profile.avatar_url;
+        let avatarUrl = currentUser?.avatar_url; // ✅ Usa currentUser invece di profile
     
         // Upload avatar se presente
         if (editProfileData.avatar) {
           const newAvatarUrl = await handleUploadAvatar(editProfileData.avatar);
           if (newAvatarUrl) avatarUrl = newAvatarUrl;
         }
+
+         // ✅ Debug: vedi cosa stai per inviare
+    console.log('📤 Dati da salvare:', {
+      full_name: editProfileData.name,
+      email: editProfileData.email,
+      bio: editProfileData.bio,
+      avatar_url: avatarUrl,
+    });
+
     
-        // Salva nel database
+        // ✅ Salva nella tabella profiles, non user_settings
         const { data, error } = await supabase
-          .from('user_settings')
+          .from('profiles') // ✅ Cambiato da user_settings a profiles
           .update({
-            name: editProfileData.name,
+            full_name: editProfileData.name, // ✅ Usa full_name invece di name
             email: editProfileData.email,
             bio: editProfileData.bio,
             avatar_url: avatarUrl,
           })
-          .eq('user_id', user.id)
+          .eq('id', currentUser.id) // ✅ Usa currentUser.id invece di user.id
           .select()
           .single();
     
         if (error) throw error;
     
-        setProfile(data);
+        // ✅ Aggiorna currentUser invece di profile
+        setCurrentUser({
+          ...currentUser,
+          ...data
+        });
+        
         setShowEditProfile(false);
         toast.success('✅ Profilo aggiornato con successo!', {
           icon: '🎉',
@@ -17281,10 +17972,10 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
                 <div className="text-center">
                     {/* Avatar grande */}
                     <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center text-white text-2xl font-medium mx-auto mb-4">
-                    {getUserInitials(user?.full_name || user?.name || 'U')}
+                    {getUserInitials(user?.full_name || user?.full_name || 'U')}
                     </div>
                     <h2 className="text-xl font-bold text-gray-900 mb-1">
-                    {user?.full_name || user?.name || 'Utente'}
+                    {user?.full_name || user?.full_name || 'Utente'}
                     </h2>
               <button
                 onClick={() => setShowEditProfile(true)}
@@ -19168,6 +19859,16 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
               <h1 className="text-xl font-bold text-gray-900">MailMassProm</h1>
             </div>
             <div className="flex items-center gap-4">
+               
+{/* Bottone Aggiorna Piattaforma */}
+<button
+  onClick={() => setShowRefreshConfirm(true)} // ✅ Apre la modale
+  className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200 group"
+  title="Aggiorna piattaforma"
+>
+  <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
+  <span className="text-sm font-medium hidden md:inline">Aggiorna</span>
+</button>
               {/* Notifiche */}
               <div className="relative">
                 <button
@@ -19220,7 +19921,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
                   </div>
                 )}
           </div>
-          
+        
               {showAllNotificationsModal && (
                 <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black bg-opacity-40">
                   <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg shadow-lg relative">
@@ -19273,16 +19974,16 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
                 >
                   {/* Avatar */}
                   <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                    {getUserInitials(user?.name)}
+                    {getUserInitials(currentUser?.full_name)}
                   </div>
 
                   {/* Nome utente */}
                   <div className="hidden sm:block text-left">
                     <div className="text-sm font-medium text-gray-900">
-                      {user?.name || 'Massimo'}
+                      {currentUser?.full_name || 'Massimo'}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {user?.email}
+                      {currentUser?.email}
                     </div>
                   </div>
 
@@ -19292,38 +19993,44 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
                 </button>
 
                 {/* Dropdown Menu */}
-                {showUserMenu && (
-                  <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
-                    {/* Header utente nel dropdown */}
-                    <div className="px-4 py-3 border-b border-gray-100">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium">
-                          {getUserInitials(user?.name)}
-                        </div>
-                        <div>
-                          <div className="font-medium text-gray-900">{user?.name || 'Massimo'}</div>
-                          <div className="text-sm text-gray-500">{user?.email}</div>
-                          {user?.isAdmin && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 mt-1">
-                              Admin
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+                {/* Dropdown Menu */}
+{showUserMenu && (
+  <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+    {/* Header utente nel dropdown */}
+    <div className="px-4 py-3 border-b border-gray-100">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium flex-shrink-0">
+          {/* ✅ Aggiunto flex-shrink-0 */}
+          {getUserInitials(currentUser?.full_name)}
+        </div>
+        <div className="flex-1 min-w-0"> {/* ✅ AGGIUNTO QUI */}
+          <div className="font-medium text-gray-900 truncate">
+            {currentUser?.full_name || 'Utente'}
+          </div>
+          <div className="text-sm text-gray-500 truncate">
+            {currentUser?.email}
+          </div>
+          {(currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'super_admin') && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 mt-1">
+              {currentUser?.role?.name === 'super_admin' ? 'Super Admin' : 'Admin'}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
 
-                    {/* Menu Items */}
-                    <div className="py-2">
-                      <button
-                        onClick={() => {
-                          setShowUserMenu(false);
-                          setShowProfileModal(true);
-                        }}
-                        className="flex items-center gap-3 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
-                      >
-                        <User className="w-4 h-4" />
-                        Il mio profilo
-                      </button>
+    {/* Menu Items */}
+    <div className="py-2">
+      <button
+        onClick={() => {
+          setShowUserMenu(false);
+          setShowProfileModal(true);
+        }}
+        className="flex items-center gap-3 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+      >
+        <User className="w-4 h-4" />
+        Il mio profilo
+      </button>
 
                       {/* <button
                         onClick={() => {
@@ -19357,7 +20064,53 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
           </div>
         </div>
       </header>
+{/* 🎨 Modale Conferma Aggiornamento */}
+{showRefreshConfirm && (
+  <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
+    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+      {/* Header con icona */}
+      <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-6 text-center">
+        <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4">
+          <RefreshCw className="w-8 h-8 text-blue-600" />
+        </div>
+        <h3 className="text-2xl font-bold text-white">Aggiorna Piattaforma</h3>
+      </div>
 
+      {/* Contenuto */}
+      <div className="p-6 text-center">
+        <p className="text-gray-600 text-lg mb-2">
+          Vuoi aggiornare la piattaforma?
+        </p>
+        <p className="text-gray-500 text-sm">
+          La pagina verrà ricaricata per applicare gli ultimi aggiornamenti
+        </p>
+      </div>
+
+      {/* Footer con bottoni */}
+      <div className="px-6 pb-6 flex gap-3">
+        <button
+          onClick={() => setShowRefreshConfirm(false)}
+          className="flex-1 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors"
+        >
+          Annulla
+        </button>
+        <button
+          onClick={() => {
+            setShowRefreshConfirm(false);
+            toast.loading('Aggiornamento in corso...', { id: 'refresh' });
+            setTimeout(() => {
+              window.location.reload();
+            }, 500);
+          }}
+          className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Aggiorna
+        </button>
+      </div>
+    </div>
+  </div>
+)}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
   <div className="flex gap-8">
     {/* Sidebar */}
@@ -20024,7 +20777,7 @@ const TagsManagementModal = ({ show, onClose, user }) => {
   const [tagContacts, setTagContacts] = useState({});
   const [selectedContact, setSelectedContact] = useState(null);
   const [showCancelEditConfirm, setShowCancelEditConfirm] = useState(false);
-
+  const [lastAddedTag, setLastAddedTag] = useState(null);
   const colorOptions = [
     '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
     '#ec4899', '#6366f1', '#14b8a6', '#f97316', '#06b6d4',
@@ -20099,68 +20852,95 @@ const loadContactsForTags = async (tagsList) => {
     setExpandedTag(expandedTag === tagId ? null : tagId);
   };
 
-  // Aggiungi tag
-  const handleAddTag = async () => {
-    if (!newTagLabel.trim()) {
-      toast.error('⚠️ Inserisci un nome per il tag');
+ // Aggiungi tag
+// Aggiungi tag
+const handleAddTag = async () => {
+  if (!newTagLabel.trim()) {
+    toast.error('⚠️ Inserisci un nome per il tag');
+    return;
+  }
+
+  if (!user?.id) return;
+
+  try {
+    const value = newTagLabel.trim().toLowerCase().replace(/\s+/g, '-');
+
+    // ✅ Controlla prima se il tag esiste già
+    const { data: existingTag } = await supabase
+      .from('tags')
+      .select('id')
+      .eq('user_id', user.id)
+      .or(`label.eq.${newTagLabel.trim()},value.eq.${value}`)
+      .single();
+
+    if (existingTag) {
+      toast.error('⚠️ Tag già presente in archivio');
       return;
     }
 
-    if (!user?.id) return;
+    // Procedi con l'inserimento
+    const { error } = await supabase
+      .from('tags')
+      .insert({
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        label: newTagLabel.trim(),
+        value: value,
+        color: newTagColor,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
 
-    try {
-      const value = newTagLabel.trim().toLowerCase().replace(/\s+/g, '-');
+    if (error) throw error;
 
-      const { error } = await supabase
-        .from('tags')
-        .insert({
-          id: crypto.randomUUID(),
-          user_id: user.id,
-          label: newTagLabel.trim(),
-          value: value,
-          color: newTagColor,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
+    toast.success('✅ Tag creato con successo!');
+    
+    // ✅ Salva l'ultimo tag aggiunto
+    setLastAddedTag({
+      label: newTagLabel.trim(),
+      color: newTagColor
+    });
+    
+    setNewTagLabel('');
+    setNewTagColor('#3b82f6');
+    await fetchTags();
+  } catch (error) {
+    console.error('❌ Errore creazione tag:', error);
+    toast.error('❌ Errore nella creazione del tag');
+  }
+};
+ // Modifica tag
+const handleUpdateTag = async () => {
+  if (!editingTag) return;
 
-      if (error) throw error;
+  try {
+    const { error } = await supabase
+      .from('tags')
+      .update({
+        label: editingTag.label,
+        value: editingTag.label.toLowerCase().replace(/\s+/g, '-'),
+        color: editingTag.color,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', editingTag.id);
 
-      toast.success('✅ Tag creato con successo!');
-      setNewTagLabel('');
-      setNewTagColor('#3b82f6');
-      await fetchTags();
-    } catch (error) {
-      console.error('❌ Errore creazione tag:', error);
-      toast.error('Errore nella creazione del tag');
-    }
-  };
+    if (error) throw error;
 
-  // Modifica tag
-  const handleUpdateTag = async () => {
-    if (!editingTag) return;
-
-    try {
-      const { error } = await supabase
-        .from('tags')
-        .update({
-          label: editingTag.label,
-          value: editingTag.label.toLowerCase().replace(/\s+/g, '-'),
-          color: editingTag.color,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', editingTag.id);
-
-      if (error) throw error;
-
-      toast.success('✅ Tag aggiornato!');
-      setEditingTag(null);
-      await fetchTags();
-    } catch (error) {
-      console.error('❌ Errore aggiornamento tag:', error);
-      toast.error('Errore nell\'aggiornamento del tag');
-    }
-  };
-
+    toast.success('✅ Tag aggiornato!');
+    
+    // ✅ Opzionale: Mostra anche il tag modificato
+    setLastAddedTag({
+      label: editingTag.label,
+      color: editingTag.color
+    });
+    
+    setEditingTag(null);
+    await fetchTags();
+  } catch (error) {
+    console.error('❌ Errore aggiornamento tag:', error);
+    toast.error('Errore nell\'aggiornamento del tag');
+  }
+};
   // Elimina tag
   const handleDeleteTag = async (tagId) => {
     try {
@@ -20720,6 +21500,38 @@ const handlePrintContact = () => {
                   <Plus className="w-4 h-4" />
                   Aggiungi Tag
                 </button>
+                {/* 🆕 BOX ULTIMO TAG INSERITO */}
+{lastAddedTag && (
+  <div className="bg-white border-2 border-green-200 rounded-lg p-4 animate-fadeIn">
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+          <Check className="w-5 h-5 text-green-600" />
+        </div>
+        <div>
+          <p className="text-xs text-gray-500 font-medium">Ultimo tag aggiunto:</p>
+          <div className="flex items-center gap-2 mt-1">
+            <span
+              className="inline-block px-3 py-1 rounded-full text-sm font-medium"
+              style={{ 
+                backgroundColor: lastAddedTag.color + '20',
+                color: lastAddedTag.color
+              }}
+            >
+              {lastAddedTag.label}
+            </span>
+          </div>
+        </div>
+      </div>
+      <button
+        onClick={() => setLastAddedTag(null)}
+        className="text-gray-400 hover:text-gray-600 transition"
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  </div>
+)}
               </div>
             </div>
 
