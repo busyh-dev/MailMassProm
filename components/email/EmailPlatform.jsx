@@ -2,6 +2,7 @@
 // ✅ AGGIUNGI QUESTO IMPORT IN CIMA AL FILE
 import { useEditorState } from '../../contexts/EditorContext';
 import React, { useState, useEffect, useRef, useMemo, memo, useCallback  } from 'react';
+import { createPortal } from 'react-dom';
 import Select from 'react-select';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter } from 'next/router'; // ✅ Cambiato qui
@@ -21,6 +22,7 @@ import RecipientSelect from './RecipientSelect';
 import AddTagModal from "../modals/AddTagModal";
 import { useUserSettings } from '../../hooks/useUserSettings';
 import { useTags } from "../../hooks/useTags";
+import Papa from "papaparse";
 // In cima al file EmailPlatform.jsx
 import { usePermissions } from '../../src/contexts/PermissionsContext';
 // import { Can } from '../components/Can';
@@ -65,6 +67,7 @@ import {
   Printer,
   BarChart3,
   Camera,
+  Phone,  // ✅ AGGIUNGI QUESTA
   ChevronUp,
   Upload,
   UserCheck,
@@ -72,6 +75,7 @@ import {
   Copy,
   Briefcase,
   Radio,
+  Layers,
   Code,
   UserCog,
   Globe,
@@ -95,6 +99,7 @@ import {
   Type,
   ChevronDown,
   ArrowUpDown,
+  SlidersHorizontal,
   ArrowUp,
   Filter,
   Download, 
@@ -113,7 +118,9 @@ import {
   ClipboardCopy,
   Smartphone,
   Moon,
+  MapPin, 
   Sun,
+  Building2,
   Save,
   GripVertical, // 👈 AGGIUNGILA QUI
   UserPlus
@@ -883,16 +890,34 @@ const [currentUser, setCurrentUser] = useState(null);
   const { logout } = useAuth();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showTagsModal, setShowTagsModal] = useState(false);
+  const [showTestateModal, setShowTestateModal] = useState(false);
+  const [newTestataName, setNewTestataName] = useState('');
+const [editingTestata, setEditingTestata] = useState(null);
+const [testateLoading, setTestateLoading] = useState(false);
+const [showTipologiaCanaleModal, setShowTipologiaCanaleModal] = useState(false);
+const [showPeriodicitaCanaleModal, setShowPeriodicitaCanaleModal] = useState(false);
+const [showCoperturaCanaleModal, setShowCoperturaCanaleModal] = useState(false);
+const [tipologiaCanale, setTipologiaCanale] = useState([]);
+const [periodicitaCanale, setPeriodicitaCanale] = useState([]);
+const [coperturaCanale, setCoperturaCanale] = useState([]);
+const [areas, setAreas] = useState([]);
+const [showAreasModal, setShowAreasModal] = useState(false);
   // Aggiungi questo stato all'inizio del componente
 const [selectedLogForModal, setSelectedLogForModal] = useState(null);
 const [emailLogs, setEmailLogs] = useState([]);
 const [profileLoaded, setProfileLoaded] = useState(false);
 const [showApproveModal, setShowApproveModal] = useState(false);
 const [userToApprove, setUserToApprove] = useState(null);
+const [testate, setTestate] = useState([]); // ✅ Aggiungi questo
+const [showAddTestataModal, setShowAddTestataModal] = useState(false);
 // const [editingContact, setEditingContact] = useState(null);
+const [tagLabels, setTagLabels] = useState([]);
+const [showTagLabelsModal, setShowTagLabelsModal] = useState(false);
+const [selectedTagForLabels, setSelectedTagForLabels] = useState(null);
 // State
 const [tagOptions, setTagOptions] = useState([]);
 const [lastContactsLength, setLastContactsLength] = useState(0);
+const [tagsLoading, setTagsLoading] = useState(true);
 const [loadingProfile, setLoadingProfile] = useState(true);
 const [showRefreshConfirm, setShowRefreshConfirm] = useState(false);
 // Aggiungi questi stati dopo gli altri useState
@@ -910,6 +935,10 @@ const [showRolesModal, setShowRolesModal] = useState(false);
 const [sectors, setSectors] = useState([]);
 const [channels, setChannels] = useState([]);
 const [roles, setRoles] = useState([]);
+const [tags, setTags] = useState([]);
+const [contactLabels, setContactLabels] = useState([]);
+const [showContactLabelsModal, setShowContactLabelsModal] = useState(false);
+const contact_labels = window.contact_labels || [];
   // logsFromDb = risultato della query supabase su email_logs
 const uniqueByCampaign = Object.values(
   logsFromDb.reduce((acc, log) => {
@@ -929,6 +958,45 @@ const logs = uniqueByCampaign.map(log => ({
   opened: log.opened_count,
   status: "sent"
 }));
+
+// Lista prefissi internazionali - mettila FUORI dal componente
+const PHONE_PREFIXES = [
+  { code: '+39', flag: '🇮🇹', name: 'Italia' },
+  { code: '+1', flag: '🇺🇸', name: 'USA/Canada' },
+  { code: '+44', flag: '🇬🇧', name: 'Regno Unito' },
+  { code: '+33', flag: '🇫🇷', name: 'Francia' },
+  { code: '+49', flag: '🇩🇪', name: 'Germania' },
+  { code: '+34', flag: '🇪🇸', name: 'Spagna' },
+  { code: '+41', flag: '🇨🇭', name: 'Svizzera' },
+  { code: '+43', flag: '🇦🇹', name: 'Austria' },
+  { code: '+32', flag: '🇧🇪', name: 'Belgio' },
+  { code: '+31', flag: '🇳🇱', name: 'Olanda' },
+  { code: '+351', flag: '🇵🇹', name: 'Portogallo' },
+  { code: '+30', flag: '🇬🇷', name: 'Grecia' },
+  { code: '+48', flag: '🇵🇱', name: 'Polonia' },
+  { code: '+420', flag: '🇨🇿', name: 'Rep. Ceca' },
+  { code: '+36', flag: '🇭🇺', name: 'Ungheria' },
+  { code: '+40', flag: '🇷🇴', name: 'Romania' },
+  { code: '+7', flag: '🇷🇺', name: 'Russia' },
+  { code: '+380', flag: '🇺🇦', name: 'Ucraina' },
+  { code: '+90', flag: '🇹🇷', name: 'Turchia' },
+  { code: '+972', flag: '🇮🇱', name: 'Israele' },
+  { code: '+971', flag: '🇦🇪', name: 'Emirati Arabi' },
+  { code: '+966', flag: '🇸🇦', name: 'Arabia Saudita' },
+  { code: '+86', flag: '🇨🇳', name: 'Cina' },
+  { code: '+81', flag: '🇯🇵', name: 'Giappone' },
+  { code: '+82', flag: '🇰🇷', name: 'Corea del Sud' },
+  { code: '+91', flag: '🇮🇳', name: 'India' },
+  { code: '+55', flag: '🇧🇷', name: 'Brasile' },
+  { code: '+52', flag: '🇲🇽', name: 'Messico' },
+  { code: '+54', flag: '🇦🇷', name: 'Argentina' },
+  { code: '+56', flag: '🇨🇱', name: 'Cile' },
+  { code: '+27', flag: '🇿🇦', name: 'Sud Africa' },
+  { code: '+20', flag: '🇪🇬', name: 'Egitto' },
+  { code: '+212', flag: '🇲🇦', name: 'Marocco' },
+  { code: '+61', flag: '🇦🇺', name: 'Australia' },
+  { code: '+64', flag: '🇳🇿', name: 'Nuova Zelanda' },
+];
 
 
 // Aggiungi queste funzioni per gestire utenti e ruoli
@@ -954,6 +1022,162 @@ const fetchPendingUsers = async () => {
     toast.error('Errore nel caricamento');
   } finally {
     setLoadingUsers(false);
+  }
+};
+
+// Fetch Areas
+const fetchAreas = async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from('areas')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('nome', { ascending: true });
+
+    if (error) throw error;
+    console.log('🗺️ Aree caricate:', data);
+    setAreas(data || []);
+  } catch (error) {
+    console.error('❌ Errore caricamento aree:', error);
+  }
+};
+
+const fetchTagLabels = async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data } = await supabase
+      .from('tag_labels')
+      .select('*, tags(label)')
+      .eq('user_id', user.id)
+      .order('label', { ascending: true });
+
+    console.log('🏷️ Tag Labels caricate:', data);
+    setTagLabels(data || []);
+  } catch (error) {
+    console.error('Errore caricamento tag labels:', error);
+  }
+};
+
+
+useEffect(() => {
+  const fetchLabels = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('contact_labels') // Verifica che il nome tabella sia questo
+        .select('*');
+
+      if (error) {
+        console.error('❌ ERRORE FETCH ETICHETTE:', error);
+        return;
+      }
+
+      console.log('✅ ETICHETTE CARICATE DAL DB:', data); // <--- LOG FONDAMENTALE
+      setContactLabels(data || []);
+    } catch (err) {
+      console.error('❌ ERRORE SISTEMA FETCH:', err);
+    }
+  };
+
+  fetchLabels();
+}, []);
+
+// Aggiungi al caricamento iniziale
+// Caricamento iniziale con ordine corretto
+useEffect(() => {
+  const loadData = async () => {
+    setLoading(true);
+    
+    try {
+      // ✅ 1. Carica PRIMA tags e tagLabels (necessari per visualizzare i contatti)
+      await fetchTags();
+      await fetchTagLabels();
+      
+      // ✅ 2. POI carica i contatti (che dipendono da tags per la visualizzazione)
+      await fetchContacts();
+      
+      // ✅ 3. Carica il resto in parallelo
+      await Promise.all([
+        fetchSectors(),
+        fetchChannels(),
+        fetchTestate(),
+        fetchRoles(),
+        fetchAreas(),  // ✅ AGGIUNGI QUESTA
+        fetchTipologiaCanale(),
+        fetchPeriodicitaCanale(),
+        fetchContactLabels(),  // ✅ AGGIUNGI QUESTA
+        fetchCoperturaCanale()
+      ]);
+    } catch (error) {
+      console.error('❌ Errore caricamento dati:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  loadData();
+}, []);
+
+
+
+// Fetch Tipologia Canale
+const fetchTipologiaCanale = async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data } = await supabase
+      .from('tipologia_canale')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('nome', { ascending: true });
+
+    console.log('🟣 Tipologie Canale caricate:', data);
+    setTipologiaCanale(data || []);
+  } catch (error) {
+    console.error('Errore caricamento tipologia canale:', error);
+  }
+};
+
+// Fetch Periodicità Canale
+const fetchPeriodicitaCanale = async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data } = await supabase
+      .from('periodicita_canale')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('nome', { ascending: true });
+
+    console.log('🩷 Periodicità Canale caricate:', data);
+    setPeriodicitaCanale(data || []);
+  } catch (error) {
+    console.error('Errore caricamento periodicità canale:', error);
+  }
+};
+
+// Fetch Copertura Canale
+const fetchCoperturaCanale = async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data } = await supabase
+      .from('copertura_canale')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('nome', { ascending: true });
+
+    console.log('🩵 Coperture Canale caricate:', data);
+    setCoperturaCanale(data || []);
+  } catch (error) {
+    console.error('Errore caricamento copertura canale:', error);
   }
 };
 // Aggiungi questa funzione
@@ -984,6 +1208,80 @@ const fetchRejectedUsers = async () => {
   }
 };
 
+// Nel componente EmailPlatform principale
+const fetchTestate = async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data } = await supabase
+      .from('testate')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('nome', { ascending: true });
+
+    console.log('🟣 Testate caricate:', data); // ✅ Debug
+    setTestate(data || []);
+  } catch (error) {
+    console.error('Errore caricamento testate:', error);
+  }
+};
+
+// Aggiungi questo useEffect
+useEffect(() => {
+  if (showEditModal) {
+    fetchTestate();
+    fetchSectors();
+    fetchChannels();  // ✅ Aggiungi
+    fetchAreas();  // ✅ AGGIUNGI QUESTA
+    fetchTipologiaCanale();     // ✅
+  fetchPeriodicitaCanale();   // ✅
+  fetchCoperturaCanale();     // ✅
+  fetchTags();  // ✅ Aggiungi questa
+  }
+}, [showEditModal]);
+
+// Fetch Tags
+const fetchTags = async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from('tags')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('label', { ascending: true });
+
+    if (error) throw error;
+    console.log('🏷️ Tags caricati:', data);
+    setTags(data || []);
+  } catch (error) {
+    console.error('❌ Errore caricamento tags:', error);
+  } finally {
+    setTagsLoading(false);  // ✅ Segna come caricato
+  }
+};
+// Fetch Contact Labels (nel componente EmailPlatform)
+const fetchContactLabels = async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from('contact_labels')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('nome', { ascending: true });
+
+    if (error) throw error;
+    console.log('🏷️ Etichette contatti caricate:', data);
+    setContactLabels(data || []);
+    // ❌ VERIFICA CHE NON CI SIA fetchContacts() QUI
+  } catch (error) {
+    console.error('❌ Errore caricamento etichette contatti:', error);
+  }
+};
 // Carica settori
 const fetchSectors = async () => {
   setLoading(true);
@@ -1017,34 +1315,118 @@ const fetchChannels = async () => {
   }
 };
 
+
+const handleAddTestata = async () => {
+  if (!newTestataName.trim()) {
+    toast.error('⚠️ Inserisci il nome della testata');
+    return;
+  }
+
+  try {
+    const { error } = await supabase
+      .from('testate')
+      .insert({
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        nome: newTestataName.trim(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+    if (error) {
+      if (error.code === '23505') {
+        toast.error('⚠️ Testata già esistente');
+        return;
+      }
+      throw error;
+    }
+
+    toast.success('✅ Testata aggiunta');
+    setNewTestataName('');
+    fetchTestateInEditModal();
+  } catch (error) {
+    console.error('Errore aggiunta testata:', error);
+    toast.error('Errore nell\'aggiunta della testata');
+  }
+};
+
+const handleUpdateTestata = async () => {
+  if (!editingTestata || !editingTestata.nome.trim()) {
+    toast.error('⚠️ Il nome non può essere vuoto');
+    return;
+  }
+
+  try {
+    const { error } = await supabase
+      .from('testate')
+      .update({
+        nome: editingTestata.nome.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', editingTestata.id);
+
+    if (error) throw error;
+
+    toast.success('✅ Testata aggiornata');
+    setEditingTestata(null);
+    fetchTestateInEditModal();
+  } catch (error) {
+    console.error('Errore aggiornamento testata:', error);
+    toast.error('Errore nell\'aggiornamento della testata');
+  }
+};
+
+const handleDeleteTestata = async (testataId) => {
+  if (!confirm('Eliminare questa testata? I collegamenti ai contatti verranno rimossi.')) {
+    return;
+  }
+
+  try {
+    const { error } = await supabase
+      .from('testate')
+      .delete()
+      .eq('id', testataId);
+
+    if (error) throw error;
+
+    toast.success('✅ Testata eliminata');
+    fetchTestateInEditModal();
+  } catch (error) {
+    console.error('Errore eliminazione testata:', error);
+    toast.error('Errore nell\'eliminazione della testata');
+  }
+};
+
 // Stesso per handleAddSector - rimuovi user_id
 const handleAddSector = async () => {
   if (!newSectorName.trim()) {
     toast.error('⚠️ Inserisci un nome per il settore');
     return;
   }
-
   try {
     const { error } = await supabase
       .from('sectors')
       .insert({
         id: crypto.randomUUID(),
-        // 🔥 RIMOSSO user_id: user.id,
         name: newSectorName.trim(),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });
 
     if (error) throw error;
-
     toast.success('✅ Settore creato con successo!');
     setNewSectorName('');
     await fetchSectors();
   } catch (error) {
     console.error('❌ Errore creazione settore:', error);
-    toast.error('Errore nella creazione del settore');
+    if (error.code === '23505') {
+      toast.error(`⚠️ Il settore "${newSectorName.trim()}" esiste già`);
+    } else {
+      toast.error('Errore nella creazione del settore');
+    }
   }
 };
+
 
 // Carica ruoli
 const fetchRoles = async () => {
@@ -1065,7 +1447,11 @@ const fetchRoles = async () => {
 useEffect(() => {
   fetchSectors();
   fetchChannels();
+  fetchTestate();  // ✅ Aggiungi questa riga
   fetchRoles();
+  fetchTipologiaCanale();     // ✅
+  fetchPeriodicitaCanale();   // ✅
+  fetchCoperturaCanale();     // ✅
 }, []); // 🔥 RIMOSSO user?.id dalla dependency array
 
 const fetchApprovedUsers = async () => {
@@ -1255,52 +1641,6 @@ useEffect(() => {
     fetchRejectedUsers();
   }
 }, [activeProfileTab]);
-// useEffect per caricare i tag all'avvio del componente
-useEffect(() => {
-  const fetchTags = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) return;
-    
-    const { data, error } = await supabase
-      .from('tags')
-      .select('value, label')
-      .eq('user_id', user.id)  // Filtra solo i tag dell'utente loggato
-      .order('label');
-    
-    if (data) {
-      console.log('🏷️ Tag caricati:', data);
-      const options = data.map(tag => ({
-        value: tag.value,
-        label: tag.label
-      }));
-      setTagOptions(options);
-    } else {
-      console.error('❌ Errore caricamento tag:', error);
-    }
-  };
-  
-  fetchTags();
-}, []);
-// // useEffect per caricare i tag
-// useEffect(() => {
-//   const fetchTags = async () => {
-//     const { data, error } = await supabase
-//       .from('tags')
-//       .select('id, name')
-//       .order('name');
-    
-//     if (data) {
-//       setTagOptions(data.map(tag => ({
-//         value: tag.id,
-//         label: tag.name
-//       })));
-//     }
-//   };
-  
-//   fetchTags();
-// }, []);
-
 
 useEffect(() => {
   const loadLatestLogs = async () => {
@@ -1376,6 +1716,8 @@ const confirmRejectUser = async () => {
     toast.error(`❌ Errore: ${error.message}`);
   }
 };
+
+
   // ================================
 // 📬 PREPARAZIONE WIDGET "ULTIMI INVII"
 // ================================
@@ -1918,6 +2260,7 @@ useEffect(() => {
   const [filter, setFilter] = useState('tutte');  
   const [contacts, setContacts] = useState([]);
 
+
   const [selected, setSelected] = useState([]); // id delle selezionate
 const toggleSelect = (id) => {
   setSelected((prev) =>
@@ -1992,24 +2335,38 @@ const exportResendLog = (format = "csv", autoDownload = false) => {
     return csv;
   }
 };
-  const fetchContacts = async () => {
-    if (!user?.id) return;
-  
-    try {
-      console.log('📡 Fetching contacts...');
-      const res = await fetch(`/api/contacts?user_id=${user.id}`);
-      const result = await res.json();
-  
-      console.log('📥 Risposta API contacts:', result);
-  
-      if (result.success) {
-        setContacts(result.data || []);
-        console.log('✅ Contatti caricati:', result.data?.length || 0, result.data);
-      }
-    } catch (err) {
-      console.error("💥 Errore caricamento contatti:", err);
+const fetchContacts = async () => {
+  if (!user?.id) return;
+  try {
+    let allData = [];
+    let page = 0;
+    const pageSize = 1000;
+    
+    while (true) {
+      const { data, error } = await supabase
+        .from('contacts_full')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allData = [...allData, ...data];
+      if (data.length < pageSize) break;
+      page++;
     }
-  };
+
+    const cleaned = allData.map(c => ({
+      ...c,
+      name: c.name?.replace(/\bnan\b/gi, '').trim() || c.name
+    }));
+
+    setContacts(cleaned);
+  } catch (error) {
+    console.error('💥 Errore:', error);
+  }
+};
 
   useEffect(() => {
     if (contacts.length !== lastContactsLength) {
@@ -2444,31 +2801,36 @@ const Dashboard = ({ setActiveTab }) => {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-
-      // 📌 1. Campagne dal DB
-      const { data: campaignsData, error: campErr } = await supabase
+  
+      // Campagne
+      const { data: campaignsData } = await supabase
         .from("campaigns")
         .select("*")
         .order("sent_at", { ascending: false });
-
-      if (campErr) {
-        console.error("Errore caricamento campagne:", campErr);
+  
+      // ✅ Contatti con paginazione
+      let allContacts = [];
+      let page = 0;
+      const pageSize = 1000;
+  
+      while (true) {
+        const { data, error } = await supabase
+          .from("contacts")
+          .select("*")
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+  
+        if (error) { console.error("Errore caricamento contatti:", error); break; }
+        if (!data || data.length === 0) break;
+        allContacts = [...allContacts, ...data];
+        if (data.length < pageSize) break;
+        page++;
       }
-
-      // 📌 2. Contatti dal DB
-      const { data: contactsData, error: contErr } = await supabase
-        .from("contacts")
-        .select("*");
-
-      if (contErr) {
-        console.error("Errore caricamento contatti:", contErr);
-      }
-
+  
       setCampaigns(campaignsData || []);
-      setContacts(contactsData || []);
+      setContacts(allContacts);
       setLoading(false);
     };
-
+  
     loadData();
   }, []);
 
@@ -6086,10 +6448,19 @@ const EditContactModal = ({
   onSave, 
   tags,
   sectors, 
+  areas,  // ✅ AGGIUNGI QUESTA
   channels, 
-  roles, 
+  contactLabels,  // ✅ Deve esserci questa
+  testate,
+  contactRoles,
+  tipologiaCanale,      // ✅ AGGIUNGI
+  periodicitaCanale,    // ✅ AGGIUNGI
+  coperturaCanale,      // ✅ AGGIUNGI
   onOpenSectorsModal, 
   onOpenChannelsModal, 
+  onOpenTestateModal,
+  onOpenAreasModal,
+  onOpenContactLabelsModal,   // ✅ AGGIUNGI
   onOpenRolesModal 
 }) => {
 
@@ -6097,42 +6468,125 @@ const EditContactModal = ({
    console.log('🟡 EditContactModal riceve:');
    console.log('🟡 show:', show);
    console.log('🟡 contact:', contact);
+   console.log('🟡 testate:', testate);
    console.log('🟡 onOpenSectorsModal:', onOpenSectorsModal);
    console.log('🟡 onOpenChannelsModal:', onOpenChannelsModal);
    console.log('🟡 onOpenRolesModal:', onOpenRolesModal);
+
+   console.log('🔍 testate ricevute:', testate);
+console.log('🔍 areas ricevute:', areas);
+console.log('🔍 tipologiaCanale ricevuta:', tipologiaCanale);
+console.log('🔍 periodicitaCanale ricevuta:', periodicitaCanale);
+console.log('🔍 coperturaCanale ricevuta:', coperturaCanale);
   // 🔥 UNICO STATE NECESSARIO
   const [editingContact, setEditingContact] = useState(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showTagLabelsModal, setShowTagLabelsModal] = useState(false);
+  const [tagLabels, setTagLabels] = useState([]); // ✅ Deve esserci
   // 🔥 Salva in sessionStorage quando editingContact cambia
-  useEffect(() => {
-    if (editingContact && typeof window !== 'undefined') {
-      sessionStorage.setItem('editingContact_temp', JSON.stringify(editingContact));
-    }
-  }, [editingContact]);
 
-  // 🔥 Carica i dati del contatto CON recupero da sessionStorage
+ // ✅ FUNZIONE PER CARICARE TAG LABELS
+ const fetchTagLabels = async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from('tag_labels')
+      .select('*, tags(id, label, value)')
+      .eq('user_id', user.id)
+      .order('label');
+
+    if (error) throw error;
+    console.log('🏷️ Tag Labels caricati in EditContactModal:', data);
+    setTagLabels(data || []);
+  } catch (err) {
+    console.error("💥 Errore fetch tag labels:", err);
+  }
+};
+
+  // Carica tag labels quando il modale si apre
   useEffect(() => {
-    if (contact) {
-      const savedEditing = sessionStorage.getItem('editingContact_temp');
-      
-      if (savedEditing) {
-        const parsed = JSON.parse(savedEditing);
-        // Se l'ID coincide, usa i dati salvati (che includono le selezioni)
-        if (parsed.id === contact.id) {
-          console.log('📂 Recuperato da sessionStorage:', parsed);
-          setEditingContact(parsed);
-          return;
-        }
-      }
-      
-      // Altrimenti usa contact fresco
-      setEditingContact({
-        ...contact,
-        tags: contact.tags || []
-      });
+    if (show) {
+      fetchTagLabels();
     }
-  }, [contact]);
+  }, [show]);
+// ✅ UNICO useEffect per inizializzare editingContact
+useEffect(() => {
+  if (contact && tags && tags.length > 0) {
+    // Converti tags da slug/label a UUID
+    const tagIds = (contact.tags || []).map(tagValue => {
+      const found = tags.find(t => t.value === tagValue || t.label === tagValue || t.id === tagValue);
+      return found?.id;
+    }).filter(Boolean);
+
+    setEditingContact({
+      ...contact,
+      tags: tagIds,  // ✅ UUID
+      tag_labels: contact.tag_labels || [],
+      phones: Array.isArray(contact.phones) ? contact.phones : []
+    });
+  }
+}, [contact, tags]);
+
+// ✅ UNICO useEffect per inizializzare editingContact
+useEffect(() => {
+  if (contact) {
+    // ✅ Converti tags da slug/label a UUID se tags è disponibile
+    const tagIds = (contact.tags || []).map(tagValue => {
+      if (!tagValue) return null;
+      // Se è già un UUID valido lascialo stare
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (uuidRegex.test(tagValue)) return tagValue;
+      // Altrimenti cerca per label o value
+      const found = (tags || []).find(t => 
+        t.value === tagValue || t.label === tagValue || t.id === tagValue
+      );
+      return found?.id || null;
+    }).filter(Boolean);
+
+    console.log('🔄 Tags convertiti:', tagIds);
+
+    setEditingContact({
+      ...contact,
+      tags: tagIds,
+      tag_labels: contact.tag_labels || [],
+      phones: Array.isArray(contact.phones) ? contact.phones : []
+    });
+  }
+}, [contact, tags]); // ✅ dipende da entrambi
+  // useEffect(() => {
+  //   if (editingContact && typeof window !== 'undefined') {
+  //     sessionStorage.setItem('editingContact_temp', JSON.stringify(editingContact));
+  //   }
+  // }, [editingContact]);
+
+
+
+  // useEffect(() => {
+  //   if (contact) {
+  //     const savedEditing = sessionStorage.getItem('editingContact_temp');
+      
+  //     if (savedEditing) {
+  //       const parsed = JSON.parse(savedEditing);
+  //       if (parsed.id === contact.id) {
+  //         console.log('📂 Recuperato da sessionStorage:', parsed);
+  //         setEditingContact(parsed);
+  //         return;
+  //       }
+  //     }
+      
+  //     // ✅ IMPORTANTE: Assicurati che tags sia un array di ID
+  //     console.log('🔍 contact.tags ricevuto:', contact.tags);
+      
+  //     setEditingContact({
+  //       ...contact,
+  //       tags: Array.isArray(contact.tags) ? contact.tags : [],  // ✅ Assicura che sia array
+  //       tag_labels: contact.tag_labels || []
+  //     });
+  //   }
+  // }, [contact]);
 
   // 🔥 Pulisci sessionStorage quando chiudi
   const handleClose = () => {
@@ -6142,98 +6596,226 @@ const EditContactModal = ({
   };
 
 
-  // 🔹 Carica i dati del contatto
-  useEffect(() => {
-    console.log('🔷 useEffect contact triggered');
-  console.log('🔷 contact ricevuto:', contact);
-  console.log('🔷 editingContact attuale:', editingContact);
-  if (contact) {
-    // 🔥 Controlla sessionStorage PRIMA di sovrascrivere
-    const savedEditing = sessionStorage.getItem('editingContact_temp');
+ // 🔹 Carica i dati del contatto
+// useEffect(() => {
+//   console.log('🔷 useEffect contact triggered');
+//   console.log('🔷 contact ricevuto:', contact);
+//   console.log('🔷 editingContact attuale:', editingContact);
+  
+//   if (contact) {
+//     // 🔥 Controlla sessionStorage PRIMA di sovrascrivere
+//     const savedEditing = sessionStorage.getItem('editingContact_temp');
     
-    if (savedEditing) {
-      const parsed = JSON.parse(savedEditing);
-      // Se l'ID coincide, mantieni i dati salvati
-      if (parsed.id === contact.id) {
-        console.log('📂 Mantengo editingContact da sessionStorage');
-        setEditingContact(parsed);
-        return; // 🔥 NON sovrascrivere con contact
-      }
-    }
+//     if (savedEditing) {
+//       const parsed = JSON.parse(savedEditing);
+//       // Se l'ID coincide, mantieni i dati salvati
+//       if (parsed.id === contact.id) {
+//         console.log('📂 Mantengo editingContact da sessionStorage');
+//         setEditingContact(parsed);
+//         return; // 🔥 NON sovrascrivere con contact
+//       }
+//     }
     
-    // Solo se non c'è nulla salvato, usa contact
-    console.log('🆕 Nuovo editingContact da contact');
-    setEditingContact({
-      ...contact,
-      tags: contact.tags || []
-    });
-  }
-}, [contact]);
+//     // Solo se non c'è nulla salvato, usa contact
+//     console.log('🆕 Nuovo editingContact da contact');
+//     console.log('🆕 Phones dal contact:', contact.phones);  // ✅ DEBUG
+    
+//     setEditingContact({
+//       ...contact,
+//       tags: contact.tags || [],
+//       tag_labels: contact.tag_labels || [],  // ✅ AGGIUNGI QUESTA
+//       phones: Array.isArray(contact.phones) ? contact.phones : []  // ✅ AGGIUNGI QUESTA
+//     });
+//   }
+// }, [contact]);
+  // E salva quando editingContact cambia
+  // useEffect(() => {
+  //   if (editingContact && typeof window !== 'undefined') {
+  //     sessionStorage.setItem('editingContact_temp', JSON.stringify(editingContact));
+  //     console.log('💾 Salvato in sessionStorage:', editingContact.sector_id, editingContact.channel_id, editingContact.contact_role_id);
+  //   }
+  // }, [editingContact]);
 
-// E salva quando editingContact cambia
-useEffect(() => {
-  if (editingContact && typeof window !== 'undefined') {
-    sessionStorage.setItem('editingContact_temp', JSON.stringify(editingContact));
-    console.log('💾 Salvato in sessionStorage:', editingContact.sector_id, editingContact.channel_id, editingContact.contact_role_id);
-  }
-}, [editingContact]);
+  // // Log quando sectors cambia
+  // useEffect(() => {
+  //   console.log('🟦 Sectors aggiornati:', sectors?.length, 'settori');
+  //   console.log('🟦 editingContact.sector_id:', editingContact?.sector_id);
+  // }, [sectors]);
 
-// Log quando sectors cambia
-useEffect(() => {
-  console.log('🟦 Sectors aggiornati:', sectors?.length, 'settori');
-  console.log('🟦 editingContact.sector_id:', editingContact?.sector_id);
-}, [sectors]);
+  // // Log quando channels cambia
+  // useEffect(() => {
+  //   console.log('🟩 Channels aggiornati:', channels?.length, 'canali');
+  //   console.log('🟩 editingContact.channel_id:', editingContact?.channel_id);
+  // }, [channels]);
 
-// Log quando channels cambia
-useEffect(() => {
-  console.log('🟩 Channels aggiornati:', channels?.length, 'canali');
-  console.log('🟩 editingContact.channel_id:', editingContact?.channel_id);
-}, [channels]);
-
-// Log quando roles cambia
-useEffect(() => {
-  console.log('🟧 Roles aggiornati:', roles?.length, 'ruoli');
-  console.log('🟧 editingContact.contact_role_id:', editingContact?.contact_role_id);
-}, [roles]);
+  // Log quando roles cambia
+  // useEffect(() => {
+  //   console.log('🟧 Roles aggiornati:', roles?.length, 'ruoli');
+  //   console.log('🟧 editingContact.contact_role_id:', editingContact?.contact_role_id);
+  // }, [roles]);
 
   // Early return
   if (!show || !editingContact) return null;
 
-  // Salvataggio
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!editingContact.name || !editingContact.email) {
       toast.error("⚠️ Nome ed email sono obbligatori");
       return;
     }
 
-    onSave(editingContact);
-    setShowSuccess(true);
+    console.log('💾 tag_labels da salvare:', editingContact.tag_labels);
+    console.log('💾 tags da salvare:', editingContact.tags);
+    console.log('💾 editingContact completo:', editingContact);
+  
+    try {
+      const phonesData = (editingContact.phones || []).map(p => ({
+        id: p.id || crypto.randomUUID(),
+        tipo: p.tipo || 'mobile',
+        categoria: p.categoria || 'aziendale',
+        prefix: p.prefix || '+39',
+        numero: p.numero || '',
+        numero_completo: `${p.prefix || '+39'} ${p.numero || ''}`.trim()
+      }));
+  
+      const dataToSave = {
+        name: editingContact.name,
+        name_contact: editingContact.name_contact || '',
+        email: editingContact.email,
+        email_2: editingContact.email_2 || '',
+        status: editingContact.status || 'active',
+        sector_id: editingContact.sector_id || null,
+        channel_id: editingContact.channel_id || null,
+        contact_role_id: editingContact.contact_role_id || null,
+        area_id: editingContact.area_id || null,
+        tipologia_canale_id: editingContact.tipologia_canale_id || null,
+        periodicita_canale_id: editingContact.periodicita_canale_id || null,
+        copertura_canale_id: editingContact.copertura_canale_id || null,
+        testata_id: editingContact.testata_id || null,
+        contact_label_id: editingContact.contact_label_id || null,
+        note: editingContact.note || '',
+        phones: phonesData,  // ✅ deve esserci
+        updated_at: new Date().toISOString()
+      };
 
-    setTimeout(() => {
-      setShowSuccess(false);
-      onClose();
-    }, 2000);
-  };
+      console.log('📱 phonesData da salvare:', phonesData);
+console.log('📱 editingContact.phones:', editingContact.phones);
+  
+      let savedContact;
+  
+      if (editingContact.id) {
+        const { data, error } = await supabase
+          .from('contacts')
+          .update(dataToSave)
+          .eq('id', editingContact.id)
+          .select()
+          .single();
+        if (error) throw error;
+        savedContact = data;
+      } else {
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data, error } = await supabase
+          .from('contacts')
+          .insert({ ...dataToSave, user_id: user.id })
+          .select()
+          .single();
+        if (error) throw error;
+        savedContact = data;
+      }
+  
+    
+// ✅ Salva TAGS - già UUID
+await supabase.from('contact_tags').delete().eq('contact_id', savedContact.id);
 
-  // Tag options per Select
-  const tagOptions = (tags || []).map(tag => ({
-    value: tag.value,
-    label: tag.label
+if (editingContact.tags && editingContact.tags.length > 0) {
+  const tagInserts = editingContact.tags.map(tagId => ({
+    id: crypto.randomUUID(),
+    contact_id: savedContact.id,
+    tag_id: tagId  // ✅ già UUID, nessuna conversione
+  }));
+  const { error: tagsError } = await supabase.from('contact_tags').insert(tagInserts);
+  if (tagsError) console.error('❌ Errore tags:', tagsError);
+}
+  
+      // ✅ Salva TAG_LABELS
+      await supabase.from('contact_tag_labels').delete().eq('contact_id', savedContact.id);
+  
+      if (editingContact.tag_labels && editingContact.tag_labels.length > 0) {
+        const labelInserts = editingContact.tag_labels.map(labelId => ({
+          id: crypto.randomUUID(),
+          contact_id: savedContact.id,
+          tag_label_id: typeof labelId === 'object' ? (labelId.value || labelId.id) : labelId
+        }));
+        console.log('💾 Salvo tag_labels:', labelInserts);
+        const { error: labelsError } = await supabase.from('contact_tag_labels').insert(labelInserts);
+        if (labelsError) console.error('❌ Errore tag_labels:', labelsError);
+      }
+
+      // ✅ AGGIUNGI QUI - Salva TELEFONI in contact_phones
+await supabase.from('contact_phones').delete().eq('contact_id', savedContact.id);
+
+const phonesToSave = phonesData.filter(p => p.numero && p.numero.trim());
+if (phonesToSave.length > 0) {
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  const phoneInserts = phonesToSave.map(phone => ({
+    id: phone.id || crypto.randomUUID(),
+    contact_id: savedContact.id,
+    user_id: user.id,
+    numero: `${phone.prefix || '+39'} ${phone.numero}`.trim(),
+    tipo: phone.tipo || 'mobile',
+    categoria: phone.categoria || 'aziendale',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
   }));
 
-  const selectedTags = editingContact.tags 
-    ? editingContact.tags.map(t => ({
-        value: t,
-        label: (tags || []).find(tag => tag.value === t)?.label || t
-      }))
-    : [];
+  const { error: phoneError } = await supabase.from('contact_phones').insert(phoneInserts);
+  if (phoneError) console.error('❌ Errore telefoni:', phoneError);
+}
+
+  
+      // ✅ Ricarica contatto completo dalla view
+      const { data: fullContact } = await supabase
+        .from('contacts_full')
+        .select('*')
+        .eq('id', savedContact.id)
+        .single();
+  
+      onSave(fullContact || savedContact);
+  
+      toast.success(editingContact.id ? "✅ Contatto aggiornato!" : "✅ Contatto creato!");
+      setShowSuccess(true);
+      setTimeout(() => {
+        setShowSuccess(false);
+        onClose();
+      }, 2000);
+  
+    } catch (error) {
+      console.error('❌ Errore salvataggio:', error);
+      toast.error(`Errore: ${error.message}`);
+    }
+  };
+  const tagOptions = (tags || []).map(tag => ({
+    value: tag.id,
+    label: tag.label,
+    color: tag.color,
+    id: tag.id,
+    subLabelsCount: tagLabels.filter(tl => tl.tag_id === tag.id).length
+  }));
+
+  const selectedTags = (editingContact.tags || []).map(tagId => {
+    const tag = (tags || []).find(t => t.id === tagId);
+    if (!tag) return null;
+    return { value: tag.id, label: tag.label, color: tag.color };
+  }).filter(Boolean);
+
+console.log('🎯 selectedTags finale:', selectedTags);
 
   return (
     <>
       {/* Modale principale */}
       <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
         <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl animate-slideUp">
-          
+
           {/* HEADER */}
           <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-2xl">
             <div className="flex items-center justify-between">
@@ -6246,22 +6828,88 @@ useEffect(() => {
                   <p className="text-sm text-gray-600">Aggiorna le informazioni del contatto</p>
                 </div>
               </div>
-              <button 
-  onClick={(e) => {
-    e.stopPropagation();
-    setShowCancelConfirm(true);  // 🔥 Mostra conferma invece di chiudere direttamente
-  }} 
-  className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition"
->
-  <X className="w-6 h-6" />
-</button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowCancelConfirm(true);  // 🔥 Mostra conferma invece di chiudere direttamente
+                }}
+                className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition"
+              >
+                <X className="w-6 h-6" />
+              </button>
             </div>
           </div>
 
           {/* BODY */}
           <div className="flex-1 overflow-y-auto p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              
+
+               {/* ETICHETTA CONTATTO - PRIMA DI TUTTO */}
+    <div className="md:col-span-2">
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        Etichetta Contatto
+      </label>
+      <div className="flex gap-2">
+        <Select
+          value={
+            editingContact.contact_label_id
+              ? {
+                  value: editingContact.contact_label_id,
+                  label: contactLabels.find(cl => cl.id === editingContact.contact_label_id)?.nome
+                }
+              : null
+          }
+          onChange={(selectedOption) =>
+            setEditingContact({
+              ...editingContact,
+              contact_label_id: selectedOption?.value || ''
+            })
+          }
+          options={contactLabels.map(cl => ({
+            value: cl.id,
+            label: cl.nome,
+            color: cl.color
+          }))}
+          isClearable
+          placeholder="Seleziona etichetta..."
+          className="flex-1"
+          styles={{
+            control: (base) => ({
+              ...base,
+              minHeight: '48px',
+              borderRadius: '0.5rem',
+              borderColor: '#d1d5db',
+            }),
+            option: (base, { data }) => ({
+              ...base,
+              display: 'flex',
+              alignItems: 'center',
+              '&:before': {
+                content: '""',
+                display: 'inline-block',
+                width: '12px',
+                height: '12px',
+                borderRadius: '50%',
+                backgroundColor: data.color || '#3B82F6',
+                marginRight: '8px'
+              }
+            })
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => setShowContactLabelsModal(true)}
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition flex-shrink-0"
+          title="Gestisci Etichette"
+        >
+          <Tag className="w-4 h-4" />
+        </button>
+      </div>
+      <p className="text-xs text-gray-500 mt-1">
+        Categorizza il contatto (es: Mailing Lista Nazionale, Contatti Sicilia)
+      </p>
+    </div>
+
               {/* Nome */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -6290,6 +6938,18 @@ useEffect(() => {
                 />
               </div>
 
+              {/* 🔥 AGGIUNTO: Email2 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Email 2</label>
+                <input
+                  type="email"
+                  value={editingContact.email2 || ''}
+                  onChange={(e) => setEditingContact({ ...editingContact, email2: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                  placeholder="email.secondaria@email.com"
+                />
+              </div>
+
               {/* Status */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
@@ -6297,10 +6957,10 @@ useEffect(() => {
                   value={editingContact.status || ''}
                   onChange={(e) => setEditingContact({ ...editingContact, status: e.target.value })}
                   className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition bg-white font-medium ${editingContact.status === 'active'
-                      ? 'text-green-700'
-                      : editingContact.status === 'inactive'
-                        ? 'text-red-700'
-                        : 'text-gray-700'
+                    ? 'text-green-700'
+                    : editingContact.status === 'inactive'
+                      ? 'text-red-700'
+                      : 'text-gray-700'
                     }`}
                 >
                   <option value="" className="text-gray-700">Seleziona status</option>
@@ -6309,53 +6969,263 @@ useEffect(() => {
                 </select>
               </div>
 
-              {/* Attivo */}
-              {/* <div className="flex items-center pt-8">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editingContact.is_active || false}
-                    onChange={(e) => setEditingContact({ ...editingContact, is_active: e.target.checked })}
-                    className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-                  />
-                  <span className="text-sm font-medium text-gray-700">Contatto attivo</span>
-                </label>
-              </div> */}
+            {/* Tags con selezione automatica sotto-etichette */}
+<div className="md:col-span-2">
+  <label className="block text-sm font-medium text-gray-700 mb-2">Tag</label>
+  <Select
+    isMulti
+    options={tagOptions}
+    value={selectedTags}
+    formatOptionLabel={(opt) => (
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <div
+            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+            style={{ backgroundColor: opt.color || '#6366f1' }}
+          />
+          <span>{opt.label}</span>
+        </div>
+        {opt.subLabelsCount > 0 && (
+          <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full flex-shrink-0">
+            🏷️ {opt.subLabelsCount}
+          </span>
+        )}
+      </div>
+    )}
+    onChange={(newValue) => {
+      const newTagIds = newValue ? newValue.map(t => t.value) : [];
+      const oldTagIds = editingContact.tags || [];
 
-              {/* Tags */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Tag</label>
-                <Select
-                  isMulti
-                  options={tagOptions}
-                  value={selectedTags}
-                  onChange={(newValue) => {
-                    const newTags = newValue ? newValue.map(t => t.value) : [];
-                    setEditingContact({ ...editingContact, tags: newTags });
-                  }}
-                  placeholder="Seleziona uno o più tag..."
-                  className="react-select-container"
-                  classNamePrefix="react-select"
-                />
-              </div>
+      const addedTags = newTagIds.filter(id => !oldTagIds.includes(id));
+      const removedTags = oldTagIds.filter(id => !newTagIds.includes(id));
 
-              {/* SETTORE */}
+      let currentLabels = editingContact.tag_labels || [];
+
+      const labelsToAdd = tagLabels
+        .filter(label => addedTags.includes(label.tag_id))
+        .map(label => label.id);
+
+      const labelsToRemove = tagLabels
+        .filter(label => removedTags.includes(label.tag_id))
+        .map(label => label.id);
+
+      currentLabels = [
+        ...currentLabels.filter(id => !labelsToRemove.includes(id)),
+        ...labelsToAdd
+      ];
+      currentLabels = [...new Set(currentLabels)];
+
+      setEditingContact({
+        ...editingContact,
+        tags: newTagIds,
+        tag_labels: currentLabels
+      });
+    }}
+    placeholder="Seleziona uno o più tag..."
+    className="react-select-container"
+    classNamePrefix="react-select"
+  />
+  <p className="mt-1 text-xs text-gray-500">
+    ℹ️ Aggiungendo un tag verranno selezionate automaticamente tutte le sue sotto-etichette
+  </p>
+</div>
+
+{/* SOTTO-ETICHETTE TAG - Raggruppate per tag */}
+<div className="md:col-span-2">
+  <div className="flex items-center justify-between mb-2">
+    <label className="block text-sm font-medium text-gray-700">
+      Sotto-etichette Tag
+      {editingContact.tags?.length > 0 && (
+        <span className="ml-2 text-xs text-gray-500">
+          ({editingContact.tags.length} tag selezionati)
+        </span>
+      )}
+    </label>
+    <button
+      type="button"
+      onClick={() => {
+        console.log('🔥 Cliccato! Apertura modale sotto-etichette'); // ✅ DEBUG
+        setShowTagLabelsModal(true);
+      }}
+      className="text-xs text-amber-600 hover:text-amber-700 font-medium flex items-center gap-1"
+    >
+      <Plus className="w-3 h-3" />
+      Gestisci sotto-etichette
+    </button>
+  </div>
+  
+  {/* ✅ Visualizzazione raggruppata per tag */}
+  {editingContact.tags?.length > 0 ? (
+    <div className="space-y-3 border border-gray-200 rounded-lg p-4 bg-gray-50 max-h-80 overflow-y-auto">
+{selectedTags.map(selectedTag => {
+  console.log('🔍 selectedTag.value:', selectedTag.value);
+  console.log('🔍 tagLabels:', tagLabels);
+  
+  const labelsForThisTag = tagLabels.filter(tl => tl.tag_id === selectedTag.value);
+  
+  console.log('🔍 labelsForThisTag risultato:', labelsForThisTag);  // ✅ Questo dopo il filter
+  
+  if (labelsForThisTag.length === 0) {
+    return (
+      <div key={selectedTag.value} className="bg-white rounded-lg p-3 border border-gray-200">
+        <div className="flex items-center gap-2">
+          <div 
+            className="w-3 h-3 rounded-full" 
+            style={{ backgroundColor: selectedTag.color || '#6366f1' }}
+          />
+          <span className="text-sm font-semibold text-gray-900">
+            {selectedTag.label}
+          </span>
+          <span className="text-xs text-gray-400 italic">
+            (nessuna sotto-etichetta disponibile)
+          </span>
+        </div>
+      </div>
+    );
+  }
+  
+  return (
+    <div key={selectedTag.value} className="bg-white rounded-lg p-3 border border-gray-200">
+            <div className="flex items-center gap-2 mb-2">
+              <div 
+                className="w-3 h-3 rounded-full" 
+                style={{ backgroundColor: selectedTag.color || '#6366f1' }}
+              />
+              <span className="text-sm font-semibold text-gray-900">
+                {selectedTag.label}
+              </span>
+              <span className="text-xs text-gray-500">
+                ({labelsForThisTag.length} sotto-etichette)
+              </span>
+            </div>
+            
+            <div className="flex flex-wrap gap-2">
+              {labelsForThisTag.map(label => {
+                const isSelected = editingContact.tag_labels?.includes(label.id);
+                
+                return (
+                  <button
+                    key={label.id}
+                    type="button"
+                    onClick={() => {
+                      const currentLabels = editingContact.tag_labels || [];
+                      const newLabels = isSelected
+                        ? currentLabels.filter(id => id !== label.id)
+                        : [...currentLabels, label.id];
+                      
+                      setEditingContact({
+                        ...editingContact,
+                        tag_labels: newLabels
+                      });
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
+                      isSelected
+                        ? 'bg-amber-100 text-amber-700 border-2 border-amber-400'
+                        : 'bg-gray-100 text-gray-600 border-2 border-transparent hover:border-gray-300'
+                    }`}
+                  >
+                    {isSelected ? '✓ ' : ''}{label.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  ) : (
+    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+      <Tag className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+      <p className="text-sm text-gray-500 font-medium">
+        Seleziona prima almeno un tag
+      </p>
+      <p className="text-xs text-gray-400 mt-1">
+        Le sotto-etichette appariranno qui organizzate per tag
+      </p>
+    </div>
+  )}
+  
+  <p className="mt-2 text-xs text-gray-500">
+    {editingContact.tag_labels?.length > 0 
+      ? `✅ ${editingContact.tag_labels.length} sotto-etichette selezionate in totale`
+      : "Clicca sulle sotto-etichette per selezionarle/deselezionarle manualmente"
+    }
+  </p>
+</div>
+              {/* TESTATA con react-select */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">Testata</label>
+  <div className="flex gap-2">
+    <Select
+      value={
+        editingContact.testata_id
+          ? { 
+              value: editingContact.testata_id, 
+              label: testate.find(t => t.id === editingContact.testata_id)?.nome 
+            }
+          : null
+      }
+      onChange={(selectedOption) => 
+        setEditingContact({ 
+          ...editingContact, 
+          testata_id: selectedOption?.value || '' 
+        })
+      }
+      options={testate.map(t => ({ value: t.id, label: t.nome }))}
+      isClearable
+      placeholder="Cerca testata..."
+      className="flex-1"
+      styles={{
+        control: (base) => ({
+          ...base,
+          minHeight: '48px',
+          borderRadius: '0.5rem',
+          borderColor: '#d1d5db',
+        })
+      }}
+    />
+    <button
+      type="button"
+      onClick={onOpenTestateModal}
+      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition flex-shrink-0"
+      title="Gestisci Testate"
+    >
+      <Building2 className="w-4 h-4" />
+    </button>
+  </div>
+</div>
+              {/* SETTORE con ricerca */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Settore</label>
                 <div className="flex gap-2">
-                  <select
-                    value={editingContact.sector_id || ''}
-                    onChange={(e) => setEditingContact({ ...editingContact, sector_id: e.target.value })}
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none truncate"
-                    style={{ minWidth: 0 }}  // 🔥 Importante per flex-1
-                  >
-                    <option value="">Seleziona settore</option>
-                    {(sectors || []).map(sector => (
-                      <option key={sector.id} value={sector.id} className="truncate">
-                        {sector.name}
-                      </option>
-                    ))}
-                  </select>
+                  <Select
+                    value={
+                      editingContact.sector_id
+                        ? {
+                          value: editingContact.sector_id,
+                          label: sectors.find(s => s.id === editingContact.sector_id)?.name
+                        }
+                        : null
+                    }
+                    onChange={(selectedOption) =>
+                      setEditingContact({
+                        ...editingContact,
+                        sector_id: selectedOption?.value || ''
+                      })
+                    }
+                    options={sectors.map(s => ({ value: s.id, label: s.name }))}
+                    isClearable
+                    placeholder="Cerca settore..."
+                    className="flex-1"
+                    styles={{
+                      control: (base) => ({
+                        ...base,
+                        minHeight: '48px',
+                        borderRadius: '0.5rem',
+                        borderColor: '#d1d5db',
+                      })
+                    }}
+                  />
                   <button
                     type="button"
                     onClick={onOpenSectorsModal}
@@ -6367,23 +7237,38 @@ useEffect(() => {
                 </div>
               </div>
 
-              {/* CANALE */}
+              {/* CANALE con ricerca */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Canale</label>
                 <div className="flex gap-2">
-                  <select
-                    value={editingContact.channel_id || ''}
-                    onChange={(e) => setEditingContact({ ...editingContact, channel_id: e.target.value })}
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none truncate"
-                    style={{ minWidth: 0 }}
-                  >
-                    <option value="">Seleziona canale</option>
-                    {(channels || []).map(channel => (
-                      <option key={channel.id} value={channel.id} className="truncate">
-                        {channel.name}
-                      </option>
-                    ))}
-                  </select>
+                  <Select
+                    value={
+                      editingContact.channel_id
+                        ? {
+                          value: editingContact.channel_id,
+                          label: channels.find(c => c.id === editingContact.channel_id)?.name
+                        }
+                        : null
+                    }
+                    onChange={(selectedOption) =>
+                      setEditingContact({
+                        ...editingContact,
+                        channel_id: selectedOption?.value || ''
+                      })
+                    }
+                    options={channels.map(c => ({ value: c.id, label: c.name }))}
+                    isClearable
+                    placeholder="Cerca canale..."
+                    className="flex-1"
+                    styles={{
+                      control: (base) => ({
+                        ...base,
+                        minHeight: '48px',
+                        borderRadius: '0.5rem',
+                        borderColor: '#d1d5db',
+                      })
+                    }}
+                  />
                   <button
                     type="button"
                     onClick={onOpenChannelsModal}
@@ -6395,23 +7280,39 @@ useEffect(() => {
                 </div>
               </div>
 
-              {/* RUOLO */}
+              {/* RUOLO con ricerca */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Ruolo</label>
                 <div className="flex gap-2">
-                  <select
-                    value={editingContact.contact_role_id || ''}
-                    onChange={(e) => setEditingContact({ ...editingContact, contact_role_id: e.target.value })}
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none truncate"
-                    style={{ minWidth: 0 }}
-                  >
-                    <option value="">Seleziona ruolo</option>
-                    {(roles || []).map(role => (
-                      <option key={role.id} value={role.id} className="truncate">
-                        {role.name}
-                      </option>
-                    ))}
-                  </select>
+                  <Select
+                    value={
+                      editingContact.contact_role_id
+                        ? {
+                          value: editingContact.contact_role_id,
+                          label: contactRoles.find(r => r.id === editingContact.contact_role_id)?.name
+                        }
+                        : null
+                    }
+                    onChange={(selectedOption) =>
+                      setEditingContact({
+                        ...editingContact,
+                        contact_role_id: selectedOption?.value || ''
+                      })
+                    }
+                    // options={contactRoles.map(r => ({ value: r.id, label: r.name }))}
+                    options={roles.map(r => ({ value: r.id, label: r.name }))}
+                    isClearable
+                    placeholder="Cerca ruolo..."
+                    className="flex-1"
+                    styles={{
+                      control: (base) => ({
+                        ...base,
+                        minHeight: '48px',
+                        borderRadius: '0.5rem',
+                        borderColor: '#d1d5db',
+                      })
+                    }}
+                  />
                   <button
                     type="button"
                     onClick={onOpenRolesModal}
@@ -6423,36 +7324,335 @@ useEffect(() => {
                 </div>
               </div>
 
-              {/* Tipologia/Periodicità/Copertura */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Tipologia Canale</label>
-                <input
-                  type="text"
-                  value={editingContact.tipologia_canale || ''}
-                  onChange={(e) => setEditingContact({ ...editingContact, tipologia_canale: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
+{/* TIPOLOGIA CANALE con ricerca */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">Tipologia Canale</label>
+  <div className="flex gap-2">
+    <Select
+      value={
+        editingContact.tipologia_canale_id
+          ? { 
+              value: editingContact.tipologia_canale_id, 
+              label: tipologiaCanale.find(tc => tc.id === editingContact.tipologia_canale_id)?.nome 
+            }
+          : null
+      }
+      onChange={(selectedOption) => 
+        setEditingContact({ 
+          ...editingContact, 
+          tipologia_canale_id: selectedOption?.value || '' 
+        })
+      }
+      options={tipologiaCanale.map(tc => ({ value: tc.id, label: tc.nome }))}
+      isClearable
+      placeholder="Cerca tipologia..."
+      className="flex-1"
+      styles={{
+        control: (base) => ({
+          ...base,
+          minHeight: '48px',
+          borderRadius: '0.5rem',
+          borderColor: '#d1d5db',
+        })
+      }}
+    />
+    <button
+      type="button"
+      onClick={() => setShowTipologiaCanaleModal(true)}
+      className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition flex-shrink-0"
+      title="Gestisci Tipologia Canale"
+    >
+      <Layers className="w-4 h-4" />
+    </button>
+  </div>
+</div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Periodicità Canale</label>
-                <input
-                  type="text"
-                  value={editingContact.periodicita_canale || ''}
-                  onChange={(e) => setEditingContact({ ...editingContact, periodicita_canale: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
+{/* PERIODICITÀ CANALE con ricerca */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">Periodicità Canale</label>
+  <div className="flex gap-2">
+    <Select
+      value={
+        editingContact.periodicita_canale_id
+          ? { 
+              value: editingContact.periodicita_canale_id, 
+              label: periodicitaCanale.find(pc => pc.id === editingContact.periodicita_canale_id)?.nome 
+            }
+          : null
+      }
+      onChange={(selectedOption) => 
+        setEditingContact({ 
+          ...editingContact, 
+          periodicita_canale_id: selectedOption?.value || '' 
+        })
+      }
+      options={periodicitaCanale.map(pc => ({ value: pc.id, label: pc.nome }))}
+      isClearable
+      placeholder="Cerca periodicità..."
+      className="flex-1"
+      styles={{
+        control: (base) => ({
+          ...base,
+          minHeight: '48px',
+          borderRadius: '0.5rem',
+          borderColor: '#d1d5db',
+        })
+      }}
+    />
+    <button
+      type="button"
+      onClick={() => setShowPeriodicitaCanaleModal(true)}
+      className="px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-lg transition flex-shrink-0"
+      title="Gestisci Periodicità Canale"
+    >
+      <Calendar className="w-4 h-4" />
+    </button>
+  </div>
+</div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Copertura Canale</label>
-                <input
-                  type="text"
-                  value={editingContact.copertura_canale || ''}
-                  onChange={(e) => setEditingContact({ ...editingContact, copertura_canale: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
+{/* AREA con ricerca */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">Area</label>
+  <div className="flex gap-2">
+    <Select
+      value={
+        editingContact.area_id
+          ? {
+              value: editingContact.area_id,
+              label: areas.find(a => a.id === editingContact.area_id)?.nome
+            }
+          : null
+      }
+      onChange={(selectedOption) =>
+        setEditingContact({
+          ...editingContact,
+          area_id: selectedOption?.value || ''
+        })
+      }
+      options={areas.map(a => ({ value: a.id, label: a.nome }))}
+      isClearable
+      placeholder="Cerca area..."
+      className="flex-1"
+      styles={{
+        control: (base) => ({
+          ...base,
+          minHeight: '48px',
+          borderRadius: '0.5rem',
+          borderColor: '#d1d5db',
+        })
+      }}
+    />
+    <button
+      type="button"
+      onClick={onOpenAreasModal}  // ✅ Usa la prop, non setShowAreasModal
+      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition flex-shrink-0"
+      title="Gestisci Aree"
+    >
+      <MapPin className="w-4 h-4" />
+    </button>
+  </div>
+</div>
+
+{/* COPERTURA CANALE con ricerca */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">Copertura Canale</label>
+  <div className="flex gap-2">
+    <Select
+      value={
+        editingContact.copertura_canale_id
+          ? { 
+              value: editingContact.copertura_canale_id, 
+              label: coperturaCanale.find(cc => cc.id === editingContact.copertura_canale_id)?.nome 
+            }
+          : null
+      }
+      onChange={(selectedOption) => 
+        setEditingContact({ 
+          ...editingContact, 
+          copertura_canale_id: selectedOption?.value || '' 
+        })
+      }
+      options={coperturaCanale.map(cc => ({ value: cc.id, label: cc.nome }))}
+      isClearable
+      placeholder="Cerca copertura..."
+      className="flex-1"
+      styles={{
+        control: (base) => ({
+          ...base,
+          minHeight: '48px',
+          borderRadius: '0.5rem',
+          borderColor: '#d1d5db',
+        })
+      }}
+    />
+    <button
+      type="button"
+      onClick={() => setShowCoperturaCanaleModal(true)}
+      className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg transition flex-shrink-0"
+      title="Gestisci Copertura Canale"
+    >
+      <Globe className="w-4 h-4" />
+    </button>
+  </div>
+</div>
+{/* TELEFONI E CELLULARI */}
+<div className="md:col-span-2">
+  <div className="flex items-center justify-between mb-2">
+    <label className="block text-sm font-medium text-gray-700">
+      Contatti Telefonici
+    </label>
+    <button
+      type="button"
+      onClick={() => {
+        const newPhone = {
+          id: crypto.randomUUID(),
+          numero: '',
+          tipo: 'mobile',
+          categoria: 'aziendale',
+          isNew: true
+        };
+        setEditingContact({
+          ...editingContact,
+          phones: [...(editingContact.phones || []), newPhone]
+        });
+      }}
+      className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+    >
+      <Plus className="w-3 h-3" />
+      Aggiungi telefono
+    </button>
+  </div>
+  
+  <div className="space-y-2 border border-gray-200 rounded-lg p-4 bg-gray-50 max-h-80 overflow-y-auto">
+    {(editingContact.phones || []).length === 0 ? (
+      <div className="text-center py-4 text-gray-500 text-sm">
+        <Phone className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+        <p>Nessun telefono aggiunto</p>
+        <p className="text-xs mt-1">Clicca "Aggiungi telefono" per iniziare</p>
+      </div>
+    ) : (
+      (editingContact.phones || []).map((phone, index) => (
+        <div key={phone.id || index} className="flex gap-2 items-start bg-white p-3 rounded-lg border border-gray-200">
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-2">
+            {/* Tipo telefono (Fisso, Mobile, WhatsApp, ecc.) */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
+              <select
+                value={phone.tipo || 'mobile'}
+                onChange={(e) => {
+                  const updatedPhones = [...(editingContact.phones || [])];
+                  updatedPhones[index] = { ...phone, tipo: e.target.value };
+                  setEditingContact({ ...editingContact, phones: updatedPhones });
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              >
+                <option value="fisso">📞 Fisso</option>
+                <option value="mobile">📱 Mobile</option>
+                <option value="whatsapp">💬 WhatsApp</option>
+                <option value="fax">📠 Fax</option>
+                <option value="altro">📋 Altro</option>
+              </select>
+            </div>
+
+            {/* Categoria (Aziendale, Personale, ecc.) */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Categoria</label>
+              <select
+                value={phone.categoria || 'aziendale'}
+                onChange={(e) => {
+                  const updatedPhones = [...(editingContact.phones || [])];
+                  updatedPhones[index] = { ...phone, categoria: e.target.value };
+                  setEditingContact({ ...editingContact, phones: updatedPhones });
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              >
+                <option value="aziendale">🏢 Aziendale</option>
+                <option value="personale">👤 Personale</option>
+                <option value="ufficio">💼 Ufficio</option>
+                <option value="casa">🏠 Casa</option>
+                <option value="altro">📋 Altro</option>
+              </select>
+            </div>
+            
+           {/* Numero con prefisso */}
+<div className="md:col-span-1">
+  <label className="block text-xs font-medium text-gray-600 mb-1">Prefisso</label>
+  <select
+    value={phone.prefix || '+39'}
+    onChange={(e) => {
+      const updatedPhones = [...(editingContact.phones || [])];
+      updatedPhones[index] = { ...phone, prefix: e.target.value };
+      setEditingContact({ ...editingContact, phones: updatedPhones });
+    }}
+    className="w-full px-2 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+  >
+    {PHONE_PREFIXES.map(p => (
+      <option key={p.code} value={p.code}>
+        {p.flag} {p.code} {p.name}
+      </option>
+    ))}
+  </select>
+</div>
+
+<div className="md:col-span-2">
+  <label className="block text-xs font-medium text-gray-600 mb-1">Numero</label>
+  <input
+    type="tel"
+    value={phone.numero || ''}
+    onChange={(e) => {
+      // ✅ Accetta solo numeri, spazi e trattini
+      const onlyNumbers = e.target.value.replace(/[^\d\s\-]/g, '');
+      const updatedPhones = [...(editingContact.phones || [])];
+      updatedPhones[index] = { ...phone, numero: onlyNumbers };
+      setEditingContact({ ...editingContact, phones: updatedPhones });
+    }}
+    placeholder="Es. 02 1234 5678"
+    maxLength={15}
+    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+  />
+</div>
+          </div>
+          
+          {/* Bottone elimina */}
+          <button
+            type="button"
+            onClick={() => {
+              const updatedPhones = (editingContact.phones || []).filter((_, i) => i !== index);
+              setEditingContact({ ...editingContact, phones: updatedPhones });
+            }}
+            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition mt-6"
+            title="Elimina telefono"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      ))
+    )}
+  </div>
+  
+  <p className="mt-2 text-xs text-gray-500">
+    {(editingContact.phones || []).length > 0 
+      ? `${(editingContact.phones || []).length} ${(editingContact.phones || []).length === 1 ? 'contatto telefonico' : 'contatti telefonici'}`
+      : 'Aggiungi numeri di telefono, cellulare, WhatsApp, ecc. con categoria (aziendale, personale, ufficio...)'
+    }
+  </p>
+</div>
+{/* NOTE - Campo largo che occupa entrambe le colonne */}
+<div className="md:col-span-2">
+  <label className="block text-sm font-medium text-gray-700 mb-2">
+    Note
+  </label>
+  <textarea
+    value={editingContact.note || ''}
+    onChange={(e) => setEditingContact({ ...editingContact, note: e.target.value })}
+    rows={4}
+    placeholder="Inserisci note aggiuntive sul contatto..."
+    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none transition"
+  />
+  <p className="mt-1 text-xs text-gray-500">
+    Aggiungi informazioni extra, promemoria o dettagli sul contatto
+  </p>
+</div>
             </div>
           </div>
 
@@ -6484,6 +7684,20 @@ useEffect(() => {
         </div>
       </div>
 
+
+      {/* ✅ MODALE SOTTO-ETICHETTE TAG - AGGIUNTO QUI */}
+      {showTagLabelsModal && (
+        <TagLabelsManagementModal
+          show={showTagLabelsModal}
+          tags={tags}
+          onClose={() => {
+            console.log('🔴 Chiusura modale sotto-etichette');
+            setShowTagLabelsModal(false);
+            fetchTagLabels();
+          }}
+        />
+      )}
+
       {/* Popup conferma */}
       {showSuccess && (
         <SuccessModal
@@ -6494,9 +7708,550 @@ useEffect(() => {
           onClose={() => setShowSuccess(false)}
         />
       )}
+      {/* Modale conferma cancellazione */}
+      <CancelConfirmModal
+        show={showCancelConfirm}
+        onCancel={() => setShowCancelConfirm(false)}
+        onConfirm={() => {
+          setShowCancelConfirm(false);
+          handleClose();
+        }}
+      />
     </>
   );
 };
+
+
+// 🏷️ MODALE GESTIONE SOTTO-ETICHETTE TAG
+const TagLabelsManagementModal = ({ show, onClose, tags }) => {  // ✅ Aggiungi tags nelle props
+  // ... resto del codice
+  const [tagLabels, setTagLabels] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editingLabel, setEditingLabel] = useState(null);
+  const [newLabelName, setNewLabelName] = useState('');
+  const [newLabelTagId, setNewLabelTagId] = useState('');
+  const [searchLabel, setSearchLabel] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
+  const [csvImportFile, setCsvImportFile] = useState(null);
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvImportResult, setCsvImportResult] = useState(null);
+  const mouseDownTarget = useRef(null);
+
+  const [importTotal, setImportTotal] = useState(0);
+  const [importProcessed, setImportProcessed] = useState(0);
+  const [importImported, setImportImported] = useState(0);
+  const [importSkipped, setImportSkipped] = useState(0);
+  const [importErrors, setImportErrors] = useState(0);
+
+  const fetchTagLabels = async () => {
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('tag_labels')
+        .select('*, tags(id, label, value)')
+        .eq('user_id', user.id)
+        .order('label');
+
+      if (error) throw error;
+      setTagLabels(data || []);
+    } catch (error) {
+      console.error('❌ Errore caricamento sotto-etichette:', error);
+      toast.error('Errore nel caricamento delle sotto-etichette');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (show) fetchTagLabels();
+  }, [show]);
+
+  const handleImportCsv = async () => {
+    if (!csvImportFile) return;
+    setCsvImporting(true);
+    setCsvImportResult(null);
+    setImportTotal(0);
+    setImportProcessed(0);
+    setImportImported(0);
+    setImportSkipped(0);
+    setImportErrors(0);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const text = await csvImportFile.text();
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+      if (lines.length < 2) {
+        toast.error("⚠️ Il CSV è vuoto o ha solo l'intestazione");
+        return;
+      }
+
+      const headers = lines[0]
+  .split(',')
+  .map(h => h.trim().toLowerCase().replace(/"/g, '').replace(/^\uFEFF/, '').replace(/\r/g, ''));
+      const labelIndex = headers.indexOf('label');
+      const tagIndex = headers.indexOf('tag');
+      
+      if (labelIndex === -1 || tagIndex === -1) {
+        toast.error('❌ Il CSV deve avere colonne "label" e "tag"');
+        return;
+      }
+
+      // Carica tutti i tag per fare il match
+      const { data: allTags } = await supabase
+        .from('tags')
+        .select('id, label, value')
+        .eq('user_id', user.id);
+
+      const tagMap = {};
+      allTags.forEach(tag => {
+        tagMap[tag.label.toLowerCase()] = tag.id;
+        tagMap[tag.value.toLowerCase()] = tag.id;
+      });
+
+      const labelsToImport = [];
+      
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',');
+        const labelName = cols[labelIndex]?.trim().replace(/"/g, '');
+        const tagName = cols[tagIndex]?.trim().replace(/"/g, '');
+        
+        if (!labelName || !tagName) continue;
+
+        const tagId = tagMap[tagName.toLowerCase()];
+        if (!tagId) {
+          console.warn(`Tag "${tagName}" non trovato`);
+          continue;
+        }
+
+        labelsToImport.push({ label: labelName, tag_id: tagId });
+      }
+
+      setImportTotal(labelsToImport.length);
+
+      let imported = 0, skipped = 0, errors = 0;
+      const errorDetails = [];
+
+      for (const item of labelsToImport) {
+        const { error } = await supabase.from('tag_labels').insert({
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          tag_id: item.tag_id,
+          label: item.label,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+
+        if (error) {
+          if (error.code === '23505') {
+            skipped++;
+            setImportSkipped(skipped);
+          } else {
+            errors++;
+            setImportErrors(errors);
+            errorDetails.push(`"${item.label}": ${error.message}`);
+          }
+        } else {
+          imported++;
+          setImportImported(imported);
+        }
+        setImportProcessed(prev => prev + 1);
+      }
+
+      setCsvImportResult({ imported, skipped, errors, errorDetails });
+      setCsvImportFile(null);
+
+      if (imported > 0) {
+        toast.success(`✅ Importate ${imported} sotto-etichette`);
+        await fetchTagLabels();
+      } else if (skipped > 0 && imported === 0) {
+        toast(`ℹ️ Tutte le sotto-etichette erano già presenti`);
+      }
+    } catch (err) {
+      console.error('❌ Errore import CSV:', err);
+      toast.error("Errore durante l'importazione");
+    } finally {
+      setCsvImporting(false);
+    }
+  };
+
+  const handleAddLabel = async () => {
+    if (!newLabelName.trim() || !newLabelTagId) {
+      toast.error('⚠️ Inserisci nome e seleziona un tag');
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase.from('tag_labels').insert({
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        tag_id: newLabelTagId,
+        label: newLabelName.trim(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) throw error;
+      toast.success('✅ Sotto-etichetta creata con successo!');
+      setNewLabelName('');
+      setNewLabelTagId('');
+      await fetchTagLabels();
+    } catch (error) {
+      console.error('❌ Errore creazione sotto-etichetta:', error);
+      if (error.code === '23505') {
+        toast.error(`⚠️ La sotto-etichetta esiste già per questo tag`);
+      } else {
+        toast.error('Errore nella creazione della sotto-etichetta');
+      }
+    }
+  };
+
+  const handleUpdateLabel = async () => {
+    if (!editingLabel) return;
+    try {
+      const { error } = await supabase
+        .from('tag_labels')
+        .update({ 
+          label: editingLabel.label,
+          tag_id: editingLabel.tag_id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingLabel.id);
+
+      if (error) throw error;
+      toast.success('✅ Sotto-etichetta aggiornata!');
+      setEditingLabel(null);
+      await fetchTagLabels();
+    } catch (error) {
+      console.error('❌ Errore aggiornamento sotto-etichetta:', error);
+      if (error.code === '23505') {
+        toast.error(`⚠️ La sotto-etichetta esiste già per questo tag`);
+      } else {
+        toast.error('Errore aggiornamento sotto-etichetta');
+      }
+    }
+  };
+
+  const handleDeleteLabel = async (labelId) => {
+    try {
+      const { error } = await supabase.from('tag_labels').delete().eq('id', labelId);
+      if (error) throw error;
+      toast.success('✅ Sotto-etichetta eliminata!');
+      setShowDeleteConfirm(null);
+      await fetchTagLabels();
+    } catch (error) {
+      console.error('❌ Errore eliminazione sotto-etichetta:', error);
+      toast.error('Errore eliminazione sotto-etichetta');
+    }
+  };
+
+  const filteredLabels = tagLabels.filter(l =>
+    l.label.toLowerCase().includes(searchLabel.toLowerCase()) ||
+    l.tags?.label.toLowerCase().includes(searchLabel.toLowerCase())
+  );
+
+  if (!show) return null;
+
+  const progressPct = importTotal ? Math.round((importProcessed / importTotal) * 100) : 0;
+  const importedPct = importTotal ? Math.round((importImported / importTotal) * 100) : 0;
+  const errorsPct = importTotal ? Math.round((importErrors / importTotal) * 100) : 0;
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+        onMouseDown={(e) => { mouseDownTarget.current = e.target; }}
+        onMouseUp={(e) => {
+          if (mouseDownTarget.current === e.currentTarget && e.target === e.currentTarget) {
+            onClose();
+          }
+          mouseDownTarget.current = null;
+        }}
+      >
+        <div
+          className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl"
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseUp={(e) => e.stopPropagation()}
+        >
+          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-amber-50 to-orange-50 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-amber-600 p-2 rounded-lg">
+                <Tag className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Gestione Sotto-etichette Tag</h2>
+                <p className="text-sm text-gray-600">Organizza le sotto-categorie dei tag</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Form Aggiungi */}
+            <div className="bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200 rounded-xl p-6">
+              <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <Plus className="w-5 h-5 text-amber-600" />
+                Crea Nuova Sotto-etichetta
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <select
+  value={newLabelTagId}
+  onChange={(e) => setNewLabelTagId(e.target.value)}
+  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
+>
+  <option value="">Seleziona tag principale</option>
+  {(tags || []).map(tag => (  // ✅ Aggiungi || []
+    <option key={tag.id} value={tag.id}>{tag.label}</option>
+  ))}
+</select>
+                <input
+                  type="text"
+                  placeholder="Nome sotto-etichetta"
+                  value={newLabelName}
+                  onChange={(e) => setNewLabelName(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleAddLabel()}
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
+                />
+              </div>
+              <button
+                onClick={handleAddLabel}
+                className="mt-3 w-full bg-amber-600 hover:bg-amber-700 text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 transition font-medium"
+              >
+                <Plus className="w-4 h-4" />
+                Aggiungi Sotto-etichetta
+              </button>
+            </div>
+
+            {/* Import CSV */}
+            <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl p-6">
+              <h3 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                <Upload className="w-5 h-5 text-green-600" />
+                Importa Sotto-etichette da CSV
+              </h3>
+              <p className="text-xs text-gray-500 mb-4">
+                Il CSV deve avere colonne <code className="bg-gray-100 px-1 rounded">tag</code> e <code className="bg-gray-100 px-1 rounded">label</code>
+              </p>
+
+              <div className="flex gap-3 items-center">
+                <label className="flex-1 cursor-pointer">
+                  <div className="flex items-center gap-3 px-4 py-2 border-2 border-dashed border-green-300 rounded-lg hover:border-green-500 hover:bg-green-50 transition">
+                    <FileText className="w-5 h-5 text-green-500 flex-shrink-0" />
+                    <span className="text-sm text-gray-500 truncate">
+                      {csvImportFile ? csvImportFile.name : 'Seleziona file CSV...'}
+                    </span>
+                  </div>
+                  <input type="file" accept=".csv" className="hidden" onChange={(e) => setCsvImportFile(e.target.files[0] || null)} />
+                </label>
+
+                <button
+                  onClick={handleImportCsv}
+                  disabled={!csvImportFile || csvImporting}
+                  className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg flex items-center gap-2 transition font-medium flex-shrink-0"
+                >
+                  {csvImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                  {csvImporting ? 'Importando...' : 'Importa'}
+                </button>
+              </div>
+
+              {/* Progress bars - stesso codice degli altri modali */}
+              {(csvImporting || importProcessed > 0) && (
+                <div className="mt-4 rounded-xl border border-green-200 bg-white/70 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {csvImporting ? "Importazione in corso..." : "Import completato"}
+                      </p>
+                      <p className="text-xs text-gray-600 mt-0.5">{importProcessed}/{importTotal} elaborate</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-600">Esito</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        ✅ {importImported} · ⏭️ {importSkipped} · ❌ {importErrors}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                      <div className="h-2 rounded-full bg-green-600 transition-all" style={{ width: `${progressPct}%` }} />
+                    </div>
+                    <div className="mt-1 flex justify-between text-[11px] text-gray-500">
+                      <span>Avanzamento</span>
+                      <span>{progressPct}%</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-700">Importate</p>
+                        <p className="text-xs text-gray-500">{importImported}/{importTotal}</p>
+                      </div>
+                      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                        <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${importedPct}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-700">Non riuscite</p>
+                        <p className="text-xs text-gray-500">{importErrors}/{importTotal}</p>
+                      </div>
+                      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                        <div className="h-2 rounded-full bg-rose-500 transition-all" style={{ width: `${errorsPct}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {csvImportResult && (
+                <div className={`mt-3 p-3 rounded-lg text-sm flex items-start gap-2 ${
+                  csvImportResult.errors > 0 ? 'bg-yellow-50 text-yellow-800 border border-yellow-200' : 'bg-green-50 text-green-800 border border-green-200'
+                }`}>
+                  {csvImportResult.errors > 0 ? <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" /> : <Check className="w-4 h-4 flex-shrink-0 mt-0.5" />}
+                  <div>
+                    <p className="font-medium">
+                      ✅ {csvImportResult.imported} sotto-etichette importate
+                      {csvImportResult.skipped > 0 && `, ⏭️ ${csvImportResult.skipped} già esistenti ignorate`}
+                      {csvImportResult.errors > 0 && `, ❌ ${csvImportResult.errors} errori`}
+                    </p>
+                    {csvImportResult.errorDetails?.length > 0 && (
+                      <ul className="mt-1 text-xs space-y-0.5 text-yellow-700">
+                        {csvImportResult.errorDetails.map((e, i) => (<li key={i}>• {e}</li>))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Ricerca */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Cerca sotto-etichetta o tag..."
+                value={searchLabel}
+                onChange={(e) => setSearchLabel(e.target.value)}
+                className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
+              />
+              <Search className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
+            </div>
+
+            {/* Lista */}
+            {loading ? (
+              <div className="text-center py-10">
+                <Loader2 className="w-8 h-8 animate-spin text-amber-600 mx-auto mb-2" />
+                <p className="text-gray-600">Caricamento...</p>
+              </div>
+            ) : filteredLabels.length === 0 ? (
+              <div className="text-center py-10">
+                <Tag className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 font-medium">Nessuna sotto-etichetta trovata</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredLabels.map(label => (
+                  <div key={label.id} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition">
+                    {editingLabel?.id === label.id ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+<select
+  value={editingLabel.tag_id}
+  onChange={(e) => setEditingLabel({ ...editingLabel, tag_id: e.target.value })}
+  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
+>
+  {(tags || []).map(tag => (  // ✅ Aggiungi || []
+    <option key={tag.id} value={tag.id}>{tag.label}</option>
+  ))}
+</select>
+                        <input
+                          type="text"
+                          value={editingLabel.label}
+                          onChange={(e) => setEditingLabel({ ...editingLabel, label: e.target.value })}
+                          className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
+                        />
+                        <button onClick={handleUpdateLabel} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setEditingLabel(null)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
+                            <Tag className="w-5 h-5 text-amber-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900">
+                              <span className="text-amber-600">{label.tags?.label}</span> → {label.label}
+                            </p>
+                            <p className="text-xs text-gray-500">ID: {label.id.slice(0, 8)}...</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => setEditingLabel(label)} className="text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition">
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => setShowDeleteConfirm(label)} className="text-red-600 hover:bg-red-50 p-2 rounded-lg transition">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+            <p className="text-sm text-gray-600">{filteredLabels.length} sotto-etichette</p>
+            <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition font-medium">
+              Chiudi
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70]">
+          <div className="bg-white rounded-xl p-6 max-w-md mx-4 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-red-100 p-3 rounded-full">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900">Elimina Sotto-etichetta</h3>
+            </div>
+            <p className="text-gray-600 mb-6">
+              Sei sicuro di voler eliminare <strong>{showDeleteConfirm.tags?.label} → {showDeleteConfirm.label}</strong>?
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowDeleteConfirm(null)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition font-medium">
+                Annulla
+              </button>
+              <button onClick={() => handleDeleteLabel(showDeleteConfirm.id)} className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition font-medium">
+                Elimina
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+
 const AddSectorModal = ({ show, onClose, onAdd }) => {
   const [sectorName, setSectorName] = useState("");
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);  // 🔥 Aggiungi questo state
@@ -6691,7 +8446,562 @@ const DeleteItemModal = ({ show, item, onClose, onDelete, itemType }) => {
   );
 };
 
+const DeleteConfirmModal = ({ contact, onConfirm, onCancel }) => (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="bg-white rounded-lg p-6 max-w-sm w-full shadow-xl">
+      <div className="flex justify-center mb-4">
+        <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center">
+          <Trash2 className="w-7 h-7 text-red-600" />
+        </div>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 mb-2 text-center">
+        Elimina Contatto
+      </h3>
+      <p className="text-gray-600 mb-6 text-center">
+        Sei sicuro di voler eliminare <strong>{contact?.name}</strong>?
+        <br/>
+        <span className="text-sm text-red-500">Questa azione non può essere annullata.</span>
+      </p>
+      <div className="flex gap-3">
+        <button
+          onClick={onCancel}
+          className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg transition"
+        >
+          Annulla
+        </button>
+        <button
+          onClick={onConfirm}
+          className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg transition"
+        >
+          Sì, elimina
+        </button>
+      </div>
+    </div>
+  </div>
+);
 
+const ViewContactModal = ({ contact, onClose, tags, tagLabels, sectors, channels, contactRoles, areas, tipologiaCanale, periodicitaCanale, coperturaCanale, testate }) => {
+  if (!contact) return null;
+
+  const contactTags = (contact.tags || []).map(tagValue =>
+    tags?.find(t => t.label === tagValue || t.value === tagValue || t.id === tagValue)
+  ).filter(Boolean);
+
+  const sector = sectors?.find(s => s.id === contact.sector_id);
+  const channel = channels?.find(c => c.id === contact.channel_id);
+  const role = contactRoles?.find(r => r.id === contact.contact_role_id);
+  const area = areas?.find(a => a.id === contact.area_id);
+  const tipologia = tipologiaCanale?.find(t => t.id === contact.tipologia_canale_id);
+  const periodicita = periodicitaCanale?.find(p => p.id === contact.periodicita_canale_id);
+  const copertura = coperturaCanale?.find(c => c.id === contact.copertura_canale_id);
+  const testata = testate?.find(t => t.id === contact.testata_id);
+
+  const Field = ({ label, value }) => (
+    <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">{label}</p>
+      <p className="text-sm font-medium text-gray-800">
+        {value || <span className="text-gray-300 italic">—</span>}
+      </p>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl">
+
+        {/* HEADER */}
+        <div className="px-6 py-5 bg-gradient-to-r from-emerald-50 to-teal-50 border-b border-gray-100 rounded-t-2xl">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-2xl flex items-center justify-center shadow-md">
+                <span className="text-white text-xl font-bold">
+                  {contact.name?.charAt(0)?.toUpperCase() || '?'}
+                </span>
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">{contact.name}</h3>
+                <p className="text-sm text-gray-500">{contact.email}</p>
+                <span className={`inline-flex items-center gap-1 mt-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                  contact.status === 'active'
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-red-100 text-red-700'
+                }`}>
+                  {contact.status === 'active' ? '● Attivo' : '● Inattivo'}
+                </span>
+              </div>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 hover:bg-white rounded-xl transition">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* BODY */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+
+          {/* Informazioni contatto */}
+          <div>
+            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+              📧 Informazioni Contatto
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Field label="Nome" value={contact.name} />
+              <Field label="Nome Contatto" value={contact.name_contact} />
+              <Field label="Email principale" value={contact.email} />
+              <Field label="Email secondaria" value={contact.email_2} />
+            </div>
+          </div>
+
+          {/* Classificazione */}
+          <div>
+            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+              🏢 Classificazione
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Field label="Settore" value={sector?.name} />
+              <Field label="Canale" value={channel?.name} />
+              <Field label="Ruolo" value={role?.name} />
+              <Field label="Area" value={area?.nome} />
+              <Field label="Testata" value={testata?.nome} />
+              <Field label="Tipologia Canale" value={tipologia?.nome} />
+              <Field label="Periodicità" value={periodicita?.nome} />
+              <Field label="Copertura" value={copertura?.nome} />
+            </div>
+          </div>
+
+          {/* Tag e sotto-etichette */}
+          {contactTags.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                🏷️ Tag e Sotto-etichette
+              </h4>
+              <div className="space-y-3">
+                {contactTags.map(tag => {
+                  const subLabels = (contact.tag_labels || []).filter(labelText => {
+                    const label = tagLabels?.find(tl => tl.label === labelText);
+                    return label && label.tag_id === tag.id;
+                  });
+
+                  return (
+                    <div key={tag.id} className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: tag.color || '#6366f1' }} />
+                        <span className="text-sm font-semibold text-gray-800">{tag.label}</span>
+                      </div>
+                      {subLabels.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 ml-4">
+                          {subLabels.map((labelText, i) => (
+                            <span key={i} className="bg-amber-100 text-amber-700 px-2.5 py-1 text-xs rounded-full font-medium">
+                              → {labelText}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Telefoni */}
+          {contact.phones && contact.phones.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                📱 Contatti Telefonici
+              </h4>
+              <div className="space-y-2">
+                {contact.phones.map((phone, i) => (
+                  <div key={i} className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex items-center gap-4">
+                    <span className="text-2xl">
+                      {phone.tipo === 'mobile' ? '📱' : phone.tipo === 'fisso' ? '📞' : phone.tipo === 'whatsapp' ? '💬' : phone.tipo === 'fax' ? '📠' : '📋'}
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">{phone.prefix} {phone.numero}</p>
+                      <p className="text-xs text-gray-400 capitalize">{phone.tipo} · {phone.categoria}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Note */}
+          {contact.note && (
+            <div>
+              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                📝 Note
+              </h4>
+              <div className="bg-yellow-50 border border-yellow-100 rounded-xl p-4">
+                <p className="text-sm text-gray-700 whitespace-pre-wrap">{contact.note}</p>
+              </div>
+            </div>
+          )}
+
+        </div>
+
+       
+{/* FOOTER */}
+<div className="px-6 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl flex justify-between items-center">
+  
+  <div className="flex gap-2">
+    {/* Esporta CSV */}
+    <button
+      onClick={() => {
+        const rows = [
+          ['Campo', 'Valore'],
+          ['Nome', contact.name || ''],
+          ['Nome Contatto', contact.name_contact || ''],
+          ['Email', contact.email || ''],
+          ['Email 2', contact.email_2 || ''],
+          ['Status', contact.status === 'active' ? 'Attivo' : 'Inattivo'],
+          ['Settore', sector?.name || ''],
+          ['Canale', channel?.name || ''],
+          ['Ruolo', role?.name || ''],
+          ['Area', area?.nome || ''],
+          ['Testata', testata?.nome || ''],
+          ['Tipologia Canale', tipologia?.nome || ''],
+          ['Periodicità', periodicita?.nome || ''],
+          ['Copertura', copertura?.nome || ''],
+          ['Tag', contactTags.map(t => t.label).join('; ')],
+          ['Sotto-etichette', (contact.tag_labels || []).join('; ')],
+          ['Telefoni', (contact.phones || []).map(p => `${p.prefix} ${p.numero} (${p.tipo} - ${p.categoria})`).join('; ')],
+          ['Note', contact.note || ''],
+          ['Creato il', contact.created_at ? new Date(contact.created_at).toLocaleDateString('it-IT') : ''],
+        ];
+        const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `contatto_${contact.name?.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success('✅ Contatto esportato in CSV');
+      }}
+      className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-medium transition"
+    >
+      <Download className="w-4 h-4" />
+      CSV
+    </button>
+
+    {/* Esporta PDF */}
+    <button
+      onClick={async () => {
+        const { default: jsPDF } = await import('jspdf');
+        const { default: autoTable } = await import('jspdf-autotable');
+        
+        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        const pageW = doc.internal.pageSize.getWidth();
+        
+        // ── HEADER ──────────────────────────────────────────
+        doc.setFillColor(30, 64, 175); // blu
+        doc.rect(0, 0, pageW, 32, 'F');
+        
+        // Iniziale nome
+        doc.setFillColor(255, 255, 255);
+        doc.circle(20, 16, 10, 'F');
+        doc.setTextColor(30, 64, 175);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text(contact.name?.charAt(0)?.toUpperCase() || '?', 20, 20, { align: 'center' });
+        
+        // Nome e email
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.text(contact.name || '', 35, 13);
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        doc.text(contact.email || '', 35, 20);
+        
+        // Badge status
+        const statusColor = contact.status === 'active' ? [22, 163, 74] : [220, 38, 38];
+        doc.setFillColor(...statusColor);
+        doc.roundedRect(pageW - 30, 10, 22, 8, 2, 2, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.text(contact.status === 'active' ? 'ATTIVO' : 'INATTIVO', pageW - 19, 15, { align: 'center' });
+
+        let y = 42;
+
+        // ── SEZIONE INFORMAZIONI CONTATTO ───────────────────
+        doc.setTextColor(100, 100, 100);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.text('INFORMAZIONI CONTATTO', 14, y);
+        doc.setDrawColor(200, 200, 200);
+        doc.line(14, y + 2, pageW - 14, y + 2);
+        y += 7;
+
+        autoTable(doc, {
+          startY: y,
+          margin: { left: 14, right: 14 },
+          head: [],
+          body: [
+            ['Nome', contact.name || '—', 'Nome Contatto', contact.name_contact || '—'],
+            ['Email', contact.email || '—', 'Email 2', contact.email_2 || '—'],
+          ],
+          columnStyles: {
+            0: { cellWidth: 30, fontStyle: 'bold', fillColor: [248, 250, 252], textColor: [100, 116, 139] },
+            1: { cellWidth: 65 },
+            2: { cellWidth: 30, fontStyle: 'bold', fillColor: [248, 250, 252], textColor: [100, 116, 139] },
+            3: { cellWidth: 65 },
+          },
+          styles: { fontSize: 9, cellPadding: 4, lineColor: [226, 232, 240], lineWidth: 0.3 },
+          theme: 'grid',
+        });
+        y = doc.lastAutoTable.finalY + 8;
+
+        // ── SEZIONE CLASSIFICAZIONE ─────────────────────────
+        doc.setTextColor(100, 100, 100);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.text('CLASSIFICAZIONE', 14, y);
+        doc.setDrawColor(200, 200, 200);
+        doc.line(14, y + 2, pageW - 14, y + 2);
+        y += 7;
+
+        autoTable(doc, {
+          startY: y,
+          margin: { left: 14, right: 14 },
+          head: [],
+          body: [
+            ['Settore', sector?.name || '—', 'Canale', channel?.name || '—'],
+            ['Ruolo', role?.name || '—', 'Area', area?.nome || '—'],
+            ['Testata', testata?.nome || '—', 'Tipologia', tipologia?.nome || '—'],
+            ['Periodicità', periodicita?.nome || '—', 'Copertura', copertura?.nome || '—'],
+          ],
+          columnStyles: {
+            0: { cellWidth: 30, fontStyle: 'bold', fillColor: [248, 250, 252], textColor: [100, 116, 139] },
+            1: { cellWidth: 65 },
+            2: { cellWidth: 30, fontStyle: 'bold', fillColor: [248, 250, 252], textColor: [100, 116, 139] },
+            3: { cellWidth: 65 },
+          },
+          styles: { fontSize: 9, cellPadding: 4, lineColor: [226, 232, 240], lineWidth: 0.3 },
+          theme: 'grid',
+        });
+        y = doc.lastAutoTable.finalY + 8;
+
+        // ── SEZIONE TAG ─────────────────────────────────────
+        if (contactTags.length > 0) {
+          doc.setTextColor(100, 100, 100);
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'bold');
+          doc.text('TAG E SOTTO-ETICHETTE', 14, y);
+          doc.setDrawColor(200, 200, 200);
+          doc.line(14, y + 2, pageW - 14, y + 2);
+          y += 7;
+
+          const tagRows = contactTags.map(tag => {
+            const subLabels = (contact.tag_labels || []).filter(labelText => {
+              const label = tagLabels?.find(tl => tl.label === labelText);
+              return label && label.tag_id === tag.id;
+            });
+            return [tag.label, subLabels.length > 0 ? subLabels.join(', ') : '—'];
+          });
+
+          autoTable(doc, {
+            startY: y,
+            margin: { left: 14, right: 14 },
+            head: [['Tag', 'Sotto-etichette']],
+            body: tagRows,
+            headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: 'bold', fontSize: 9 },
+            columnStyles: {
+              0: { cellWidth: 80, fontStyle: 'bold' },
+              1: { cellWidth: 110 },
+            },
+            styles: { fontSize: 9, cellPadding: 4, lineColor: [226, 232, 240], lineWidth: 0.3 },
+            theme: 'grid',
+          });
+          y = doc.lastAutoTable.finalY + 8;
+        }
+
+        // ── SEZIONE TELEFONI ────────────────────────────────
+        if (contact.phones?.length > 0) {
+          doc.setTextColor(100, 100, 100);
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'bold');
+          doc.text('CONTATTI TELEFONICI', 14, y);
+          doc.setDrawColor(200, 200, 200);
+          doc.line(14, y + 2, pageW - 14, y + 2);
+          y += 7;
+
+          autoTable(doc, {
+            startY: y,
+            margin: { left: 14, right: 14 },
+            head: [['Tipo', 'Prefisso + Numero', 'Categoria']],
+            body: contact.phones.map(p => [
+              p.tipo?.charAt(0).toUpperCase() + p.tipo?.slice(1) || '—',
+              `${p.prefix || ''} ${p.numero || ''}`.trim(),
+              p.categoria?.charAt(0).toUpperCase() + p.categoria?.slice(1) || '—',
+            ]),
+            headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: 'bold', fontSize: 9 },
+            styles: { fontSize: 9, cellPadding: 4, lineColor: [226, 232, 240], lineWidth: 0.3 },
+            theme: 'grid',
+          });
+          y = doc.lastAutoTable.finalY + 8;
+        }
+
+        // ── NOTE ────────────────────────────────────────────
+        if (contact.note) {
+          doc.setTextColor(100, 100, 100);
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'bold');
+          doc.text('NOTE', 14, y);
+          doc.setDrawColor(200, 200, 200);
+          doc.line(14, y + 2, pageW - 14, y + 2);
+          y += 7;
+
+          doc.setFillColor(255, 251, 235);
+          doc.setDrawColor(253, 230, 138);
+          const noteLines = doc.splitTextToSize(contact.note, pageW - 30);
+          const noteH = noteLines.length * 5 + 8;
+          doc.roundedRect(14, y, pageW - 28, noteH, 2, 2, 'FD');
+          doc.setTextColor(60, 60, 60);
+          doc.setFontSize(9);
+          doc.setFont('helvetica', 'normal');
+          doc.text(noteLines, 19, y + 6);
+          y += noteH + 8;
+        }
+
+        // ── FOOTER ──────────────────────────────────────────
+        const pageH = doc.internal.pageSize.getHeight();
+        doc.setFillColor(248, 250, 252);
+        doc.rect(0, pageH - 12, pageW, 12, 'F');
+        doc.setTextColor(150, 150, 150);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Generato il ${new Date().toLocaleString('it-IT')}`, 14, pageH - 4);
+        doc.text('MailMassProm', pageW - 14, pageH - 4, { align: 'right' });
+
+        doc.save(`contatto_${contact.name?.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`);
+        toast.success('✅ PDF esportato con successo!');
+      }}
+      className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition"
+    >
+      <FileText className="w-4 h-4" />
+      PDF
+    </button>
+
+    {/* Stampa */}
+    <button
+      onClick={() => window.print()}
+      className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-sm font-medium transition"
+    >
+      <Printer className="w-4 h-4" />
+      Stampa
+    </button>
+  </div>
+
+  <button
+    onClick={onClose}
+    className="px-6 py-2.5 bg-gray-800 hover:bg-gray-900 text-white rounded-xl font-medium transition text-sm"
+  >
+    Chiudi
+  </button>
+</div>
+      </div>
+    </div>
+  );
+};
+
+// ✅ Componente dropdown multi-select con ricerca riutilizzabile
+const MultiSelectFilter = ({ label, options, selected, onChange, placeholder = 'Filtra...', colorKey = null }) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filtered = options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()));
+  const isSelected = (id) => selected.includes(id);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-left flex items-center justify-between bg-white hover:bg-gray-50"
+      >
+        <span className="text-gray-700 truncate">
+          {selected.length > 0 ? `${selected.length} selezionati` : placeholder}
+        </span>
+        <ChevronDown className={`w-4 h-4 text-gray-400 ml-2 transition-transform flex-shrink-0 ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg">
+          {/* Ricerca */}
+          <div className="p-2 border-b border-gray-100">
+            <div className="relative">
+              <Search className="absolute left-2 top-2 w-3.5 h-3.5 text-gray-400" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Cerca..."
+                className="w-full pl-7 pr-3 py-1.5 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          </div>
+
+          {/* Lista */}
+          <div className="max-h-48 overflow-y-auto">
+            {/* Reset selezione */}
+            {selected.length > 0 && (
+              <button
+                onClick={() => { onChange([]); setOpen(false); }}
+                className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 border-b border-gray-100 font-medium"
+              >
+                ✕ Deseleziona tutti
+              </button>
+            )}
+
+            {filtered.length === 0 ? (
+              <div className="px-3 py-3 text-xs text-gray-400 text-center">Nessun risultato</div>
+            ) : (
+              filtered.map(opt => (
+                <label key={opt.value} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isSelected(opt.value)}
+                    onChange={(e) => {
+                      if (e.target.checked) onChange([...selected, opt.value]);
+                      else onChange(selected.filter(id => id !== opt.value));
+                    }}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                  />
+                  {colorKey && opt[colorKey] ? (
+                    <div className="flex items-center gap-1.5 truncate">
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: opt[colorKey] }} />
+                      <span className="text-sm text-gray-700 truncate">{opt.label}</span>
+                    </div>
+                  ) : opt.color ? (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium truncate"
+                      style={{ backgroundColor: opt.color + '20', color: opt.color }}>
+                      {opt.label}
+                    </span>
+                  ) : (
+                    <span className="text-sm text-gray-700 truncate">{opt.label}</span>
+                  )}
+                </label>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 // ---------------- COMPONENTE CONTATTI ----------------
 const Contacts = () => {
   const { user } = useAuth(); // 👈 importa dal contesto auth
@@ -6702,6 +9012,38 @@ const Contacts = () => {
   const [availableTags, setAvailableTags] = useState([]);
   const [hasNoTagFilter, setHasNoTagFilter] = useState(false);
   const [selectedContacts, setSelectedContacts] = useState([]);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [filterContactLabel, setFilterContactLabel] = useState(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [tags, setTags] = useState([]);
+const [tagLabels, setTagLabels] = useState([]);
+const [sectors, setSectors] = useState([]);
+const [channels, setChannels] = useState([]);
+const [roles, setRoles] = useState([]);
+const [areas, setAreas] = useState([]);
+const [tipologiaCanale, setTipologiaCanale] = useState([]);
+const [periodicitaCanale, setPeriodicitaCanale] = useState([]);
+const [coperturaCanale, setCoperturaCanale] = useState([]);
+const [testate, setTestate] = useState([]);
+const [showTagsModal, setShowTagsModal] = useState(false);
+const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
+const [contactToDeactivate, setContactToDeactivate] = useState(null);
+const [contactLabels, setContactLabels] = useState([]);
+const [showContactLabelsModal, setShowContactLabelsModal] = useState(false);
+  
+// Filtri avanzati
+const [filterSectors, setFilterSectors] = useState([]);
+const [filterChannels, setFilterChannels] = useState([]);
+const [filterRoles, setFilterRoles] = useState([]);
+const [filterAreas, setFilterAreas] = useState([]);
+const [filterTestate, setFilterTestate] = useState([]);
+const [filterTipologie, setFilterTipologie] = useState([]);
+const [filterPeriodicity, setFilterPeriodicity] = useState([]);
+const [filterCoperture, setFilterCoperture] = useState([]);
+const [filterContactLabels, setFilterContactLabels] = useState([]);
+const [filterTagLabels, setFilterTagLabels] = useState([]);
+const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+
 
   // Aggiungi la funzione di eliminazione
 const handleDeleteSelected = async () => {
@@ -6721,46 +9063,97 @@ const handleDeleteSelected = async () => {
     toast.error('❌ Errore durante l\'eliminazione');
   }
 };
-  const fetchContacts = async () => {
+const fetchContacts = async () => {
+  setLoading(true);
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+
+    let allData = [];
+    let page = 0;
+    const pageSize = 1000;
+    
+    while (true) {
+      const { data, error } = await supabase
+        .from('contacts_full')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true })
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allData = [...allData, ...data];
+      if (data.length < pageSize) break;
+      page++;
+    }
+
+    const cleaned = allData.map(c => ({
+      ...c,
+      name: c.name?.replace(/\bnan\b/gi, '').trim() || c.name
+    }));
+
+    setContacts(cleaned);
+  } catch (error) {
+    console.error('💥 Errore:', error);
+    toast.error('Errore nel caricamento dei contatti');
+  } finally {
+    setLoading(false);
+  }
+};
+
+
+
+useEffect(() => {
+  const loadLookups = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-  
-      const { data: contactsData, error } = await supabase
-        .from('contacts')
-        .select(`
-          *,
-          contact_tags (
-            tag:tags (
-              id,
-              label,
-              value,
-              color
-            )
-          )
-        `)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-  
-      if (error) {
-        console.error('Errore caricamento contatti:', error);
-        return;
-      }
-  
-      // ✅ Trasforma i dati per avere tags come array di stringhe
-      const contactsWithTags = contactsData?.map(contact => ({
-        ...contact,
-        tags: contact.contact_tags?.map(ct => ct.tag.label) || []
-      })) || [];
-  
-      console.log('✅ Contatti con tag:', contactsWithTags.slice(0, 3)); // Debug primi 3
-  
-      setContacts(contactsWithTags);
+
+      const [
+        { data: tagsData },
+        { data: tagLabelsData },
+        { data: sectorsData },
+        { data: channelsData },
+        { data: rolesData },
+        { data: areasData },
+        { data: tipologiaData },
+        { data: periodicitaData },
+        { data: coperturaData },
+        { data: testateData },
+        { data: contactLabelsData },
+      ] = await Promise.all([
+        supabase.from('tags').select('*').eq('user_id', user.id).order('label'),
+        supabase.from('tag_labels').select('*, tags(id, label, value)').eq('user_id', user.id).order('label'),
+        supabase.from('sectors').select('*').order('name'),
+        supabase.from('channels').select('*').order('name'),       // ✅ no user_id
+        supabase.from('contact_roles').select('*').order('name'),          // ✅ no user_id
+        supabase.from('areas').select('*').eq('user_id', user.id).order('nome'),
+        supabase.from('tipologia_canale').select('*').eq('user_id', user.id).order('nome'),
+        supabase.from('periodicita_canale').select('*').eq('user_id', user.id).order('nome'),
+        supabase.from('copertura_canale').select('*').eq('user_id', user.id).order('nome'),
+        supabase.from('testate').select('*').eq('user_id', user.id).order('nome'),  // ✅ tabella corretta
+        supabase.from('contact_labels').select('*').eq('user_id', user.id).order('nome'),
+      ]);
+
+      setTags(tagsData || []);
+      setTagLabels(tagLabelsData || []);
+      setSectors(sectorsData || []);
+      setChannels(channelsData || []);
+      setRoles(rolesData || []);
+      setAreas(areasData || []);
+      setTipologiaCanale(tipologiaData || []);
+      setPeriodicitaCanale(periodicitaData || []);
+      setCoperturaCanale(coperturaData || []);
+      setTestate(testateData || []);
+      setContactLabels(contactLabelsData || []);
     } catch (error) {
-      console.error('Errore:', error);
+      console.error('❌ Errore caricamento lookup:', error);
     }
   };
 
+  loadLookups();
+}, []);
   // Aggiungi questo useEffect per caricare i tag
   useEffect(() => {
     const fetchTags = async () => {
@@ -6917,48 +9310,80 @@ const printContactsList = () => {
 };
   
   // 📥 Esporta in CSV
-const exportToCSV = () => {
-  try {
-    // Header CSV
-    const headers = ['Nome', 'Email', 'Stato', 'Tags', 'Data Creazione'];
-    
-    // Dati
-    const rows = filteredContacts.map(contact => [
-      contact.name || '',
-      contact.email || '',
-      contact.status || 'Attivo',
-      (contact.tags || []).join('; '),
-      contact.created_at ? new Date(contact.created_at).toLocaleDateString('it-IT') : ''
-    ]);
-    
-    // Crea CSV
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
-    ].join('\n');
-    
-    // Download
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `contatti_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    toast.success(`✅ ${filteredContacts.length} contatti esportati in CSV`);
-  } catch (error) {
-    console.error('Errore export CSV:', error);
-    toast.error('Errore durante l\'esportazione CSV');
-  }
-};
-
+  const exportToCSV = () => {
+    try {
+      const headers = [
+        'Nome', 'Email', 'Email 2', 'Stato', 'Tags', 'Sotto-etichette', 'Etichetta', 
+        'Settore', 'Canale', 'Ruolo', 'Area', 'Testata',
+        'Tipologia Canale', 'Periodicità', 'Copertura Canale', 'Note', 'Data Creazione'
+      ];
+  
+      const rows = filteredContacts.map(contact => {
+        // Lookup tabelle relazionali
+        const sector = sectors.find(s => s.id === contact.sector_id);
+        const channel = channels.find(c => c.id === contact.channel_id);
+        const role = roles.find(r => r.id === contact.contact_role_id);
+        const area = areas.find(a => a.id === contact.area_id);
+        const testata = testate.find(t => t.id === contact.testata_id);
+        const tipologia = tipologiaCanale.find(t => t.id === contact.tipologia_canale_id);
+        const periodicita = periodicitaCanale.find(p => p.id === contact.periodicita_canale_id);
+        const copertura = coperturaCanale.find(c => c.id === contact.copertura_canale_id);
+  
+        // ✅ TRADUZIONE ID -> NOME (Tabella contact_labels)
+        // Cerchiamo l'ID '987b6c28...' per ottenere "Mailing Lista Nazionale"
+        const safeLabels = Array.isArray(contact_labels) ? contact_labels : [];
+        const labelObj = safeLabels.find(l => String(l.id) === String(contact.contact_label_id));
+        const labelText = labelObj ? labelObj.nome : ''; // Usiamo .nome come nel tuo DB
+  
+        return [
+          contact.name || '',
+          contact.email || '',
+          contact.email_2 || '',
+          contact.status === 'active' ? 'Attivo' : 'Inattivo',
+          (contact.tags || []).join('; '),
+          (contact.tag_labels || []).join('; '), 
+          labelText, // ✅ Inserito nella colonna 'Etichetta'
+          sector?.name || '',
+          channel?.name || '',
+          role?.name || '',
+          area?.nome || '',
+          testata?.nome || '',
+          tipologia?.nome || '',
+          periodicita?.nome || '',
+          copertura?.nome || '',
+          contact.note || '',
+          contact.created_at ? new Date(contact.created_at).toLocaleDateString('it-IT') : ''
+        ];
+      });
+  
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      ].join('\n');
+  
+      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `esportazione_contatti_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  
+      toast.success(`✅ ${filteredContacts.length} contatti esportati correttamente`);
+    } catch (error) {
+      console.error('Errore export CSV:', error);
+      toast.error('Errore durante l\'esportazione del file');
+    }
+  };
 // 📄 Esporta in PDF
 const exportToPDF = () => {
   try {
     const printWindow = window.open('', '_blank');
     
+    // Recuperiamo il dizionario delle etichette per la traduzione degli ID
+    const safeLabels = Array.isArray(contact_labels) ? contact_labels : [];
+
     const htmlContent = `
       <!DOCTYPE html>
       <html>
@@ -6966,56 +9391,74 @@ const exportToPDF = () => {
         <title>Lista Contatti - ${new Date().toLocaleDateString('it-IT')}</title>
         <style>
           body { 
-            font-family: Arial, sans-serif; 
+            font-family: 'Segoe UI', Arial, sans-serif; 
             padding: 20px;
-            font-size: 12px;
+            font-size: 11px;
+            color: #333;
           }
           h1 { 
             color: #1e40af; 
-            margin-bottom: 20px;
-            font-size: 24px;
+            margin-bottom: 10px;
+            font-size: 22px;
+            border-bottom: 2px solid #1e40af;
+            padding-bottom: 10px;
           }
           .info {
             margin-bottom: 20px;
-            color: #666;
+            color: #4b5563;
           }
           table { 
             width: 100%; 
             border-collapse: collapse; 
-            margin-top: 20px;
+            margin-top: 10px;
           }
           th { 
             background-color: #1e40af; 
             color: white; 
-            padding: 12px; 
+            padding: 10px 8px; 
             text-align: left;
             font-weight: bold;
+            text-transform: uppercase;
+            font-size: 10px;
           }
           td { 
-            padding: 10px; 
-            border-bottom: 1px solid #ddd;
-          }
-          tr:hover { 
-            background-color: #f5f5f5; 
+            padding: 8px; 
+            border-bottom: 1px solid #e5e7eb;
+            vertical-align: middle;
           }
           .tag {
             display: inline-block;
             background-color: #dbeafe;
             color: #1e40af;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 10px;
-            margin-right: 4px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 9px;
+            margin-right: 3px;
+            margin-bottom: 2px;
+            border: 1px solid #bfdbfe;
+          }
+          /* Stile specifico per l'Etichetta (Mailing Lista Nazionale) */
+          .contact-label {
+            display: inline-block;
+            background-color: #fef3c7;
+            color: #b45309;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 9px;
+            font-weight: bold;
+            border: 1px solid #fde68a;
           }
           .footer {
             margin-top: 30px;
             text-align: center;
-            color: #999;
-            font-size: 10px;
+            color: #9ca3af;
+            font-size: 9px;
+            border-top: 1px solid #e5e7eb;
+            padding-top: 10px;
           }
           @media print {
-            body { padding: 10px; }
-            button { display: none; }
+            body { padding: 0; }
+            @page { margin: 1.5cm; }
           }
         </style>
       </head>
@@ -7029,39 +9472,52 @@ const exportToPDF = () => {
         <table>
           <thead>
             <tr>
-              <th>#</th>
+              <th style="width: 30px">#</th>
               <th>Nome</th>
               <th>Email</th>
-              <th>Stato</th>
-              <th>Tags</th>
-              <th>Data Creazione</th>
+              <th>Etichetta</th> <th>Tags</th>
+              <th style="width: 80px">Data Creaz.</th>
             </tr>
           </thead>
           <tbody>
-            ${filteredContacts.map((contact, index) => `
-              <tr>
-                <td>${index + 1}</td>
-                <td>${contact.name || '-'}</td>
-                <td>${contact.email || '-'}</td>
-                <td>${contact.status || 'Attivo'}</td>
-                <td>
-                  ${(contact.tags || []).map(tag => 
-                    `<span class="tag">${tag}</span>`
-                  ).join('') || 'Nessun tag'}
-                </td>
-                <td>${contact.created_at ? new Date(contact.created_at).toLocaleDateString('it-IT') : '-'}</td>
-              </tr>
-            `).join('')}
+            ${filteredContacts.map((contact, index) => {
+              // Cerchiamo il nome dell'etichetta tramite l'ID contact_label_id
+              const labelObj = safeLabels.find(l => String(l.id) === String(contact.contact_label_id));
+              const labelName = labelObj ? labelObj.nome : '-';
+
+              return `
+                <tr>
+                  <td>${index + 1}</td>
+                  <td><strong>${contact.name || '-'}</strong></td>
+                  <td>${contact.email || '-'}</td>
+                  <td>
+                    ${labelObj 
+                      ? `<span class="contact-label">${labelName}</span>` 
+                      : `<span style="color: #9ca3af">-</span>`
+                    }
+                  </td>
+                  <td>
+                    ${(contact.tags || []).map(tag => 
+                      `<span class="tag">${tag}</span>`
+                    ).join('') || '-'}
+                  </td>
+                  <td>${contact.created_at ? new Date(contact.created_at).toLocaleDateString('it-IT') : '-'}</td>
+                </tr>
+              `;
+            }).join('')}
           </tbody>
         </table>
         
         <div class="footer">
-          Generato da MailMassProm - ${new Date().toLocaleDateString('it-IT')}
+          Generato da MailMassProm - Sistema Gestione Contatti - Documento ad uso interno
         </div>
         
         <script>
           window.onload = function() {
-            window.print();
+            setTimeout(function() {
+              window.print();
+              // Opzionale: window.close(); // Chiude il tab dopo la stampa
+            }, 500);
           }
         </script>
       </body>
@@ -7071,10 +9527,10 @@ const exportToPDF = () => {
     printWindow.document.write(htmlContent);
     printWindow.document.close();
     
-    toast.success('📄 Apertura finestra di stampa...');
+    toast.success('📄 Documento PDF pronto per la stampa');
   } catch (error) {
     console.error('Errore export PDF:', error);
-    toast.error('Errore durante l\'esportazione PDF');
+    toast.error('Errore durante la generazione del PDF');
   }
 };
 
@@ -7082,21 +9538,6 @@ const exportToPDF = () => {
 const printContacts = () => {
   exportToPDF(); // Usa la stessa funzione del PDF
 };
-  useEffect(() => {
-    if (!user?.id) return;
-    const loadContacts = async () => {
-      try {
-        const res = await fetch(`/api/contacts/get?user_id=${user.id}`);
-        const result = await res.json();
-        if (result.success) setContacts(result.data);
-      } catch (err) {
-        console.error("Errore caricamento contatti:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadContacts();
-  }, [user?.id]);
 
   <Toaster position="top-right" />
 
@@ -7113,30 +9554,16 @@ const [sortConfig, setSortConfig] = useState({ key: null, direction: null });
 const [currentPage, setCurrentPage] = useState(1);
 const contactsPerPage = 6;
 
-const [showEditModal, setShowEditModal] = useState(() => {
-  if (typeof window !== 'undefined') {
-    return sessionStorage.getItem('showEditModal') === 'true';
-  }
-  return false;
-});
+// ✅ Stati semplici, niente sessionStorage
+const [showEditModal, setShowEditModal] = useState(false);
+const [selectedContact, setSelectedContact] = useState(null);
 
-const [selectedContact, setSelectedContact] = useState(() => {
-  if (typeof window !== 'undefined') {
-    const saved = sessionStorage.getItem('selectedContact');
-    return saved ? JSON.parse(saved) : null;
-  }
-  return null;
-});
-
-// Salva gli stati in sessionStorage quando cambiano
+// ✅ Pulisci sessionStorage vecchio al mount
 useEffect(() => {
-  sessionStorage.setItem('showEditModal', showEditModal);
-  if (selectedContact) {
-    sessionStorage.setItem('selectedContact', JSON.stringify(selectedContact));
-  } else {
-    sessionStorage.removeItem('selectedContact');
-  }
-}, [showEditModal, selectedContact]);
+  sessionStorage.removeItem('showEditModal');
+  sessionStorage.removeItem('selectedContact');
+  sessionStorage.removeItem('editingContact_temp');
+}, []);
 
 // 🔄 Gestione cambio stato contatto
 const handleToggleStatus = (id) => {
@@ -7183,20 +9610,36 @@ const handleAddContact = (newContact) => {
   setContacts((prev) => [...prev, newContact]);
 };
 
-// ✏️ Modifica contatto
+
 const handleEditContact = (updatedContact) => {
-  setContacts((prev) =>
-    prev.map((c) => (c.id === updatedContact.id ? updatedContact : c))
-  );
-  toast.success("✅ Contatto modificato con successo!");
+  // ✅ Il salvataggio è già fatto da handleSave in EditContactModal
+  // Aggiorna solo la lista locale
+  if (updatedContact) {
+    setContacts(prev => prev.map(c => c.id === updatedContact.id ? updatedContact : c));
+  }
+  setShowEditModal(false);
+  setSelectedContact(null);
 };
 
-// 🗑️ Eliminazione contatto
-const handleConfirmDelete = (id) => {
-  setContacts((prev) => prev.filter((c) => c.id !== id));
-  toast.success("🗑️ Contatto eliminato definitivamente!");
-  setSelectedContact(null);
-  setShowDeleteModal(false);
+const handleConfirmDelete = async () => {
+  if (!selectedContact) return;
+  
+  try {
+    const { error } = await supabase
+      .from('contacts')
+      .delete()
+      .eq('id', selectedContact.id);
+
+    if (error) throw error;
+
+    setContacts(prev => prev.filter(c => c.id !== selectedContact.id));
+    toast.success("🗑️ Contatto eliminato definitivamente!");
+  } catch (error) {
+    toast.error('Errore durante l\'eliminazione');
+  } finally {
+    setSelectedContact(null);
+    setShowDeleteModal(false);
+  }
 };
 
 // ❌ Annulla eliminazione
@@ -7214,38 +9657,75 @@ const handleImportContacts = (imported) => {
 // 🔍 Filtraggio ricerca + stato
 const filteredContacts = contacts.filter((c) => {
   const term = searchTerm.toLowerCase();
-  const matchesSearch =
-    c.name.toLowerCase().includes(term) ||
-    c.email.toLowerCase().includes(term) ||
+   const matchesSearch =
+    c.name?.toLowerCase().includes(term) ||
+    c.email?.toLowerCase().includes(term) ||
     (c.tags || []).some((tag) => tag.toLowerCase().includes(term));
 
   const matchesStatus =
-    statusFilter.value === "all" ||
-    (statusFilter.value === "active" && c.status === "active") ||
-    (statusFilter.value === "inactive" && c.status === "inactive");
+    statusFilter.value === 'all' ||
+    (statusFilter.value === 'active' && c.status === 'active') ||
+    (statusFilter.value === 'inactive' && c.status === 'inactive');
 
-  // ✅ Filtro tag modificato
   const matchesTags =
-    (!hasNoTagFilter && selectedTags.length === 0) || // Nessun filtro attivo
-    (hasNoTagFilter && (!c.tags || c.tags.length === 0)) || // Filtra solo quelli senza tag
-    (selectedTags.length > 0 && c.tags && selectedTags.some(selectedTag => 
-      c.tags.some(contactTag => contactTag.toLowerCase() === selectedTag.label.toLowerCase())
+    (!hasNoTagFilter && selectedTags.length === 0) ||
+    (hasNoTagFilter && (!c.tags || c.tags.length === 0)) ||
+    (selectedTags.length > 0 && c.tags && selectedTags.some(st =>
+      c.tags.some(ct => ct.toLowerCase() === st.label.toLowerCase())
     ));
 
-  return matchesSearch && matchesStatus && matchesTags;
+    const matchesSector = filterSectors.length === 0 || filterSectors.includes(c.sector_id);
+    const matchesChannel = filterChannels.length === 0 || filterChannels.includes(c.channel_id);
+    const matchesRole = filterRoles.length === 0 || filterRoles.includes(c.contact_role_id);
+    const matchesArea = filterAreas.length === 0 || filterAreas.includes(c.area_id);
+    const matchesTestata = filterTestate.length === 0 || filterTestate.includes(c.testata_id);
+    const matchesTipologia = filterTipologie.length === 0 || filterTipologie.includes(c.tipologia_canale_id);
+    const matchesPeriodicita = filterPeriodicity.length === 0 || filterPeriodicity.includes(c.periodicita_canale_id);
+    const matchesCopertura = filterCoperture.length === 0 || filterCoperture.includes(c.copertura_canale_id);
+    const matchesContactLabel = filterContactLabels.length === 0 || filterContactLabels.includes(c.contact_label_id);
+  const matchesTagLabels = filterTagLabels.length === 0 ||
+    filterTagLabels.every(labelId => {
+      const label = tagLabels.find(tl => tl.id === labelId);
+      return label && (c.tag_labels || []).includes(label.label);
+    });
+
+    return matchesSearch && matchesStatus && matchesTags &&
+    matchesSector && matchesChannel && matchesRole && matchesArea &&
+    matchesTestata && matchesTipologia && matchesPeriodicita &&
+    matchesCopertura && matchesTagLabels && matchesContactLabel;
 });
 
 // ↕️ Ordinamento
 const sortedContacts = [...filteredContacts].sort((a, b) => {
   if (!sortConfig.key) return 0;
+
+  // Uniformiamo su contactLabels
+  const safeLabels = Array.isArray(contactLabels) ? contactLabels : [];
+
+  const labelLookup = Object.fromEntries(
+    safeLabels.map(l => [String(l.id), l.nome || ""])
+  );
+
   let A = a[sortConfig.key];
   let B = b[sortConfig.key];
-  if (Array.isArray(A)) A = A.join(",");
-  if (Array.isArray(B)) B = B.join(",");
-  A = A.toLowerCase();
-  B = B.toLowerCase();
-  if (A < B) return sortConfig.direction === "asc" ? -1 : 1;
-  if (A > B) return sortConfig.direction === "asc" ? 1 : -1;
+
+  // Gestione colonna Etichetta
+  if (sortConfig.key === "contact_label_id") {
+    A = labelLookup[String(A || "")] || "";
+    B = labelLookup[String(B || "")] || "";
+  }
+
+  // Gestione per TAG standard
+  if (sortConfig.key === "tags") {
+    A = Array.isArray(A) ? A.join(", ") : (A || "");
+    B = Array.isArray(B) ? B.join(", ") : (B || "");
+  }
+
+  const strA = String(A || "").toLowerCase().trim();
+  const strB = String(B || "").toLowerCase().trim();
+
+  if (strA < strB) return sortConfig.direction === "asc" ? -1 : 1;
+  if (strA > strB) return sortConfig.direction === "asc" ? 1 : -1;
   return 0;
 });
 
@@ -7324,19 +9804,19 @@ return (
             <Select options={statusOptions} value={statusFilter} onChange={setStatusFilter} className="text-sm" />
           </div> */}
         </div>
-{/* 🆕 BARRA FILTRI */}
+        {/* 🆕 BARRA FILTRI */}
 
         <div className="flex gap-3 justify-end">
           {/* Scarica modello CSV */}
           <button
             onClick={() => {
-              const headers = ["name,email,tags,tipologia_canale,periodicita_canale,copertura_canale,ruolo,settore,canale"];
+              const headers = "name,email,email_2,tags,tag_labels,contact_labels,settore,canale,ruolo,area,testata,tipologia_canale,periodicita_canale,copertura_canale";
               const exampleData = [
-                "Mario Rossi,mario@email.com,cliente,Periodici specializzati,Quotidiano,Nazionale,Direttore Editoriale,Edilizia/Costruzioni;Architettura/Casa/Arredamento/Design,Sport - Atletica",
-                "Giulia Verdi,giulia@email.com,prospect,Online specializzati,Settimanale,Nazionale,Capo Redattore,Information technology;Tecnologia/Innovazione,Sport acquatici",
+                "Mario Rossi,mario@email.com,mario2@email.com,Mailing TECH - Online,trade;tech,Mailing Lista Nazionale,Information technology,Online specializzati,Direttore Editoriale,Nord,La Repubblica,Online specializzati,Quotidiano,Nazionale",
+                "Giulia Verdi,giulia@email.com,,Mailing CSR,,Edilizia/Costruzioni,Periodici specializzati,Capo Redattore,Sud,Il Corriere,Periodici specializzati,Settimanale,Regionale",
               ];
               const csvContent = [headers, ...exampleData].join("\n");
-              const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+              const blob = new Blob(['\uFEFF' + csvContent], { type: "text/csv;charset=utf-8;" });
               const url = URL.createObjectURL(blob);
               const link = document.createElement("a");
               link.href = url;
@@ -7344,6 +9824,7 @@ return (
               document.body.appendChild(link);
               link.click();
               document.body.removeChild(link);
+              toast.success("📥 Modello CSV scaricato!");
             }}
             className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
           >
@@ -7359,32 +9840,32 @@ return (
             <Upload className="w-4 h-4" />
             Importa CSV
           </button>
-           {/* 🆕 Bottone Esporta CSV */}
-  <button
-    onClick={exportToCSV}
-    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition"
-  >
-    <Download className="w-4 h-4" />
-    Esporta CSV
-  </button>
-   {/* 🆕 Bottone Stampa/PDF */}
-<button
-  onClick={printContactsList} // ✅ Nome diverso
-  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition"
->
-  <Printer className="w-4 h-4" />
-  Stampa/PDF
-</button>
+          {/* 🆕 Bottone Esporta CSV */}
+          <button
+            onClick={exportToCSV}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition"
+          >
+            <Download className="w-4 h-4" />
+            Esporta CSV
+          </button>
+          {/* 🆕 Bottone Stampa/PDF */}
+          <button
+            onClick={printContactsList} // ✅ Nome diverso
+            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition"
+          >
+            <Printer className="w-4 h-4" />
+            Stampa/PDF
+          </button>
 
 
           {/* 🔥 NUOVO BOTTONE - Gestione Tag */}
           <button
-    onClick={() => setShowTagsModal(true)}
-    className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-  >
-    <Tag className="w-4 h-4" />
-    Gestisci Tag
-  </button>
+            onClick={() => setShowTagsModal(true)}
+            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+          >
+            <Tag className="w-4 h-4" />
+            Gestisci Tag
+          </button>
 
           {/* Aggiungi contatto */}
           <button
@@ -7397,134 +9878,233 @@ return (
         </div>
       </div>
     </div>
-    {/* 🆕 BARRA FILTRI - Aggiungi QUI */}
-<div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
-  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-    {/* Ricerca */}
-    <div className="relative">
-      <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-      <input
-        type="text"
-        placeholder="Cerca per nome o email..."
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
-        className="w-full pl-10 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-      />
-      {searchTerm && (
-        <button
-          onClick={() => setSearchTerm('')}
-          className="absolute right-2 top-2.5 text-gray-400 hover:text-gray-600"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      )}
-    </div>
+{/* 🔍 BARRA FILTRI */}
+<div className="bg-gray-50 border-t border-gray-200">
+  <div className="px-6 py-4">
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
 
-    {/* Filtro Stato */}
-    <select
-      value={statusFilter.value}
-      onChange={(e) => {
-        const selectedOption = statusOptions.find(opt => opt.value === e.target.value);
-        setStatusFilter(selectedOption);
-      }}
-      className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-    >
-      <option value="all">Tutti i contatti</option>
-      <option value="active">Attivi</option>
-      <option value="inactive">Non attivi</option>
-    </select>
-
-    {/* Filtro Tag */}
-{/* Filtro Tag */}
-<div className="relative">
-  <button
-    onClick={() => setShowTagFilter(!showTagFilter)}
-    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-left focus:ring-2 focus:ring-blue-500 focus:border-blue-500 flex items-center justify-between bg-white hover:bg-gray-50"
-  >
-    <span className="text-gray-700 truncate">
-      {selectedTags.length > 0 
-        ? `${selectedTags.length} tag` 
-        : hasNoTagFilter 
-        ? 'Senza tag' 
-        : 'Filtra per tag'}
-    </span>
-    <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ml-2 ${showTagFilter ? 'rotate-180' : ''}`} />
-  </button>
-
-  {showTagFilter && (
-    <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-      {/* ✅ Opzione "Nessun tag" */}
-      <label className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100">
+      {/* Ricerca */}
+      <div className="relative">
+        <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
         <input
-          type="checkbox"
-          checked={hasNoTagFilter}
-          onChange={(e) => {
-            setHasNoTagFilter(e.target.checked);
-            if (e.target.checked) {
-              setSelectedTags([]); // Deseleziona gli altri tag
-            }
-          }}
-          className="rounded border-gray-300 text-red-600 focus:ring-red-500 flex-shrink-0"
+          type="text"
+          placeholder="Cerca per nome o email..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full pl-10 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         />
-        <span className="text-gray-700 text-xs font-medium">
-          Senza tag
-        </span>
-      </label>
+        {searchTerm && (
+          <button onClick={() => setSearchTerm('')} className="absolute right-2 top-2.5 text-gray-400 hover:text-gray-600">
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
 
-      {/* Tag disponibili */}
-      {availableTags && availableTags.length > 0 ? (
-        availableTags.map(tag => (
-          <label
-            key={tag.id}
-            className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer"
-          >
-            <input
-              type="checkbox"
-              checked={selectedTags.some(t => t.id === tag.id)}
-              onChange={(e) => {
-                if (e.target.checked) {
-                  setSelectedTags([...selectedTags, tag]);
-                  setHasNoTagFilter(false); // Deseleziona "Nessun tag"
-                } else {
-                  setSelectedTags(selectedTags.filter(t => t.id !== tag.id));
-                }
-              }}
-              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
-            />
-            <span
-              className="px-2 py-0.5 rounded-full text-xs font-medium truncate"
-              style={{
-                backgroundColor: tag.color + '20',
-                color: tag.color
-              }}
-            >
-              {tag.label}
-            </span>
-          </label>
-        ))
-      ) : (
-        <div className="px-3 py-2 text-xs text-gray-500 text-center">
-          Nessun tag
-        </div>
-      )}
-    </div>
-  )}
+      {/* Filtro Stato */}
+      <select
+        value={statusFilter.value}
+        onChange={(e) => setStatusFilter(statusOptions.find(opt => opt.value === e.target.value))}
+        className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+      >
+        <option value="all">Tutti i contatti</option>
+        <option value="active">Attivi</option>
+        <option value="inactive">Non attivi</option>
+      </select>
+
+      {/* Filtro Tag */}
+{/* Filtro Tag - usa MultiSelectFilter */}
+<div>
+  <MultiSelectFilter
+    options={[
+      { value: '__no_tag__', label: 'Senza tag', color: '#ef4444' },
+      ...availableTags.map(t => ({ value: t.id, label: t.label, color: t.color }))
+    ]}
+    selected={[
+      ...(hasNoTagFilter ? ['__no_tag__'] : []),
+      ...selectedTags.map(t => t.id)
+    ]}
+    onChange={(vals) => {
+      if (vals.includes('__no_tag__')) {
+        setHasNoTagFilter(true);
+        setSelectedTags([]);
+      } else {
+        setHasNoTagFilter(false);
+        setSelectedTags(availableTags.filter(t => vals.includes(t.id)));
+      }
+    }}
+    placeholder="Filtra per tag..."
+  />
 </div>
 
-    {/* Reset filtri */}
-    {(searchTerm || statusFilter.value !== 'all' || selectedTags.length > 0) && (
-      <button
-        onClick={() => {
-          setSearchTerm('');
-          setStatusFilter({ value: 'all', label: 'Tutti i contatti' });
-          setSelectedTags([]);
-          setShowTagFilter(false);
-        }}
-        className="flex items-center justify-center gap-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-sm font-medium"
-      >
-        <X className="w-4 h-4" />
-        Reset Filtri
-      </button>
+          {/* Bottone filtri avanzati */}
+<button
+  onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+  className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition border ${
+    showAdvancedFilters || filterSectors.length > 0 || filterChannels.length > 0 || 
+    filterRoles.length > 0 || filterAreas.length > 0 || filterTestate.length > 0 || 
+    filterTipologie.length > 0 || filterPeriodicity.length > 0 || filterCoperture.length > 0 || 
+    filterContactLabels.length > 0
+      ? 'bg-blue-600 text-white border-blue-600'
+      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+  }`}
+>
+  <SlidersHorizontal className="w-4 h-4" />
+  Filtri avanzati
+  {(filterSectors.length + filterChannels.length + filterRoles.length + filterAreas.length +
+    filterTestate.length + filterTipologie.length + filterPeriodicity.length + 
+    filterCoperture.length + filterContactLabels.length) > 0 && (
+    <span className="bg-white text-blue-600 text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center ml-1">
+      {filterSectors.length + filterChannels.length + filterRoles.length + filterAreas.length +
+       filterTestate.length + filterTipologie.length + filterPeriodicity.length + 
+       filterCoperture.length + filterContactLabels.length}
+    </span>
+  )}
+</button>
+    </div>
+
+    {/* FILTRI AVANZATI */}
+    {showAdvancedFilters && (
+  <div className="mt-4 pt-4 border-t border-gray-200 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+
+    <div>
+      <label className="block text-xs font-medium text-gray-500 mb-1">Settore</label>
+      <MultiSelectFilter
+        options={sectors.map(s => ({ value: s.id, label: s.name }))}
+        selected={filterSectors}
+        onChange={setFilterSectors}
+        placeholder="Tutti i settori..."
+      />
+    </div>
+
+    <div>
+      <label className="block text-xs font-medium text-gray-500 mb-1">Canale</label>
+      <MultiSelectFilter
+        options={channels.map(c => ({ value: c.id, label: c.name }))}
+        selected={filterChannels}
+        onChange={setFilterChannels}
+        placeholder="Tutti i canali..."
+      />
+    </div>
+
+    <div>
+      <label className="block text-xs font-medium text-gray-500 mb-1">Ruolo</label>
+      <MultiSelectFilter
+        options={roles.map(r => ({ value: r.id, label: r.name }))}
+        selected={filterRoles}
+        onChange={setFilterRoles}
+        placeholder="Tutti i ruoli..."
+      />
+    </div>
+
+    <div>
+      <label className="block text-xs font-medium text-gray-500 mb-1">Area</label>
+      <MultiSelectFilter
+        options={areas.map(a => ({ value: a.id, label: a.nome }))}
+        selected={filterAreas}
+        onChange={setFilterAreas}
+        placeholder="Tutte le aree..."
+      />
+    </div>
+
+    <div>
+      <label className="block text-xs font-medium text-gray-500 mb-1">Testata</label>
+      <MultiSelectFilter
+        options={testate.map(t => ({ value: t.id, label: t.nome }))}
+        selected={filterTestate}
+        onChange={setFilterTestate}
+        placeholder="Tutte le testate..."
+      />
+    </div>
+
+    <div>
+      <label className="block text-xs font-medium text-gray-500 mb-1">Tipologia Canale</label>
+      <MultiSelectFilter
+        options={tipologiaCanale.map(t => ({ value: t.id, label: t.nome }))}
+        selected={filterTipologie}
+        onChange={setFilterTipologie}
+        placeholder="Tutte..."
+      />
+    </div>
+
+    <div>
+      <label className="block text-xs font-medium text-gray-500 mb-1">Periodicità</label>
+      <MultiSelectFilter
+        options={periodicitaCanale.map(p => ({ value: p.id, label: p.nome }))}
+        selected={filterPeriodicity}
+        onChange={setFilterPeriodicity}
+        placeholder="Tutte..."
+      />
+    </div>
+
+    <div>
+      <label className="block text-xs font-medium text-gray-500 mb-1">Copertura Canale</label>
+      <MultiSelectFilter
+        options={coperturaCanale.map(c => ({ value: c.id, label: c.nome }))}
+        selected={filterCoperture}
+        onChange={setFilterCoperture}
+        placeholder="Tutte..."
+      />
+    </div>
+
+    <div>
+      <label className="block text-xs font-medium text-gray-500 mb-1">Etichetta Contatto</label>
+      <MultiSelectFilter
+        options={contactLabels.map(cl => ({ value: cl.id, label: cl.nome, color: cl.color }))}
+        selected={filterContactLabels}
+        onChange={setFilterContactLabels}
+        placeholder="Tutte..."
+        colorKey="color"
+      />
+    </div>
+
+  </div>
+)}
+
+        {/* Sotto-etichette Tag
+        <div className="md:col-span-2 lg:col-span-4">
+          <label className="block text-xs font-medium text-gray-500 mb-1">Sotto-etichette Tag</label>
+          <div className="flex flex-wrap gap-2 p-2 border border-gray-300 rounded-lg bg-white min-h-[38px]">
+            {tagLabels.length === 0 && (
+              <span className="text-xs text-gray-400 italic">Nessuna sotto-etichetta disponibile</span>
+            )}
+            {tagLabels.map(label => (
+              <button key={label.id}
+                onClick={() => {
+                  if (filterTagLabels.includes(label.id))
+                    setFilterTagLabels(filterTagLabels.filter(id => id !== label.id));
+                  else
+                    setFilterTagLabels([...filterTagLabels, label.id]);
+                }}
+                className={`px-2.5 py-1 rounded-full text-xs font-medium transition ${
+                  filterTagLabels.includes(label.id)
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                }`}
+              >
+                {label.label}
+              </button>
+            ))}
+          </div>
+        </div> */}
+
+
+    {/* Info risultati + Reset */}
+    {(searchTerm || statusFilter.value !== 'all' || selectedTags.length > 0 || hasNoTagFilter ||
+  filterSectors.length > 0 || filterChannels.length > 0 || filterRoles.length > 0 ||
+  filterAreas.length > 0 || filterTestate.length > 0 || filterTipologie.length > 0 ||
+  filterPeriodicity.length > 0 || filterCoperture.length > 0 || filterContactLabels.length > 0) && (
+      <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
+        <div className="text-xs text-gray-600">
+          Mostrando <strong className="text-blue-600">{filteredContacts.length}</strong> di {contacts.length} contatti
+        </div>
+        <button
+  onClick={() => setShowResetConfirm(true)}
+  className="flex items-center gap-2 px-4 py-1.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition text-sm font-medium"
+>
+  <X className="w-4 h-4" />
+  Reset tutti i filtri
+</button>
+      </div>
     )}
   </div>
 
@@ -7538,7 +10118,7 @@ return (
 
 {/* TABELLA CONTATTI */}
 <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-  {/* ✅ Barra azioni per contatti selezionati */}
+  {/* Barra azioni per contatti selezionati */}
   {selectedContacts.length > 0 && (
     <div className="px-6 py-3 bg-blue-50 border-b border-blue-200 flex items-center justify-between">
       <span className="text-sm font-medium text-blue-900">
@@ -7562,7 +10142,7 @@ return (
     <table className="min-w-full divide-y divide-gray-200">
       <thead className="bg-gray-50">
         <tr>
-          {/* ✅ Colonna checkbox seleziona tutti */}
+          {/* Checkbox seleziona tutti */}
           <th className="px-4 py-3 w-12 text-center">
             <input
               type="checkbox"
@@ -7577,107 +10157,174 @@ return (
               className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
           </th>
+          <th 
+  onClick={() => requestSort("contact_label_id")} // ✅ Deve corrispondere alla chiave del DB
+  className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase cursor-pointer select-none"
+>
+  Etichetta <SortIcon column="contact_label_id" />
+</th>
           <th onClick={() => requestSort("name")} className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase cursor-pointer select-none">
             Contatto <SortIcon column="name" />
           </th>
           <th onClick={() => requestSort("status")} className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase cursor-pointer select-none">
             Stato <SortIcon column="status" />
           </th>
+          {/* ✅ COLONNA UNIFICATA */}
           <th onClick={() => requestSort("tags")} className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase cursor-pointer select-none">
-            Tag <SortIcon column="tags" />
+            Tag e Sotto-etichette <SortIcon column="tags" />
           </th>
           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Azioni</th>
         </tr>
       </thead>
       <tbody className="bg-white divide-y divide-gray-200">
-        {currentContacts.length > 0 ? (
-          currentContacts.map((c) => (
-            <tr key={c.id} className="hover:bg-gray-50 transition-colors">
-              {/* ✅ Checkbox per singolo contatto */}
-              <td className="px-4 py-4 text-center">
-                <input
-                  type="checkbox"
-                  checked={selectedContacts.includes(c.id)}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelectedContacts([...selectedContacts, c.id]);
-                    } else {
-                      setSelectedContacts(selectedContacts.filter(id => id !== c.id));
-                    }
-                  }}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap">
-                <div>
-                  <div className="text-sm font-medium text-gray-900">{c.name}</div>
-                  <div className="text-sm text-gray-500">{c.email}</div>
-                </div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap">
-                <button
-                  onClick={() => handleToggleStatus(c.id)}
-                  className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full transition-colors ${
-                    c.status === "active"
-                      ? "bg-green-100 text-green-800 hover:bg-green-200"
-                      : "bg-red-100 text-red-800 hover:bg-red-200"
-                  }`}
-                >
-                  {c.status === "active" ? (
-                    <>
-                      <CheckCircle className="w-3.5 h-3.5" /> Attivo
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="w-3.5 h-3.5" /> Disiscritto
-                    </>
-                  )}
-                </button>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap">
-                <div className="flex gap-1 flex-wrap">
-                  {(c.tags || []).map((t, i) => (
-                    <span key={i} className="bg-blue-100 text-blue-800 px-2 py-1 text-xs rounded-full">
-                      {t}
-                    </span>
-                  ))}
-                  {(!c.tags || c.tags.length === 0) && (
-                    <span className="text-gray-400 text-xs">Nessun tag</span>
-                  )}
-                </div>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex gap-2">
-                <button
-                  onClick={() => {
-                    console.log('🔵 Click modifica, contatto:', c);
-                    setSelectedContact(c);
-                    setShowEditModal(true);
-                    console.log('🔵 Stati impostati');
-                  }}
-                  className="text-blue-600 hover:text-blue-900 p-1 rounded transition-colors"
-                >
-                  <Edit3 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => {
-                    setSelectedContact(c);
-                    setShowDeleteModal(true);
-                  }}
-                  className="text-red-600 hover:text-red-900 p-1 rounded transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </td>
-            </tr>
-          ))
-        ) : (
-          <tr>
-            <td colSpan="5" className="text-center py-6 text-gray-500 text-sm">
-              Nessun contatto trovato
-            </td>
-          </tr>
-        )}
-      </tbody>
+  {currentContacts.length > 0 ? (
+    currentContacts.map((c) => {
+      // --- LOG DI DEBUG PER OGNI RIGA ---
+      console.log(`--- Verifica riga: ${c.name} ---`);
+      console.log('ID Etichette presenti nel contatto:', c.tag_labels);
+      console.log('Array globale contactLabels:', typeof contactLabels !== 'undefined' ? contactLabels : 'UNDEFINED!');
+      console.log('🔍 TUTTI I DATI DI QUESTO CONTATTO:', c);
+       // ✅ AGGIUNGI QUESTO
+  console.log('📊 tags del contatto:', c.name, c.tags);
+      return (
+        <tr key={c.id} className="hover:bg-gray-50 transition-colors">
+          <td className="px-4 py-4 text-center">
+            <input
+              type="checkbox"
+              checked={selectedContacts.includes(c.id)}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  setSelectedContacts([...selectedContacts, c.id]);
+                } else {
+                  setSelectedContacts(selectedContacts.filter(id => id !== c.id));
+                }
+              }}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+          </td>
+
+{/* CELLA ETICHETTA (SINGOLA) */}
+<td className="px-6 py-4 whitespace-nowrap">
+  <div className="flex items-center">
+   {/* Trova il punto della cella Etichetta nella tua tabella */}
+{(() => {
+  const labelId = c.contact_label_id;
+  if (!labelId) return <span className="text-gray-400 text-xs italic">-</span>;
+
+  // Usa contactLabels (lo stato che carichi nel useEffect)
+  const safeLabels = Array.isArray(contactLabels) ? contactLabels : [];
+  
+  // Confronto "blindato"
+  const labelObj = safeLabels.find(l => 
+    String(l.id).trim().toLowerCase() === String(labelId).trim().toLowerCase()
+  );
+
+  return (
+    <span 
+      className="px-2.5 py-1 text-[10px] rounded-full font-semibold border shadow-sm"
+      style={{ 
+        backgroundColor: labelObj?.color ? `${labelObj.color}15` : '#f3f4f6', 
+        color: labelObj?.color || '#374151',
+        borderColor: labelObj?.color ? `${labelObj.color}30` : '#e5e7eb'
+      }}
+    >
+      {labelObj ? labelObj.nome : "Etichetta Orfana"}
+    </span>
+  );
+})()}
+  </div>
+</td>
+          <td className="px-6 py-4 whitespace-nowrap">
+            <div>
+              <div className="text-sm font-medium text-gray-900">{c.name}</div>
+              <div className="text-sm text-gray-500">{c.email}</div>
+            </div>
+          </td>
+          
+          <td className="px-6 py-4 whitespace-nowrap">
+            <button
+              onClick={() => handleToggleStatus(c.id)}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full transition-colors ${
+                c.status === "active"
+                  ? "bg-green-100 text-green-800 hover:bg-green-200"
+                  : "bg-red-100 text-red-800 hover:bg-red-200"
+              }`}
+            >
+              {c.status === "active" ? (
+                <><CheckCircle className="w-3.5 h-3.5" /> Attivo</>
+              ) : (
+                <><XCircle className="w-3.5 h-3.5" /> Disiscritto</>
+              )}
+            </button>
+          </td>
+          
+          <td className="px-6 py-4">
+  <div className="flex gap-2 flex-wrap">
+    {(c.tags || []).map((tagLabel, i) => {
+      const tag = tags.find(t => t.label === tagLabel || t.value === tagLabel);
+      const tagSubLabels = (c.tag_labels || []).filter(labelText => {
+        const label = tagLabels.find(tl => tl.label === labelText);
+        return label && tag && label.tag_id === tag.id;
+      });
+      
+      return (
+        <div key={`tag-${i}`} className="flex flex-col gap-1">
+          {/* ✅ Tag principale - blu */}
+          <span className="bg-blue-100 text-blue-800 px-2.5 py-1 text-xs rounded-full font-medium">
+            {tagLabel}
+          </span>
+          
+          {/* ✅ Sotto-etichette - giallo */}
+          {tagSubLabels.map((labelText, j) => (
+            <span 
+              key={`label-${i}-${j}`} 
+              className="bg-amber-100 text-amber-700 px-2 py-0.5 text-[10px] rounded-full ml-3 flex items-center gap-1"
+            >
+              <span className="text-amber-500">→</span>
+              {labelText}
+            </span>
+          ))}
+        </div>
+      );
+    })}
+    {(!c.tags || c.tags.length === 0) && (
+      <span className="text-gray-400 text-xs">Nessun tag</span>
+    )}
+  </div>
+</td>
+          
+          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex gap-2">
+            <button
+              onClick={() => { setSelectedContact(c); setShowViewModal(true); }}
+              className="text-emerald-600 hover:text-emerald-900 p-1 rounded transition-colors"
+              title="Visualizza contatto"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => { setSelectedContact(c); setShowEditModal(true); }}
+              className="text-blue-600 hover:text-blue-900 p-1 rounded transition-colors"
+            >
+              <Edit3 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => { setSelectedContact(c); setShowDeleteModal(true); }}
+              className="text-red-600 hover:text-red-900 p-1 rounded transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </td>
+        </tr>
+      );
+    })
+  ) : (
+    <tr>
+      <td colSpan="6" className="text-center py-6 text-gray-500 text-sm">
+        Nessun contatto trovato
+      </td>
+    </tr>
+  )}
+</tbody>
     </table>
   </div>
 
@@ -7750,6 +10397,53 @@ return (
   </div>
 </div>
 </div>
+{showResetConfirm && (
+  <div className="fixed inset-0 bg-black bg-opacity-40 backdrop-blur-sm flex items-center justify-center z-50">
+    <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full mx-4">
+      <div className="flex justify-center mb-4">
+        <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center">
+          <SlidersHorizontal className="w-7 h-7 text-red-600" />
+        </div>
+      </div>
+      <h3 className="text-lg font-bold text-gray-900 text-center mb-2">
+        Reset Filtri
+      </h3>
+      <p className="text-sm text-gray-500 text-center mb-6">
+        Sei sicuro di voler resettare tutti i filtri attivi? Verranno mostrati tutti i contatti.
+      </p>
+      <div className="flex gap-3">
+        <button
+          onClick={() => setShowResetConfirm(false)}
+          className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition text-sm"
+        >
+          Annulla
+        </button>
+        <button
+          onClick={() => {
+            setSearchTerm('');
+            setStatusFilter({ value: 'all', label: 'Tutti i contatti' });
+            setSelectedTags([]);
+            setHasNoTagFilter(false);
+            setShowTagFilter(false);
+            setFilterSectors([]);
+            setFilterChannels([]);
+            setFilterRoles([]);
+            setFilterAreas([]);
+            setFilterTestate([]);
+            setFilterTipologie([]);
+            setFilterPeriodicity([]);
+            setFilterCoperture([]);
+            setFilterContactLabels([]);
+            setShowResetConfirm(false);
+          }}
+          className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition text-sm"
+        >
+          Sì, resetta
+        </button>
+      </div>
+    </div>
+  </div>
+)}
     {showTagsModal && (
         <TagsManagementModal
           show={showTagsModal}
@@ -7757,6 +10451,7 @@ return (
           user={user}
         />
       )}
+
     {/* ⚠️ Modale conferma disiscrizione */}
 {showDeactivateConfirm && contactToDeactivate && (
   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -7790,14 +10485,21 @@ return (
       {/* MODALI */}
       {showAddModal && (
   <ContactModal
-    show={showAddModal}
-    onClose={() => setShowAddModal(false)}
-    onAdd={handleAddContact}
-    user={user} // 👈 passa user.id qui
-  />
+  show={showAddModal}
+  onClose={() => {
+    console.log('🔵 onClose ContactModal chiamato - STACK:', new Error().stack);
+    setShowAddModal(false);
+  }}
+  onAdd={handleAddContact}
+  user={user}
+  contactLabels={contactLabels}
+  onOpenContactLabelsModal={() => {
+    console.log('🟢 Apertura ContactLabelsManagementModal da ContactModal');
+    setShowContactLabelsModal(true);
+  }}  // ✅ Deve esserci
+/>
 )}
-
-    {console.log('🟢 showEditModal:', showEditModal, 'selectedContact:', selectedContact)}
+{console.log('🟢 showEditModal:', showEditModal, 'selectedContact:', selectedContact)}
 {showEditModal && selectedContact && (
   <>
     {console.log('🟢 Rendering EditContactModal con:', selectedContact)}
@@ -7805,21 +10507,48 @@ return (
       show={showEditModal}
       contact={selectedContact}
       onClose={() => {
-        console.log('🔴 Chiusura modale');
         setShowEditModal(false);
         setSelectedContact(null);
       }}
       onSave={handleEditContact}
+      tags={tags}
       sectors={sectors}
       channels={channels}
-      roles={roles}
+      testate={testate}
+      contactRoles={roles}
+      areas={areas}
+      contactLabels={contactLabels}  // ✅ AGGIUNGI QUESTA
+      tipologiaCanale={tipologiaCanale}
+      periodicitaCanale={periodicitaCanale}
+      coperturaCanale={coperturaCanale}
       onOpenSectorsModal={() => setShowSectorsModal(true)}
       onOpenChannelsModal={() => setShowChannelsModal(true)}
+      onOpenTestateModal={() => setShowTestateModal(true)}
       onOpenRolesModal={() => setShowRolesModal(true)}
+      onOpenAreasModal={() => setShowAreasModal(true)}
+      onOpenContactLabelsModal={() => setShowContactLabelsModal(true)}  // ✅ AGGIUNGI QUESTA
     />
   </>
 )}
-
+{showViewModal && selectedContact && (
+  <ViewContactModal
+    contact={selectedContact}
+    onClose={() => {
+      setShowViewModal(false);
+      setSelectedContact(null);
+    }}
+    tags={tags}
+    tagLabels={tagLabels}
+    sectors={sectors}
+    channels={channels}
+    contactRoles={roles}  // ✅ passa lo stato roles come contactRoles
+    areas={areas}
+    tipologiaCanale={tipologiaCanale}
+    periodicitaCanale={periodicitaCanale}
+    coperturaCanale={coperturaCanale}
+    testate={testate}
+  />
+)}
       {showDeleteModal && selectedContact && (
         <DeleteConfirmModal
           contact={selectedContact}
@@ -8505,8 +11234,6 @@ useEffect(() => {
     </div>
   );
 };
-
-
 
 // =====================================================================
 // CAMPAIGNMODAL AGGIORNATO CON SCELTA TRA CAMPAGNA NORMALE E TEMPLATE
@@ -16961,26 +19688,69 @@ if (campaignMode === 'builder') {
 
 };
 // --------------------- MODALE NUOVO CONTATTO ---------------------
-const ContactModal = ({ show, onClose, onAdd, user }) => {
+const ContactModal = ({ 
+  show, 
+  onClose, 
+  onAdd, 
+  user,
+  contactLabels: contactLabelsData,  // ✅ Rinominala
+  onOpenContactLabelsModal
+}) => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [selectedTags, setSelectedTags] = useState([]);
   
   const [error, setError] = useState("");
   const [shake, setShake] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loadingTags, setLoadingTags] = useState(false);
-  const [showTagModal, setShowTagModal] = useState(false);
-  const [tagOptions, setTagOptions] = useState([]);
+  const [showTagModal, setShowTagModal] = useState(false); 
+  const [showTagFilter, setShowTagFilter] = useState(false);
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [selectedTagLabels, setSelectedTagLabels] = useState([]); // ✅ AGGIUNGI QUESTO
+  const [showTagLabelsModal, setShowTagLabelsModal] = useState(false); // ✅ AGGIUNGI QUESTO
+  const [tagLabels, setTagLabels] = useState([]); // ✅ AGGIUNGI QUESTO
+  const [hasNoTagFilter, setHasNoTagFilter] = useState(false);
+const [filteredContacts, setFilteredContacts] = useState([]);
+const [contactLabelId, setContactLabelId] = useState('');  // ✅ AGGIUNGI QUESTO
+const [showContactLabelsModal, setShowContactLabelsModal] = useState(false);  // ✅ AGGIUNGI QUESTO
+// ✅ Aggiungi questo stato
+const [fileContent, setFileContent] = useState(null);
+// ✅ Aggiungi questo stato in ContactModal
+const [showContactLabelsModalLocal, setShowContactLabelsModalLocal] = useState(false);
+const [localContactLabels, setLocalContactLabels] = useState(contactLabelsData || []);
+const [rawTags, setRawTags] = useState([]);
+// ✅ Aggiorna quando arrivano nuove props
+useEffect(() => {
+  setLocalContactLabels(contactLabelsData || []);
+}, [contactLabelsData]);
 
-
+// ✅ Funzione per ricaricare etichette
+const refreshContactLabels = async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data } = await supabase
+      .from('contact_labels')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('nome');
+    setLocalContactLabels(data || []);
+  } catch (err) {
+    console.error('Errore ricarica etichette:', err);
+  }
+};
 
   const { tags, loading: tagsLoading } = useTags();
-  // const tagOptions = tags.map(t => ({
-  //   value: t.value,
-  //   label: t.label,
-  //   color: t.color
-  // }));
+// ✅ Sostituisci la definizione statica con useMemo
+const tagOptions = useMemo(() => {
+  return (rawTags || []).map(t => ({
+    value: t.id,
+    label: t.label,
+    color: t.color,
+    id: t.id,
+    subLabelsCount: tagLabels.filter(tl => tl.tag_id === t.id).length
+  }));
+}, [rawTags, tagLabels]); // ✅ si ricalcola quando tagLabels cambia
 
 
   // 🔄 Nasconde automaticamente il messaggio di errore dopo 3 secondi
@@ -16993,92 +19763,133 @@ const ContactModal = ({ show, onClose, onAdd, user }) => {
 
    // 🔄 Carica i tag da Supabase
 
-const fetchTags = async () => {
-  if (!user?.id) return;
-  setLoadingTags(true);
-  try {
-    const res = await fetch(`/api/tags/get?user_id=${user.id}`);
-    const result = await res.json();
-
-    if (!res.ok || !result.success) {
-      throw new Error(result.message || "Errore caricamento tag");
+   const fetchTags = async () => {
+    if (!user?.id) return;
+    setLoadingTags(true);
+    try {
+      const { data, error } = await supabase
+        .from('tags')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('label');
+  
+      if (error) throw error;
+      setRawTags(data || []);  // ✅ salva raw
+    } catch (err) {
+      console.error("💥 Errore fetch tag:", err);
+      toast.error("Errore durante il caricamento dei tag");
+    } finally {
+      setLoadingTags(false);
     }
+  };
+// ✅ SOSTITUISCI CON QUESTO UNO
+useEffect(() => {
+  const loadAll = async () => {
+    await fetchTagLabels();
+    await fetchTags();
+  };
+  if (user?.id) loadAll();
+}, [user?.id]);
+// Carica i tag quando cambia user.id
+// useEffect(() => {
+//   fetchTags();
+// }, [user?.id]);
 
-    const formatted = result.data.map((t) => ({
-      value: t.value,
-      label: t.label,
-      color: t.color,
-    }));
+// 🔄 Carica le sotto-etichette tag da Supabase
+const fetchTagLabels = async () => {
+  if (!user?.id) return;
+  try {
+    const { data, error } = await supabase
+      .from('tag_labels')
+      .select('*, tags(id, label, value)')
+      .eq('user_id', user.id)
+      .order('label');
 
-    console.log('🏷️ Tag caricati:', formatted); // DEBUG
-    setTagOptions(formatted);
+    if (error) throw error;
+    setTagLabels(data || []);
   } catch (err) {
-    console.error("💥 Errore fetch tag:", err);
-    toast.error("Errore durante il caricamento dei tag");
-  } finally {
-    setLoadingTags(false);
+    console.error("💥 Errore fetch tag labels:", err);
   }
 };
 
-// Carica i tag quando cambia user.id
-useEffect(() => {
-  fetchTags();
-}, [user?.id]);
+// Carica tag labels quando cambia user.id
+// useEffect(() => {
+//   fetchTagLabels();
+// }, [user?.id]);
 
+const handleAdd = async () => {
+  if (!name.trim() || !email.trim() || selectedTags.length === 0 || !selectedContactLabel) {
+    setError("Tutti i campi sono obbligatori.");
+    toast.error("⚠️ Etichetta, nome, email e tag sono obbligatori!");
+    setShake(true);
+    setTimeout(() => setShake(false), 500);
+    return;
+  }
 
-  // ✅ Aggiunta contatto
-  const handleAdd = async () => {
-    if (!name.trim() || !email.trim() || selectedTags.length === 0) {
-      setError("Tutti i campi sono obbligatori.");
-      toast.error("⚠️ Nome, email e tag sono obbligatori!");
-      setShake(true);
-      setTimeout(() => setShake(false), 500);
-      return;
+  try {
+    // ✅ 1. Inserisci il contatto
+    const { data: savedContact, error: contactError } = await supabase
+      .from('contacts')
+      .insert({
+        user_id: user.id,
+        name: name.trim(),
+        email: email.trim(),
+        contact_label_id: contactLabelId || null,  // ✅ Etichetta contatto
+        status: 'active',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (contactError) throw contactError;
+
+    // ✅ 2. Salva tags
+    if (selectedTags.length > 0) {
+      const { error: tagsError } = await supabase
+        .from('contact_tags')
+        .insert(
+          selectedTags.map(t => ({
+            id: crypto.randomUUID(),
+            contact_id: savedContact.id,
+            tag_id: t.value
+          }))
+        );
+      if (tagsError) console.error('❌ Errore tags:', tagsError);
     }
-  
-    const newContact = {
-      name: name.trim(),
-      email: email.trim(),
-      status: "active",
-      tags: selectedTags.map((t) => t.value),
-    };
-  
-    try {
-      const res = await fetch("/api/contacts/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: user.id,
-          contacts: [newContact],
-        }),
-      });
-  
-      const text = await res.text();
-      let result = JSON.parse(text);
-  
-      if (!res.ok || !result.success) {
-        throw new Error(result.message || "Errore durante il salvataggio del contatto.");
-      }
-  
-      toast.success("✅ Contatto salvato con successo!");
-      resetForm();
-      
-      // ✅ AGGIUNGI QUESTA RIGA - Ricarica i contatti dal DB
-      await fetchContacts();
-      
-      onClose();
-  
-    } catch (err) {
-      console.error("💥 Errore salvataggio contatto:", err);
-      toast.error(`❌ ${err.message}`);
+
+    // ✅ 3. Salva tag_labels
+    if (selectedTagLabels.length > 0) {
+      const { error: labelsError } = await supabase
+        .from('contact_tag_labels')
+        .insert(
+          selectedTagLabels.map(labelId => ({
+            id: crypto.randomUUID(),
+            contact_id: savedContact.id,
+            tag_label_id: labelId
+          }))
+        );
+      if (labelsError) console.error('❌ Errore tag_labels:', labelsError);
     }
-  };
+
+    toast.success("✅ Contatto salvato con successo!");
+    resetForm();
+    await fetchContacts();
+    onClose();
+
+  } catch (err) {
+    console.error("💥 Errore salvataggio contatto:", err);
+    toast.error(`❌ ${err.message}`);
+  }
+};
   // ✅ Reset form
   const resetForm = () => {
-    setName("");
-    setEmail("");
+    setName('');
+    setEmail('');
+    setContactLabelId('');  // ✅ Reset etichetta contatto
     setSelectedTags([]);
-    setError("");
+    setSelectedTagLabels([]);
+    setError('');
   };
 
   // ❌ Gestione Annulla
@@ -17106,18 +19917,23 @@ const cancelConfirm = () => {
 
   if (!show) return null;
 
+  console.log('🔍 tagOptions:', tagOptions.map(t => ({ label: t.label, subLabelsCount: t.subLabelsCount })));
+console.log('🔍 tagLabels length:', tagLabels.length);
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
+    <div 
+    className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
       {/* Modale principale */}
       <div
-        className={`relative bg-white rounded-xl p-6 w-full max-w-lg mx-4 shadow-xl transition-all duration-300 animate-fadeIn ${
-          shake
-            ? "animate-shake border-2 border-red-500 glow-red"
-            : error
-            ? "border-2 border-red-400 glow-red"
-            : "border-2 border-blue-200 glow-blue"
-        }`}
-      >
+      className={`relative bg-white rounded-xl p-6 w-full max-w-lg mx-4 shadow-xl transition-all duration-300 animate-fadeIn ${
+        shake
+          ? "animate-shake border-2 border-red-500 glow-red"
+          : error
+          ? "border-2 border-red-400 glow-red"
+          : "border-2 border-blue-200 glow-blue"
+      }`}
+      onClick={(e) => e.stopPropagation()}  // ✅ AGGIUNGI ANCHE QUESTO
+    >
         <h3 className="text-xl font-bold mb-6">Nuovo Contatto</h3>
 
         {/* ⚠️ Messaggio errore inline */}
@@ -17127,10 +19943,70 @@ const cancelConfirm = () => {
           </div>
         )}
 
+     {/* Etichetta Contatto */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">
+    Etichetta Contatto <span className="text-red-500">*</span>
+  </label>
+  <div className="flex gap-2">
+    <Select
+      value={
+        contactLabelId
+          ? {
+              value: contactLabelId,
+              label: localContactLabels.find(cl => cl.id === contactLabelId)?.nome
+            }
+          : null
+      }
+      onChange={(selectedOption) => setContactLabelId(selectedOption?.value || '')}
+      options={localContactLabels.map(cl => ({
+        value: cl.id,
+        label: cl.nome,
+        color: cl.color  // ✅ color non colore
+      }))}
+      isClearable
+      placeholder="Seleziona etichetta..."
+      className="flex-1"
+      styles={{
+        control: (base) => ({
+          ...base,
+          minHeight: '48px',
+          borderRadius: '0.5rem',
+          borderColor: '#d1d5db',
+        }),
+        option: (base, { data }) => ({
+          ...base,
+          display: 'flex',
+          alignItems: 'center',
+          '&:before': {
+            content: '""',
+            display: 'inline-block',
+            width: '12px',
+            height: '12px',
+            borderRadius: '50%',
+            backgroundColor: data.color || '#3B82F6',
+            marginRight: '8px'
+          }
+        })
+      }}
+    />
+    <button
+      type="button"
+      onClick={() => setShowContactLabelsModalLocal(true)}
+      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition flex-shrink-0"
+      title="Gestisci Etichette"
+    >
+      <Tag className="w-4 h-4" />
+    </button>
+  </div>
+  <p className="text-xs text-gray-500 mt-1">
+    Categorizza il contatto (es: Mailing Lista Nazionale, Contatti Sicilia)
+  </p>
+</div>
         <div className="space-y-4">
           {/* Nome */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Nome</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Nome <span className="text-red-500">*</span></label>
             <input
               type="text"
               value={name}
@@ -17142,7 +20018,7 @@ const cancelConfirm = () => {
 
           {/* Email */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Email <span className="text-red-500">*</span></label>
             <input
               type="email"
               value={email}
@@ -17152,28 +20028,74 @@ const cancelConfirm = () => {
             />
           </div>
 
-          {/* Tag */}
-          <div>
-  <label className="block text-sm font-medium text-gray-700 mb-2">Tag</label>
-
-  <div className="flex gap-2 items-start">
+{/* Tags con selezione automatica sotto-etichette */}
+<div className="md:col-span-2">
+  <label className="block text-sm font-medium text-gray-700 mb-2">Tag <span className="text-red-500">*</span></label>
+  <div className="flex gap-2">
     <div className="flex-1">
       {loadingTags ? (
         <div className="text-gray-500 text-sm">Caricamento tag...</div>
       ) : (
-        <Select
-          isMulti
-          options={tagOptions}
-          value={selectedTags}
-          onChange={setSelectedTags}
+<Select
+  isMulti
+  options={tagOptions}
+  value={selectedTags}
+  menuPortalTarget={document.body}
+  menuPosition="fixed"
+  formatOptionLabel={(opt) => (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-center gap-2">
+        <div
+          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+          style={{ backgroundColor: opt.color || '#6366f1' }}
+        />
+        <span>{opt.label}</span>
+      </div>
+      {opt.subLabelsCount > 0 && (
+        <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full w-fit ml-4">
+          🏷️ {opt.subLabelsCount} sotto-etichette
+        </span>
+      )}
+    </div>
+  )}
+  styles={{
+    menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+    option: (base) => ({ ...base, padding: '8px 12px' }),
+  }}
+          onChange={(newValue) => {
+            const newTags = newValue || [];
+            const oldTagIds = selectedTags.map(t => t.value);
+            const newTagIds = newTags.map(t => t.value);
+            
+            const addedTags = newTagIds.filter(tagId => !oldTagIds.includes(tagId));
+            const removedTags = oldTagIds.filter(tagId => !newTagIds.includes(tagId));
+            
+            let currentLabels = [...selectedTagLabels];
+            
+            const labelsToAdd = tagLabels
+              .filter(label => addedTags.includes(label.tag_id))
+              .map(label => label.id);
+            
+            const labelsToRemove = tagLabels
+              .filter(label => removedTags.includes(label.tag_id))
+              .map(label => label.id);
+            
+            currentLabels = [
+              ...currentLabels.filter(labelId => !labelsToRemove.includes(labelId)),
+              ...labelsToAdd
+            ];
+            currentLabels = [...new Set(currentLabels)];
+            
+            setSelectedTags(newTags);
+            setSelectedTagLabels(currentLabels);
+          }}
           placeholder="Seleziona tag..."
           className="text-sm"
         />
       )}
     </div>
-
-    {/* ➕ Bottone crea nuovo tag */}
     <button
+      type="button"
       onClick={() => setShowTagModal(true)}
       className="flex items-center justify-center bg-blue-100 hover:bg-blue-200 text-blue-700 p-2 rounded-lg transition"
       title="Crea nuovo tag"
@@ -17181,20 +20103,142 @@ const cancelConfirm = () => {
       <Plus className="w-4 h-4" />
     </button>
   </div>
+  <p className="mt-1 text-xs text-gray-500">
+    ℹ️ Aggiungendo un tag verranno selezionate automaticamente tutte le sue sotto-etichette
+  </p>
+</div>
 
-{/* Modale aggiunta tag */}
-{showTagModal && (
-  <AddTagModal
-    show={showTagModal}
-    onClose={() => {
-      setShowTagModal(false);
-      fetchTags(); // 🔥 Ricarica i tag quando chiudi il modale
-    }}
-    // 🔥 RIMUOVI completamente onAdd - non serve più perché createTag() lo gestisce già
+{/* SOTTO-ETICHETTE TAG - Raggruppate per tag */}
+<div className="md:col-span-2">
+  <div className="flex items-center justify-between mb-2">
+    <label className="block text-sm font-medium text-gray-700">
+      Sotto-etichette Tag
+      {selectedTags.length > 0 && (
+        <span className="ml-2 text-xs text-gray-500">
+          ({selectedTags.length} tag selezionati)
+        </span>
+      )}
+    </label>
+    <button
+      type="button"
+      onClick={() => {
+        console.log('🔥 Cliccato! Apertura modale sotto-etichette'); // ✅ DEBUG
+        setShowTagLabelsModal(true);
+      }}
+      className="text-xs text-amber-600 hover:text-amber-700 font-medium flex items-center gap-1"
+    >
+      <Plus className="w-3 h-3" />
+      Gestisci sotto-etichette
+    </button>
+  </div>
+  
+  {selectedTags.length > 0 ? (
+    <div className="space-y-3 border border-gray-200 rounded-lg p-4 bg-gray-50 max-h-80 overflow-y-auto">
+      {selectedTags.map(selectedTag => {
+        const labelsForThisTag = tagLabels.filter(tl => tl.tag_id === selectedTag.value);
+        
+        if (labelsForThisTag.length === 0) {
+          return (
+            <div key={selectedTag.value} className="bg-white rounded-lg p-3 border border-gray-200">
+              <div className="flex items-center gap-2">
+                <div 
+                  className="w-3 h-3 rounded-full" 
+                  style={{ backgroundColor: selectedTag.color || '#6366f1' }}
+                />
+                <span className="text-sm font-semibold text-gray-900">
+                  {selectedTag.label}
+                </span>
+                <span className="text-xs text-gray-400 italic">
+                  (nessuna sotto-etichetta disponibile)
+                </span>
+              </div>
+            </div>
+          );
+        }
+        
+        return (
+          <div key={selectedTag.value} className="bg-white rounded-lg p-3 border border-gray-200">
+            <div className="flex items-center gap-2 mb-2">
+              <div 
+                className="w-3 h-3 rounded-full" 
+                style={{ backgroundColor: selectedTag.color || '#6366f1' }}
+              />
+              <span className="text-sm font-semibold text-gray-900">
+                {selectedTag.label}
+              </span>
+              <span className="text-xs text-gray-500">
+                ({labelsForThisTag.length} sotto-etichette)
+              </span>
+            </div>
+            
+            <div className="flex flex-wrap gap-2">
+              {labelsForThisTag.map(label => {
+                const isSelected = selectedTagLabels.includes(label.id);
+                
+                return (
+                  <button
+                    key={label.id}
+                    type="button"
+                    onClick={() => {
+                      const newLabels = isSelected
+                        ? selectedTagLabels.filter(id => id !== label.id)
+                        : [...selectedTagLabels, label.id];
+                      
+                      setSelectedTagLabels(newLabels);
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
+                      isSelected
+                        ? 'bg-amber-100 text-amber-700 border-2 border-amber-400'
+                        : 'bg-gray-100 text-gray-600 border-2 border-transparent hover:border-gray-300'
+                    }`}
+                  >
+                    {isSelected ? '✓ ' : ''}{label.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  ) : (
+    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+      <Tag className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+      <p className="text-sm text-gray-500 font-medium">
+        Seleziona prima almeno un tag
+      </p>
+    </div>
+  )}
+  
+  <p className="mt-2 text-xs text-gray-500">
+    {selectedTagLabels.length > 0 
+      ? `✅ ${selectedTagLabels.length} sotto-etichette selezionate`
+      : "Clicca sulle sotto-etichette per selezionarle/deselezionarle"
+    }
+  </p>
+</div>
+
+{/* ✅ Modale etichette locale */}
+{showContactLabelsModalLocal && (
+  <ContactLabelsManagementModal
+    show={showContactLabelsModalLocal}
+    onClose={() => setShowContactLabelsModalLocal(false)}
+    contactLabels={localContactLabels}
+    onRefresh={refreshContactLabels}
   />
 )}
 
-</div>
+{/* Modale gestione sotto-etichette */}
+{showTagLabelsModal && (  
+  <TagLabelsManagementModal
+    show={showTagLabelsModal}
+    tags={tags}  // ✅ Assicurati che questa riga ci sia
+    onClose={() => {
+      setShowTagLabelsModal(false);
+      fetchTagLabels();
+    }}
+  />
+)}
         </div>
 
         {/* Pulsanti */}
@@ -20345,6 +23389,19 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
   />
 )}
 
+{/* ✅ AGGIUNGI QUI il modale ContactLabels */}
+{showContactLabelsModal && (
+      <ContactLabelsManagementModal
+        show={showContactLabelsModal}
+        contactLabels={contactLabels}  // ✅ Passa i dati
+        onRefresh={fetchContactLabels}  // ✅ Passa la funzione refresh
+        onClose={() => {
+          console.log('🔴 Chiusura ContactLabelsManagementModal');
+          setShowContactLabelsModal(false);         
+        }}
+      />
+    )}
+
 {showChannelsModal && (
   <ChannelsManagementModal
     show={showChannelsModal}
@@ -20357,6 +23414,64 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
        
     }}
     user={user}
+  />
+)}
+
+{/* Modale Aree */}
+{showAreasModal && (
+  <AreasManagementModal
+    show={showAreasModal}
+    onClose={() => {
+      setShowAreasModal(false);
+      fetchAreas();
+    }}
+  />
+)}
+
+{/* Modale Tipologia Canale */}
+{showTipologiaCanaleModal && (
+  <TipologiaCanaleManagementModal
+    show={showTipologiaCanaleModal}
+    onClose={() => {
+      setShowTipologiaCanaleModal(false);
+      fetchTipologiaCanale();
+    }}
+  />
+)}
+
+{/* Modale Periodicità Canale */}
+{showPeriodicitaCanaleModal && (
+  <PeriodicitaCanaleManagementModal
+    show={showPeriodicitaCanaleModal}
+    onClose={() => {
+      setShowPeriodicitaCanaleModal(false);
+      fetchPeriodicitaCanale();
+    }}
+  />
+)}
+
+{/* Modale Copertura Canale */}
+{showCoperturaCanaleModal && (
+  <CoperturaCanaleManagementModal
+    show={showCoperturaCanaleModal}
+    onClose={() => {
+      setShowCoperturaCanaleModal(false);
+      fetchCoperturaCanale();
+    }}
+  />
+)}
+
+{/* Modale Gestione Testate */}
+{showTestateModal && (
+  <TestateManagementModal
+    show={showTestateModal}
+    onClose={() => {
+      console.log('🟣 Chiusura TestateModal');
+      
+      setShowTestateModal(false);
+      fetchTestate(); // ✅ Ricarica nello stato principale
+      console.log('🟣 Testate ricaricate');
+    }}
   />
 )}
 
@@ -20763,6 +23878,117 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
     </div>
   );
 };
+
+
+// Carica testate per il modale edit contatto
+const fetchTestateInEditModal = async () => {
+  try {
+    setTestateLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from('testate')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('nome', { ascending: true });
+
+    if (error) throw error;
+    setTestate(data || []);
+  } catch (error) {
+    console.error('Errore caricamento testate:', error);
+  } finally {
+    setTestateLoading(false);
+  }
+};
+
+// Aggiungi testata
+const handleAddTestata = async () => {
+  if (!newTestataName.trim()) {
+    toast.error('⚠️ Inserisci il nome della testata');
+    return;
+  }
+
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { error } = await supabase
+      .from('testate')
+      .insert({
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        nome: newTestataName.trim(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+    if (error) {
+      if (error.code === '23505') {
+        toast.error('⚠️ Testata già esistente');
+        return;
+      }
+      throw error;
+    }
+
+    toast.success('✅ Testata aggiunta');
+    setNewTestataName('');
+    fetchTestateInEditModal();
+  } catch (error) {
+    console.error('Errore aggiunta testata:', error);
+    toast.error("Errore nell'aggiunta della testata");
+  }
+};
+
+// Aggiorna testata
+const handleUpdateTestata = async () => {
+  if (!editingTestata || !editingTestata.nome.trim()) {
+    toast.error('⚠️ Il nome non può essere vuoto');
+    return;
+  }
+
+  try {
+    const { error } = await supabase
+      .from('testate')
+      .update({
+        nome: editingTestata.nome.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', editingTestata.id);
+
+    if (error) throw error;
+
+    toast.success('✅ Testata aggiornata');
+    setEditingTestata(null);
+    fetchTestateInEditModal();
+  } catch (error) {
+    console.error('Errore aggiornamento testata:', error);
+    toast.error("Errore nell'aggiornamento della testata");
+  }
+};
+
+// Elimina testata
+const handleDeleteTestata = async (testataId) => {
+  if (!confirm('Eliminare questa testata? I collegamenti ai contatti verranno rimossi.')) {
+    return;
+  }
+
+  try {
+    const { error } = await supabase
+      .from('testate')
+      .delete()
+      .eq('id', testataId);
+
+    if (error) throw error;
+
+    toast.success('✅ Testata eliminata');
+    fetchTestateInEditModal();
+  } catch (error) {
+    console.error('Errore eliminazione testata:', error);
+    toast.error("Errore nell'eliminazione della testata");
+  }
+};
+
 
 // 🏷️ MODALE GESTIONE TAG COMPLETO
 const TagsManagementModal = ({ show, onClose, user }) => {
@@ -21984,6 +25210,2854 @@ const handlePrintContact = () => {
   );
 };
 
+// ======================================
+// 🏢 MODALE GESTIONE AREE
+// ======================================
+const AreasManagementModal = ({ show, onClose }) => {
+  const [areas, setAreas] = useState([]);
+  const [newAreaName, setNewAreaName] = useState('');
+  const [editingArea, setEditingArea] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [areaToDelete, setAreaToDelete] = useState(null);
+
+  useEffect(() => {
+    if (show) {
+      fetchAreas();
+    }
+  }, [show]);
+
+  const fetchAreas = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('areas')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('nome', { ascending: true });
+
+      if (error) throw error;
+      setAreas(data || []);
+    } catch (error) {
+      console.error('Errore caricamento aree:', error);
+      toast.error('Errore nel caricamento delle aree');
+    }
+  };
+
+  const handleAddArea = async () => {
+    if (!newAreaName.trim()) {
+      toast.error('Inserisci un nome per l\'area');
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
+        .from('areas')
+        .insert([{
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          nome: newAreaName.trim(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }]);
+
+      if (error) {
+        if (error.code === '23505') {
+          toast.error('Questa area esiste già');
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      toast.success('✅ Area aggiunta');
+      setNewAreaName('');
+      fetchAreas();
+    } catch (error) {
+      console.error('Errore aggiunta area:', error);
+      toast.error('Errore nell\'aggiunta dell\'area');
+    }
+  };
+
+  const handleUpdateArea = async () => {
+    if (!editingArea?.nome?.trim()) {
+      toast.error('Il nome dell\'area non può essere vuoto');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('areas')
+        .update({
+          nome: editingArea.nome.trim(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingArea.id);
+
+      if (error) {
+        if (error.code === '23505') {
+          toast.error('Questa area esiste già');
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      toast.success('✅ Area aggiornata');
+      setEditingArea(null);
+      fetchAreas();
+    } catch (error) {
+      console.error('Errore aggiornamento area:', error);
+      toast.error('Errore nell\'aggiornamento dell\'area');
+    }
+  };
+
+  const handleDeleteArea = async () => {
+    if (!areaToDelete) return;
+
+    try {
+      const { error } = await supabase
+        .from('areas')
+        .delete()
+        .eq('id', areaToDelete.id);
+
+      if (error) throw error;
+
+      toast.success('✅ Area eliminata');
+      setShowDeleteConfirm(false);
+      setAreaToDelete(null);
+      fetchAreas();
+    } catch (error) {
+      console.error('Errore eliminazione area:', error);
+      toast.error('Errore nell\'eliminazione dell\'area');
+    }
+  };
+
+  const handleImportCSV = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setImportProgress(0);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const text = await file.text();
+      const lines = text.split('\n').filter(line => line.trim());
+      
+      // Salta header se presente
+      const startIndex = lines[0].toLowerCase().includes('nome') || lines[0].toLowerCase().includes('area') ? 1 : 0;
+      const areasToImport = lines.slice(startIndex);
+
+      const total = areasToImport.length;
+      let imported = 0;
+
+      for (let i = 0; i < areasToImport.length; i++) {
+        const nome = areasToImport[i].trim().replace(/^["']|["']$/g, '');
+        
+        if (!nome) continue;
+
+        try {
+          await supabase.from('areas').insert([{
+            id: crypto.randomUUID(),
+            user_id: user.id,
+            nome: nome,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }]);
+          imported++;
+        } catch (err) {
+          console.warn('Area già esistente o errore:', nome);
+        }
+
+        setImportProgress(Math.round(((i + 1) / total) * 100));
+      }
+
+      toast.success(`✅ ${imported} aree importate`);
+      fetchAreas();
+    } catch (error) {
+      console.error('Errore import CSV:', error);
+      toast.error('Errore nell\'importazione del CSV');
+    } finally {
+      setIsImporting(false);
+      setImportProgress(0);
+      e.target.value = '';
+    }
+  };
+
+  const filteredAreas = areas.filter(area =>
+    area.nome.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  if (!show) return null;
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+        <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl">
+          
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-green-50 to-emerald-50 rounded-t-2xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center">
+                  <MapPin className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Gestione Aree</h3>
+                  <p className="text-sm text-gray-600">Organizza le aree geografiche</p>
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto p-6">
+            
+            {/* Aggiungi nuova area */}
+            <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Nuova Area
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newAreaName}
+                  onChange={(e) => setNewAreaName(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleAddArea()}
+                  placeholder="Es: Nord Italia"
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                />
+                <button
+                  onClick={handleAddArea}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  Aggiungi
+                </button>
+              </div>
+            </div>
+
+            {/* Import CSV */}
+            <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Import da CSV
+              </label>
+              <div className="flex items-center gap-4">
+                <label className="flex-1 cursor-pointer">
+                  <div className="flex items-center gap-2 px-4 py-2 bg-white border-2 border-dashed border-gray-300 rounded-lg hover:border-green-400 hover:bg-green-50 transition">
+                    <Upload className="w-4 h-4 text-gray-400" />
+                    <span className="text-sm text-gray-600">Carica file CSV</span>
+                  </div>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleImportCSV}
+                    className="hidden"
+                    disabled={isImporting}
+                  />
+                </label>
+              </div>
+              {isImporting && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+                    <span>Importazione in corso...</span>
+                    <span>{importProgress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${importProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-gray-500 mt-2">
+                Il CSV deve avere una colonna "nome" con il nome dell'area
+              </p>
+            </div>
+
+            {/* Ricerca */}
+            <div className="mb-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Cerca area..."
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                />
+              </div>
+            </div>
+
+            {/* Lista aree */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-700">
+                  {filteredAreas.length} {filteredAreas.length === 1 ? 'area' : 'aree'}
+                </span>
+              </div>
+
+              {filteredAreas.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <MapPin className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                  <p className="text-sm">Nessuna area trovata</p>
+                </div>
+              ) : (
+                filteredAreas.map((area) => (
+                  <div
+                    key={area.id}
+                    className="flex items-center gap-3 p-3 bg-white border border-gray-200 rounded-lg hover:border-green-300 hover:shadow-sm transition"
+                  >
+                    {editingArea?.id === area.id ? (
+                      <>
+                        <input
+                          type="text"
+                          value={editingArea.nome}
+                          onChange={(e) => setEditingArea({ ...editingArea, nome: e.target.value })}
+                          onKeyPress={(e) => e.key === 'Enter' && handleUpdateArea()}
+                          className="flex-1 px-3 py-2 border border-green-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                          autoFocus
+                        />
+                        <button
+                          onClick={handleUpdateArea}
+                          className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setEditingArea(null)}
+                          className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <MapPin className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        <span className="flex-1 text-sm text-gray-900">{area.nome}</span>
+                        <button
+                          onClick={() => setEditingArea(area)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setAreaToDelete(area);
+                            setShowDeleteConfirm(true);
+                          }}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-2xl flex justify-end">
+            <button
+              onClick={onClose}
+              className="px-6 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition"
+            >
+              Chiudi
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Modale conferma eliminazione */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70] p-4">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Conferma eliminazione</h3>
+            <p className="text-gray-600 mb-4">
+              Sei sicuro di voler eliminare l'area "<strong>{areaToDelete?.nome}</strong>"?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setAreaToDelete(null);
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleDeleteArea}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg"
+              >
+                Elimina
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+// 📊 MODALE GESTIONE TIPOLOGIA CANALE
+const TipologiaCanaleManagementModal = ({ show, onClose }) => {
+  const [tipologie, setTipologie] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editingTipologia, setEditingTipologia] = useState(null);
+  const [newTipologiaName, setNewTipologiaName] = useState('');
+  const [searchTipologia, setSearchTipologia] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
+  const [csvImportFile, setCsvImportFile] = useState(null);
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvImportResult, setCsvImportResult] = useState(null);
+  const mouseDownTarget = useRef(null);
+
+  const [importTotal, setImportTotal] = useState(0);
+  const [importProcessed, setImportProcessed] = useState(0);
+  const [importImported, setImportImported] = useState(0);
+  const [importSkipped, setImportSkipped] = useState(0);
+  const [importErrors, setImportErrors] = useState(0);
+
+  const fetchTipologie = async () => {
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('tipologia_canale')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('nome');
+
+      if (error) throw error;
+      setTipologie(data || []);
+    } catch (error) {
+      console.error('❌ Errore caricamento tipologie:', error);
+      toast.error('Errore nel caricamento delle tipologie');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (show) fetchTipologie();
+  }, [show]);
+
+  const handleImportCsv = async () => {
+    if (!csvImportFile) return;
+    setCsvImporting(true);
+    setCsvImportResult(null);
+    setImportTotal(0);
+    setImportProcessed(0);
+    setImportImported(0);
+    setImportSkipped(0);
+    setImportErrors(0);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const text = await csvImportFile.text();
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+      if (lines.length < 2) {
+        toast.error("⚠️ Il CSV è vuoto o ha solo l'intestazione");
+        return;
+      }
+
+      const headers = lines[0]
+      .split(',')
+      .map(h => h.trim().toLowerCase().replace(/"/g, '').replace(/^\uFEFF/, '').replace(/\r/g, ''));
+      const nomeIndex = headers.indexOf('nome');
+      if (nomeIndex === -1) {
+        toast.error('❌ Colonna "nome" non trovata nel CSV');
+        return;
+      }
+
+      const rawNames = lines.slice(1).flatMap((line) => {
+        const cols = line.split(',');
+        const raw = cols[nomeIndex]?.trim().replace(/"/g, '');
+        if (!raw) return [];
+        return raw.split(';').map(s => s.trim()).filter(Boolean);
+      });
+
+      const uniqueNames = Array.from(new Set(rawNames));
+      if (uniqueNames.length === 0) {
+        toast.error('⚠️ Nessuna tipologia trovata nel CSV');
+        return;
+      }
+
+      setImportTotal(uniqueNames.length);
+
+      let imported = 0, skipped = 0, errors = 0;
+      const errorDetails = [];
+
+      for (const nome of uniqueNames) {
+        const { error } = await supabase.from('tipologia_canale').insert({
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          nome,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+
+        if (error) {
+          if (error.code === '23505') {
+            skipped++;
+            setImportSkipped(skipped);
+          } else {
+            errors++;
+            setImportErrors(errors);
+            errorDetails.push(`"${nome}": ${error.message}`);
+          }
+        } else {
+          imported++;
+          setImportImported(imported);
+        }
+        setImportProcessed(prev => prev + 1);
+      }
+
+      setCsvImportResult({ imported, skipped, errors, errorDetails });
+      setCsvImportFile(null);
+
+      if (imported > 0) {
+        toast.success(`✅ Importate ${imported} tipologie`);
+        await fetchTipologie();
+      } else if (skipped > 0 && imported === 0) {
+        toast(`ℹ️ Tutti i settori erano già presenti`);
+      }
+    } catch (err) {
+      console.error('❌ Errore import CSV:', err);
+      toast.error("Errore durante l'importazione");
+    } finally {
+      setCsvImporting(false);
+    }
+  };
+
+  const handleAddTipologia = async () => {
+    if (!newTipologiaName.trim()) {
+      toast.error('⚠️ Inserisci un nome per la tipologia');
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase.from('tipologia_canale').insert({
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        nome: newTipologiaName.trim(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) throw error;
+      toast.success('✅ Tipologia creata con successo!');
+      setNewTipologiaName('');
+      await fetchTipologie();
+    } catch (error) {
+      console.error('❌ Errore creazione tipologia:', error);
+      if (error.code === '23505') {
+        toast.error(`⚠️ La tipologia "${newTipologiaName.trim()}" esiste già`);
+      } else {
+        toast.error('Errore nella creazione della tipologia');
+      }
+    }
+  };
+
+  const handleUpdateTipologia = async () => {
+    if (!editingTipologia) return;
+    try {
+      const { error } = await supabase
+        .from('tipologia_canale')
+        .update({ 
+          nome: editingTipologia.nome,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingTipologia.id);
+
+      if (error) throw error;
+      toast.success('✅ Tipologia aggiornata!');
+      setEditingTipologia(null);
+      await fetchTipologie();
+    } catch (error) {
+      console.error('❌ Errore aggiornamento tipologia:', error);
+      if (error.code === '23505') {
+        toast.error(`⚠️ La tipologia "${editingTipologia.nome}" esiste già`);
+      } else {
+        toast.error('Errore aggiornamento tipologia');
+      }
+    }
+  };
+
+  const handleDeleteTipologia = async (tipologiaId) => {
+    try {
+      const { error } = await supabase.from('tipologia_canale').delete().eq('id', tipologiaId);
+      if (error) throw error;
+      toast.success('✅ Tipologia eliminata!');
+      setShowDeleteConfirm(null);
+      await fetchTipologie();
+    } catch (error) {
+      console.error('❌ Errore eliminazione tipologia:', error);
+      toast.error('Errore eliminazione tipologia');
+    }
+  };
+
+  const filteredTipologie = tipologie.filter(t =>
+    t.nome.toLowerCase().includes(searchTipologia.toLowerCase())
+  );
+
+  if (!show) return null;
+
+  const progressPct = importTotal ? Math.round((importProcessed / importTotal) * 100) : 0;
+  const importedPct = importTotal ? Math.round((importImported / importTotal) * 100) : 0;
+  const errorsPct = importTotal ? Math.round((importErrors / importTotal) * 100) : 0;
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+        onMouseDown={(e) => { mouseDownTarget.current = e.target; }}
+        onMouseUp={(e) => {
+          if (mouseDownTarget.current === e.currentTarget && e.target === e.currentTarget) {
+            onClose();
+          }
+          mouseDownTarget.current = null;
+        }}
+      >
+        <div
+          className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl"
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseUp={(e) => e.stopPropagation()}
+        >
+          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-violet-50 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-purple-600 p-2 rounded-lg">
+                <Layers className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Gestione Tipologia Canale</h2>
+                <p className="text-sm text-gray-600">Organizza le tipologie di canale</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Form Aggiungi */}
+            <div className="bg-gradient-to-br from-purple-50 to-violet-50 border-2 border-purple-200 rounded-xl p-6">
+              <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <Plus className="w-5 h-5 text-purple-600" />
+                Crea Nuova Tipologia
+              </h3>
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  placeholder="Nome tipologia (es. Periodici specializzati)"
+                  value={newTipologiaName}
+                  onChange={(e) => setNewTipologiaName(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleAddTipologia()}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+                />
+                <button
+                  onClick={handleAddTipologia}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg flex items-center gap-2 transition font-medium"
+                >
+                  <Plus className="w-4 h-4" />
+                  Aggiungi
+                </button>
+              </div>
+            </div>
+
+            {/* 🔥 IMPORT CSV */}
+            <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl p-6">
+              <h3 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                <Upload className="w-5 h-5 text-green-600" />
+                Importa Tipologie da CSV
+              </h3>
+              <p className="text-xs text-gray-500 mb-4">
+                Il CSV deve avere una colonna <code className="bg-gray-100 px-1 rounded">nome</code> con i nomi delle tipologie
+              </p>
+
+              <div className="flex gap-3 items-center">
+                <label className="flex-1 cursor-pointer">
+                  <div className="flex items-center gap-3 px-4 py-2 border-2 border-dashed border-green-300 rounded-lg hover:border-green-500 hover:bg-green-50 transition">
+                    <FileText className="w-5 h-5 text-green-500 flex-shrink-0" />
+                    <span className="text-sm text-gray-500 truncate">
+                      {csvImportFile ? csvImportFile.name : 'Seleziona file CSV...'}
+                    </span>
+                  </div>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={(e) => setCsvImportFile(e.target.files[0] || null)}
+                  />
+                </label>
+
+                <button
+                  onClick={handleImportCsv}
+                  disabled={!csvImportFile || csvImporting}
+                  className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg flex items-center gap-2 transition font-medium flex-shrink-0"
+                >
+                  {csvImporting
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Upload className="w-4 h-4" />
+                  }
+                  {csvImporting ? 'Importando...' : 'Importa'}
+                </button>
+              </div>
+
+              {/* Barre di avanzamento */}
+              {(csvImporting || importProcessed > 0) && (
+                <div className="mt-4 rounded-xl border border-green-200 bg-white/70 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {csvImporting ? "Importazione in corso..." : "Import completato"}
+                      </p>
+                      <p className="text-xs text-gray-600 mt-0.5">
+                        {importProcessed}/{importTotal} elaborate
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-600">Esito</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        ✅ {importImported} · ⏭️ {importSkipped} · ❌ {importErrors}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                      <div className="h-2 rounded-full bg-green-600 transition-all" style={{ width: `${progressPct}%` }} />
+                    </div>
+                    <div className="mt-1 flex justify-between text-[11px] text-gray-500">
+                      <span>Avanzamento</span>
+                      <span>{progressPct}%</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-700">Importate</p>
+                        <p className="text-xs text-gray-500">{importImported}/{importTotal}</p>
+                      </div>
+                      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                        <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${importedPct}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-700">Non riuscite</p>
+                        <p className="text-xs text-gray-500">{importErrors}/{importTotal}</p>
+                      </div>
+                      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                        <div className="h-2 rounded-full bg-rose-500 transition-all" style={{ width: `${errorsPct}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Risultato import */}
+              {csvImportResult && (
+                <div className={`mt-3 p-3 rounded-lg text-sm flex items-start gap-2 ${
+                  csvImportResult.errors > 0
+                    ? 'bg-yellow-50 text-yellow-800 border border-yellow-200'
+                    : 'bg-green-50 text-green-800 border border-green-200'
+                }`}>
+                  {csvImportResult.errors > 0
+                    ? <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    : <Check className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  }
+                  <div>
+                    <p className="font-medium">
+                      ✅ {csvImportResult.imported} tipologie importate
+                      {csvImportResult.skipped > 0 && `, ⏭️ ${csvImportResult.skipped} già esistenti ignorate`}
+                      {csvImportResult.errors > 0 && `, ❌ ${csvImportResult.errors} errori`}
+                    </p>
+                    {csvImportResult.errorDetails?.length > 0 && (
+                      <ul className="mt-1 text-xs space-y-0.5 text-yellow-700">
+                        {csvImportResult.errorDetails.map((e, i) => (
+                          <li key={i}>• {e}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Ricerca */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Cerca tipologia..."
+                value={searchTipologia}
+                onChange={(e) => setSearchTipologia(e.target.value)}
+                className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+              />
+              <Search className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
+            </div>
+
+            {/* Lista */}
+            {loading ? (
+              <div className="text-center py-10">
+                <Loader2 className="w-8 h-8 animate-spin text-purple-600 mx-auto mb-2" />
+                <p className="text-gray-600">Caricamento...</p>
+              </div>
+            ) : filteredTipologie.length === 0 ? (
+              <div className="text-center py-10">
+                <Layers className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 font-medium">Nessuna tipologia trovata</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredTipologie.map(tipologia => (
+                  <div key={tipologia.id} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition">
+                    {editingTipologia?.id === tipologia.id ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={editingTipologia.nome}
+                          onChange={(e) => setEditingTipologia({ ...editingTipologia, nome: e.target.value })}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+                        />
+                        <button onClick={handleUpdateTipologia} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setEditingTipologia(null)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                            <Layers className="w-5 h-5 text-purple-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900">{tipologia.nome}</p>
+                            <p className="text-xs text-gray-500">ID: {tipologia.id.slice(0, 8)}...</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => setEditingTipologia(tipologia)} className="text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition">
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => setShowDeleteConfirm(tipologia)} className="text-red-600 hover:bg-red-50 p-2 rounded-lg transition">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+            <p className="text-sm text-gray-600">{filteredTipologie.length} tipologie</p>
+            <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition font-medium">
+              Chiudi
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Modale Conferma Eliminazione */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70]">
+          <div className="bg-white rounded-xl p-6 max-w-md mx-4 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-red-100 p-3 rounded-full">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900">Elimina Tipologia</h3>
+            </div>
+            <p className="text-gray-600 mb-6">
+              Sei sicuro di voler eliminare <strong>{showDeleteConfirm.nome}</strong>?
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowDeleteConfirm(null)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition font-medium">
+                Annulla
+              </button>
+              <button onClick={() => handleDeleteTipologia(showDeleteConfirm.id)} className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition font-medium">
+                Elimina
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+// 📅 MODALE GESTIONE PERIODICITÀ CANALE
+const PeriodicitaCanaleManagementModal = ({ show, onClose }) => {
+  const [periodicita, setPeriodicita] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editingPeriodicita, setEditingPeriodicita] = useState(null);
+  const [newPeriodicitaName, setNewPeriodicitaName] = useState('');
+  const [searchPeriodicita, setSearchPeriodicita] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
+  const mouseDownTarget = useRef(null);
+  
+  // Stati per import CSV
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+
+  const fetchPeriodicita = async () => {
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('periodicita_canale')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('nome');
+
+      if (error) throw error;
+      setPeriodicita(data || []);
+    } catch (error) {
+      console.error('❌ Errore caricamento periodicità:', error);
+      toast.error('Errore nel caricamento delle periodicità');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (show) fetchPeriodicita();
+  }, [show]);
+
+  const handleImportCSV = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setImportProgress(0);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const text = await file.text();
+      const lines = text.split('\n').filter(line => line.trim());
+      
+      // Rileva header
+      const header = lines[0].toLowerCase();
+      const hasHeader = header.includes('nome') || header.includes('periodicita') || header.includes('periodicità');
+      const startIndex = hasHeader ? 1 : 0;
+      
+      const periodicitaToImport = lines.slice(startIndex);
+      const total = periodicitaToImport.length;
+      let imported = 0;
+
+      for (let i = 0; i < periodicitaToImport.length; i++) {
+        // Rimuovi virgolette e spazi
+        const nome = periodicitaToImport[i].trim().replace(/^["']|["']$/g, '').split(',')[0].trim();
+        
+        if (!nome) continue;
+
+        try {
+          await supabase.from('periodicita_canale').insert([{
+            id: crypto.randomUUID(),
+            user_id: user.id,
+            nome: nome,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }]);
+          imported++;
+        } catch (err) {
+          console.warn('Periodicità già esistente o errore:', nome);
+        }
+
+        setImportProgress(Math.round(((i + 1) / total) * 100));
+      }
+
+      toast.success(`✅ ${imported} periodicità importate`);
+      fetchPeriodicita();
+    } catch (error) {
+      console.error('Errore import CSV:', error);
+      toast.error('Errore nell\'importazione del CSV');
+    } finally {
+      setIsImporting(false);
+      setImportProgress(0);
+      e.target.value = '';
+    }
+  };
+
+  const handleAddPeriodicita = async () => {
+    if (!newPeriodicitaName.trim()) {
+      toast.error('⚠️ Inserisci un nome per la periodicità');
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase.from('periodicita_canale').insert({
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        nome: newPeriodicitaName.trim(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) throw error;
+      toast.success('✅ Periodicità creata con successo!');
+      setNewPeriodicitaName('');
+      await fetchPeriodicita();
+    } catch (error) {
+      console.error('❌ Errore creazione periodicità:', error);
+      if (error.code === '23505') {
+        toast.error(`⚠️ La periodicità "${newPeriodicitaName.trim()}" esiste già`);
+      } else {
+        toast.error('Errore nella creazione della periodicità');
+      }
+    }
+  };
+
+  const handleUpdatePeriodicita = async () => {
+    if (!editingPeriodicita) return;
+    try {
+      const { error } = await supabase
+        .from('periodicita_canale')
+        .update({ 
+          nome: editingPeriodicita.nome,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingPeriodicita.id);
+
+      if (error) throw error;
+      toast.success('✅ Periodicità aggiornata!');
+      setEditingPeriodicita(null);
+      await fetchPeriodicita();
+    } catch (error) {
+      console.error('❌ Errore aggiornamento periodicità:', error);
+      if (error.code === '23505') {
+        toast.error(`⚠️ La periodicità "${editingPeriodicita.nome}" esiste già`);
+      } else {
+        toast.error('Errore aggiornamento periodicità');
+      }
+    }
+  };
+
+  const handleDeletePeriodicita = async (periodicitaId) => {
+    try {
+      const { error } = await supabase.from('periodicita_canale').delete().eq('id', periodicitaId);
+      if (error) throw error;
+      toast.success('✅ Periodicità eliminata!');
+      setShowDeleteConfirm(null);
+      await fetchPeriodicita();
+    } catch (error) {
+      console.error('❌ Errore eliminazione periodicità:', error);
+      toast.error('Errore eliminazione periodicità');
+    }
+  };
+
+  const filteredPeriodicita = periodicita.filter(p =>
+    p.nome.toLowerCase().includes(searchPeriodicita.toLowerCase())
+  );
+
+  if (!show) return null;
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+        onMouseDown={(e) => { mouseDownTarget.current = e.target; }}
+        onMouseUp={(e) => {
+          if (mouseDownTarget.current === e.currentTarget && e.target === e.currentTarget) {
+            onClose();
+          }
+          mouseDownTarget.current = null;
+        }}
+      >
+        <div
+          className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl"
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseUp={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-pink-50 to-rose-50 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-pink-600 p-2 rounded-lg">
+                <Calendar className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Gestione Periodicità Canale</h2>
+                <p className="text-sm text-gray-600">Organizza le periodicità di canale</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Aggiungi nuova */}
+            <div className="bg-gradient-to-br from-pink-50 to-rose-50 border-2 border-pink-200 rounded-xl p-6">
+              <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <Plus className="w-5 h-5 text-pink-600" />
+                Crea Nuova Periodicità
+              </h3>
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  placeholder="Nome periodicità (es. Quotidiano, Settimanale)"
+                  value={newPeriodicitaName}
+                  onChange={(e) => setNewPeriodicitaName(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleAddPeriodicita()}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 outline-none"
+                />
+                <button
+                  onClick={handleAddPeriodicita}
+                  className="bg-pink-600 hover:bg-pink-700 text-white px-6 py-2 rounded-lg flex items-center gap-2 transition font-medium"
+                >
+                  <Plus className="w-4 h-4" />
+                  Aggiungi
+                </button>
+              </div>
+            </div>
+
+            {/* ✅ IMPORT CSV */}
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-6">
+              <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <Upload className="w-5 h-5 text-gray-600" />
+                Import da CSV
+              </h3>
+              <div className="flex items-center gap-4">
+                <label className="flex-1 cursor-pointer">
+                  <div className="flex items-center gap-2 px-4 py-2 bg-white border-2 border-dashed border-gray-300 rounded-lg hover:border-pink-400 hover:bg-pink-50 transition">
+                    <Upload className="w-4 h-4 text-gray-400" />
+                    <span className="text-sm text-gray-600">Carica file CSV</span>
+                  </div>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleImportCSV}
+                    className="hidden"
+                    disabled={isImporting}
+                  />
+                </label>
+              </div>
+              {isImporting && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+                    <span>Importazione in corso...</span>
+                    <span>{importProgress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className="bg-pink-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${importProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-gray-500 mt-2">
+                Il CSV deve avere una colonna "nome" o "periodicita" con il nome della periodicità
+              </p>
+            </div>
+
+            {/* Ricerca */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Cerca periodicità..."
+                value={searchPeriodicita}
+                onChange={(e) => setSearchPeriodicita(e.target.value)}
+                className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 outline-none"
+              />
+              <Search className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
+            </div>
+
+            {/* Lista */}
+            {loading ? (
+              <div className="text-center py-10">
+                <Loader2 className="w-8 h-8 animate-spin text-pink-600 mx-auto mb-2" />
+                <p className="text-gray-600">Caricamento...</p>
+              </div>
+            ) : filteredPeriodicita.length === 0 ? (
+              <div className="text-center py-10">
+                <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 font-medium">Nessuna periodicità trovata</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredPeriodicita.map(periodicita => (
+                  <div key={periodicita.id} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition">
+                    {editingPeriodicita?.id === periodicita.id ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={editingPeriodicita.nome}
+                          onChange={(e) => setEditingPeriodicita({ ...editingPeriodicita, nome: e.target.value })}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 outline-none"
+                        />
+                        <button onClick={handleUpdatePeriodicita} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setEditingPeriodicita(null)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-pink-100 rounded-lg flex items-center justify-center">
+                            <Calendar className="w-5 h-5 text-pink-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900">{periodicita.nome}</p>
+                            <p className="text-xs text-gray-500">ID: {periodicita.id.slice(0, 8)}...</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => setEditingPeriodicita(periodicita)} className="text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition">
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => setShowDeleteConfirm(periodicita)} className="text-red-600 hover:bg-red-50 p-2 rounded-lg transition">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+            <p className="text-sm text-gray-600">{filteredPeriodicita.length} periodicità</p>
+            <button
+              onClick={onClose}
+              className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition font-medium"
+            >
+              Chiudi
+            </button>
+          </div>
+        </div>
+      </div>
+
+
+     {/* Modale conferma eliminazione */}
+     {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70] p-4">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Conferma eliminazione</h3>
+            <p className="text-gray-600 mb-4">
+              Sei sicuro di voler eliminare la periodicità "<strong>{showDeleteConfirm.nome}</strong>"?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowDeleteConfirm(null)}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={() => handleDeletePeriodicita(showDeleteConfirm.id)}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg"
+              >
+                Elimina
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+// 🌍 MODALE GESTIONE COPERTURA CANALE
+const CoperturaCanaleManagementModal = ({ show, onClose }) => {
+  const [coperture, setCoperture] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editingCopertura, setEditingCopertura] = useState(null);
+  const [newCoperturaName, setNewCoperturaName] = useState('');
+  const [searchCopertura, setSearchCopertura] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
+  const [csvImportFile, setCsvImportFile] = useState(null);
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvImportResult, setCsvImportResult] = useState(null);
+  const mouseDownTarget = useRef(null);
+
+  const [importTotal, setImportTotal] = useState(0);
+  const [importProcessed, setImportProcessed] = useState(0);
+  const [importImported, setImportImported] = useState(0);
+  const [importSkipped, setImportSkipped] = useState(0);
+  const [importErrors, setImportErrors] = useState(0);
+
+  const fetchCoperture = async () => {
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('copertura_canale')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('nome');
+
+      if (error) throw error;
+      setCoperture(data || []);
+    } catch (error) {
+      console.error('❌ Errore caricamento coperture:', error);
+      toast.error('Errore nel caricamento delle coperture');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (show) fetchCoperture();
+  }, [show]);
+
+  const handleImportCsv = async () => {
+    if (!csvImportFile) return;
+    setCsvImporting(true);
+    setCsvImportResult(null);
+    setImportTotal(0);
+    setImportProcessed(0);
+    setImportImported(0);
+    setImportSkipped(0);
+    setImportErrors(0);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const text = await csvImportFile.text();
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+      if (lines.length < 2) {
+        toast.error("⚠️ Il CSV è vuoto o ha solo l'intestazione");
+        return;
+      }
+
+      const headers = lines[0]
+  .split(',')
+  .map(h => h.trim().toLowerCase().replace(/"/g, '').replace(/^\uFEFF/, '').replace(/\r/g, ''));
+      const nomeIndex = headers.indexOf('nome');
+      if (nomeIndex === -1) {
+        toast.error('❌ Colonna "nome" non trovata nel CSV');
+        return;
+      }
+
+      const rawNames = lines.slice(1).flatMap((line) => {
+        const cols = line.split(',');
+        const raw = cols[nomeIndex]?.trim().replace(/"/g, '');
+        if (!raw) return [];
+        return raw.split(';').map(s => s.trim()).filter(Boolean);
+      });
+
+      const uniqueNames = Array.from(new Set(rawNames));
+      if (uniqueNames.length === 0) {
+        toast.error('⚠️ Nessuna copertura trovata nel CSV');
+        return;
+      }
+
+      setImportTotal(uniqueNames.length);
+
+      let imported = 0, skipped = 0, errors = 0;
+      const errorDetails = [];
+
+      for (const nome of uniqueNames) {
+        const { error } = await supabase.from('copertura_canale').insert({
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          nome,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+
+        if (error) {
+          if (error.code === '23505') {
+            skipped++;
+            setImportSkipped(skipped);
+          } else {
+            errors++;
+            setImportErrors(errors);
+            errorDetails.push(`"${nome}": ${error.message}`);
+          }
+        } else {
+          imported++;
+          setImportImported(imported);
+        }
+        setImportProcessed(prev => prev + 1);
+      }
+
+      setCsvImportResult({ imported, skipped, errors, errorDetails });
+      setCsvImportFile(null);
+
+      if (imported > 0) {
+        toast.success(`✅ Importate ${imported} coperture`);
+        await fetchCoperture();
+      } else if (skipped > 0 && imported === 0) {
+        toast(`ℹ️ Tutte le coperture erano già presenti`);
+      }
+    } catch (err) {
+      console.error('❌ Errore import CSV:', err);
+      toast.error("Errore durante l'importazione");
+    } finally {
+      setCsvImporting(false);
+    }
+  };
+
+  const handleAddCopertura = async () => {
+    if (!newCoperturaName.trim()) {
+      toast.error('⚠️ Inserisci un nome per la copertura');
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase.from('copertura_canale').insert({
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        nome: newCoperturaName.trim(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) throw error;
+      toast.success('✅ Copertura creata con successo!');
+      setNewCoperturaName('');
+      await fetchCoperture();
+    } catch (error) {
+      console.error('❌ Errore creazione copertura:', error);
+      if (error.code === '23505') {
+        toast.error(`⚠️ La copertura "${newCoperturaName.trim()}" esiste già`);
+      } else {
+        toast.error('Errore nella creazione della copertura');
+      }
+    }
+  };
+
+  const handleUpdateCopertura = async () => {
+    if (!editingCopertura) return;
+    try {
+      const { error } = await supabase
+        .from('copertura_canale')
+        .update({ 
+          nome: editingCopertura.nome,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingCopertura.id);
+
+      if (error) throw error;
+      toast.success('✅ Copertura aggiornata!');
+      setEditingCopertura(null);
+      await fetchCoperture();
+    } catch (error) {
+      console.error('❌ Errore aggiornamento copertura:', error);
+      if (error.code === '23505') {
+        toast.error(`⚠️ La copertura "${editingCopertura.nome}" esiste già`);
+      } else {
+        toast.error('Errore aggiornamento copertura');
+      }
+    }
+  };
+
+  const handleDeleteCopertura = async (coperturaId) => {
+    try {
+      const { error } = await supabase.from('copertura_canale').delete().eq('id', coperturaId);
+      if (error) throw error;
+      toast.success('✅ Copertura eliminata!');
+      setShowDeleteConfirm(null);
+      await fetchCoperture();
+    } catch (error) {
+      console.error('❌ Errore eliminazione copertura:', error);
+      toast.error('Errore eliminazione copertura');
+    }
+  };
+
+  const filteredCoperture = coperture.filter(c =>
+    c.nome.toLowerCase().includes(searchCopertura.toLowerCase())
+  );
+
+  if (!show) return null;
+
+  const progressPct = importTotal ? Math.round((importProcessed / importTotal) * 100) : 0;
+  const importedPct = importTotal ? Math.round((importImported / importTotal) * 100) : 0;
+  const errorsPct = importTotal ? Math.round((importErrors / importTotal) * 100) : 0;
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+        onMouseDown={(e) => { mouseDownTarget.current = e.target; }}
+        onMouseUp={(e) => {
+          if (mouseDownTarget.current === e.currentTarget && e.target === e.currentTarget) {
+            onClose();
+          }
+          mouseDownTarget.current = null;
+        }}
+      >
+        <div
+          className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl"
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseUp={(e) => e.stopPropagation()}
+        >
+          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-cyan-50 to-blue-50 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-cyan-600 p-2 rounded-lg">
+                <Globe className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Gestione Copertura Canale</h2>
+                <p className="text-sm text-gray-600">Organizza le coperture di canale</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Form Aggiungi */}
+            <div className="bg-gradient-to-br from-cyan-50 to-blue-50 border-2 border-cyan-200 rounded-xl p-6">
+              <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <Plus className="w-5 h-5 text-cyan-600" />
+                Crea Nuova Copertura
+              </h3>
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  placeholder="Nome copertura (es. Nazionale, Regionale)"
+                  value={newCoperturaName}
+                  onChange={(e) => setNewCoperturaName(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleAddCopertura()}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none"
+                />
+                <button
+                  onClick={handleAddCopertura}
+                  className="bg-cyan-600 hover:bg-cyan-700 text-white px-6 py-2 rounded-lg flex items-center gap-2 transition font-medium"
+                >
+                  <Plus className="w-4 h-4" />
+                  Aggiungi
+                </button>
+              </div>
+            </div>
+
+            {/* 🔥 IMPORT CSV */}
+            <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl p-6">
+              <h3 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                <Upload className="w-5 h-5 text-green-600" />
+                Importa Coperture da CSV
+              </h3>
+              <p className="text-xs text-gray-500 mb-4">
+                Il CSV deve avere una colonna <code className="bg-gray-100 px-1 rounded">nome</code> con i nomi delle coperture
+              </p>
+
+              <div className="flex gap-3 items-center">
+                <label className="flex-1 cursor-pointer">
+                  <div className="flex items-center gap-3 px-4 py-2 border-2 border-dashed border-green-300 rounded-lg hover:border-green-500 hover:bg-green-50 transition">
+                    <FileText className="w-5 h-5 text-green-500 flex-shrink-0" />
+                    <span className="text-sm text-gray-500 truncate">
+                      {csvImportFile ? csvImportFile.name : 'Seleziona file CSV...'}
+                    </span>
+                  </div>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={(e) => setCsvImportFile(e.target.files[0] || null)}
+                  />
+                </label>
+
+                <button
+                  onClick={handleImportCsv}
+                  disabled={!csvImportFile || csvImporting}
+                  className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg flex items-center gap-2 transition font-medium flex-shrink-0"
+                >
+                  {csvImporting
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Upload className="w-4 h-4" />
+                  }
+                  {csvImporting ? 'Importando...' : 'Importa'}
+                </button>
+              </div>
+
+              {/* Barre di avanzamento */}
+              {(csvImporting || importProcessed > 0) && (
+                <div className="mt-4 rounded-xl border border-green-200 bg-white/70 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {csvImporting ? "Importazione in corso..." : "Import completato"}
+                      </p>
+                      <p className="text-xs text-gray-600 mt-0.5">
+                        {importProcessed}/{importTotal} elaborate
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-600">Esito</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        ✅ {importImported} · ⏭️ {importSkipped} · ❌ {importErrors}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                      <div className="h-2 rounded-full bg-green-600 transition-all" style={{ width: `${progressPct}%` }} />
+                    </div>
+                    <div className="mt-1 flex justify-between text-[11px] text-gray-500">
+                      <span>Avanzamento</span>
+                      <span>{progressPct}%</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-700">Importate</p>
+                        <p className="text-xs text-gray-500">{importImported}/{importTotal}</p>
+                      </div>
+                      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                        <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${importedPct}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-700">Non riuscite</p>
+                        <p className="text-xs text-gray-500">{importErrors}/{importTotal}</p>
+                      </div>
+                      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                        <div className="h-2 rounded-full bg-rose-500 transition-all" style={{ width: `${errorsPct}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Risultato import */}
+              {csvImportResult && (
+                <div className={`mt-3 p-3 rounded-lg text-sm flex items-start gap-2 ${
+                  csvImportResult.errors > 0
+                    ? 'bg-yellow-50 text-yellow-800 border border-yellow-200'
+                    : 'bg-green-50 text-green-800 border border-green-200'
+                }`}>
+                  {csvImportResult.errors > 0
+                    ? <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    : <Check className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  }
+                  <div>
+                    <p className="font-medium">
+                      ✅ {csvImportResult.imported} coperture importate
+                      {csvImportResult.skipped > 0 && `, ⏭️ ${csvImportResult.skipped} già esistenti ignorate`}
+                      {csvImportResult.errors > 0 && `, ❌ ${csvImportResult.errors} errori`}
+                    </p>
+                    {csvImportResult.errorDetails?.length > 0 && (
+                      <ul className="mt-1 text-xs space-y-0.5 text-yellow-700">
+                        {csvImportResult.errorDetails.map((e, i) => (
+                          <li key={i}>• {e}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Ricerca */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Cerca copertura..."
+                value={searchCopertura}
+                onChange={(e) => setSearchCopertura(e.target.value)}
+                className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none"
+              />
+              <Search className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
+            </div>
+
+            {/* Lista */}
+            {loading ? (
+              <div className="text-center py-10">
+                <Loader2 className="w-8 h-8 animate-spin text-cyan-600 mx-auto mb-2" />
+                <p className="text-gray-600">Caricamento...</p>
+              </div>
+            ) : filteredCoperture.length === 0 ? (
+              <div className="text-center py-10">
+                <Globe className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 font-medium">Nessuna copertura trovata</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredCoperture.map(copertura => (
+                  <div key={copertura.id} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition">
+                    {editingCopertura?.id === copertura.id ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={editingCopertura.nome}
+                          onChange={(e) => setEditingCopertura({ ...editingCopertura, nome: e.target.value })}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none"
+                        />
+                        <button onClick={handleUpdateCopertura} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setEditingCopertura(null)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-cyan-100 rounded-lg flex items-center justify-center">
+                            <Globe className="w-5 h-5 text-cyan-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900">{copertura.nome}</p>
+                            <p className="text-xs text-gray-500">ID: {copertura.id.slice(0, 8)}...</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => setEditingCopertura(copertura)} className="text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition">
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => setShowDeleteConfirm(copertura)} className="text-red-600 hover:bg-red-50 p-2 rounded-lg transition">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+            <p className="text-sm text-gray-600">{filteredCoperture.length} coperture</p>
+            <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition font-medium">
+              Chiudi
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Modale Conferma Eliminazione */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70]">
+          <div className="bg-white rounded-xl p-6 max-w-md mx-4 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-red-100 p-3 rounded-full">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900">Elimina Copertura</h3>
+            </div>
+            <p className="text-gray-600 mb-6">
+              Sei sicuro di voler eliminare <strong>{showDeleteConfirm.nome}</strong>?
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowDeleteConfirm(null)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition font-medium">
+                Annulla
+              </button>
+              <button onClick={() => handleDeleteCopertura(showDeleteConfirm.id)} className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition font-medium">
+                Elimina
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+// 🏷️ MODALE GESTIONE ETICHETTE CONTATTI
+const ContactLabelsManagementModal = ({ show, onClose, contactLabels, onRefresh }) => {
+  const [newLabelName, setNewLabelName] = useState('');
+  const [newLabelColor, setNewLabelColor] = useState('#3B82F6');
+  const [newLabelDesc, setNewLabelDesc] = useState('');
+  const [editingLabel, setEditingLabel] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [labelToDelete, setLabelToDelete] = useState(null);
+  const [isClosing, setIsClosing] = useState(false);  // ✅ AGGIUNGI QUESTO
+
+  const predefinedColors = [
+    '#3B82F6', '#EF4444', '#10B981', '#F59E0B',
+    '#8B5CF6', '#EC4899', '#14B8A6', '#F97316',
+  ];
+
+  const handleAddLabel = async () => {
+    if (!newLabelName.trim()) {
+      toast.error('Inserisci un nome per l\'etichetta');
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
+        .from('contact_labels')
+        .insert([{
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          nome: newLabelName.trim(),
+          color: newLabelColor,
+          descrizione: newLabelDesc.trim() || null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }]);
+
+      if (error) {
+        if (error.code === '23505') {
+          toast.error('Questa etichetta esiste già');
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      toast.success('✅ Etichetta aggiunta');
+      setNewLabelName('');
+      setNewLabelColor('#3B82F6');
+      setNewLabelDesc('');
+      onRefresh();
+    } catch (error) {
+      console.error('Errore aggiunta etichetta:', error);
+      toast.error('Errore nell\'aggiunta dell\'etichetta');
+    }
+  };
+
+  const handleUpdateLabel = async () => {
+    if (!editingLabel?.nome?.trim()) {
+      toast.error('Il nome dell\'etichetta non può essere vuoto');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('contact_labels')
+        .update({
+          nome: editingLabel.nome.trim(),
+          color: editingLabel.color,
+          descrizione: editingLabel.descrizione?.trim() || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingLabel.id);
+
+      if (error) {
+        if (error.code === '23505') {
+          toast.error('Questa etichetta esiste già');
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      toast.success('✅ Etichetta aggiornata');
+      setEditingLabel(null);
+      onRefresh();
+    } catch (error) {
+      console.error('Errore aggiornamento etichetta:', error);
+      toast.error('Errore nell\'aggiornamento dell\'etichetta');
+    }
+  };
+
+  const handleDeleteLabel = async () => {
+    if (!labelToDelete) return;
+
+    try {
+      const { error } = await supabase
+        .from('contact_labels')
+        .delete()
+        .eq('id', labelToDelete.id);
+
+      if (error) throw error;
+
+      toast.success('✅ Etichetta eliminata');
+      setShowDeleteConfirm(false);
+      setLabelToDelete(null);
+      onRefresh();
+    } catch (error) {
+      console.error('Errore eliminazione etichetta:', error);
+      toast.error('Errore nell\'eliminazione dell\'etichetta');
+    }
+  };
+
+  const handleImportCSV = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setImportProgress(0);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const text = await file.text();
+      const lines = text.split('\n').filter(line => line.trim());
+      
+      const startIndex = lines[0].toLowerCase().includes('nome') ? 1 : 0;
+      const labelsToImport = lines.slice(startIndex);
+
+      const total = labelsToImport.length;
+      let imported = 0;
+
+      for (let i = 0; i < labelsToImport.length; i++) {
+        const parts = labelsToImport[i].split(',');
+        const nome = parts[0]?.trim().replace(/^["']|["']$/g, '');
+        const colore = parts[1]?.trim().replace(/^["']|["']$/g, '') || '#3B82F6';
+        
+        if (!nome) continue;
+
+        try {
+          await supabase.from('contact_labels').insert([{
+            id: crypto.randomUUID(),
+            user_id: user.id,
+            nome: nome,
+            color: colore,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }]);
+          imported++;
+        } catch (err) {
+          console.warn('Etichetta già esistente o errore:', nome);
+        }
+
+        setImportProgress(Math.round(((i + 1) / total) * 100));
+      }
+
+      toast.success(`✅ ${imported} etichette importate`);
+      onRefresh();
+    } catch (error) {
+      console.error('Errore import CSV:', error);
+      toast.error('Errore nell\'importazione del CSV');
+    } finally {
+      setIsImporting(false);
+      setImportProgress(0);
+      e.target.value = '';
+    }
+  };
+
+  const filteredLabels = (contactLabels || []).filter(label =>
+    label.nome.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  if (!show) return null;
+  console.log('🟢 Rendering ContactLabelsManagementModal con Portal');
+  return createPortal(
+    <>
+       <div 
+      className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center p-4"
+      style={{ zIndex: 999999 }}
+      onMouseDown={(e) => {
+        // ✅ BLOCCA L'EVENTO PRIMA CHE PARTA
+        e.stopPropagation();
+      }}
+      onClick={(e) => {
+        e.stopPropagation();  // ✅ BLOCCA ANCHE QUI
+        console.log('🔴 Click sul backdrop ContactLabelsManagementModal');
+        if (e.target === e.currentTarget) {
+          console.log('🔴 Chiusura ContactLabelsManagementModal');
+          onClose();
+        }
+      }}
+    >
+        <div 
+        className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl"
+        onMouseDown={(e) => e.stopPropagation()}  // ✅ AGGIUNGI ANCHE QUI
+        onClick={(e) => e.stopPropagation()}  // ✅ E ANCHE QUI
+      >
+          
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-t-2xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center">
+                  <Tag className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Gestione Etichette Contatti</h3>
+                  <p className="text-sm text-gray-600">Organizza i contatti per categorie</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto p-6">
+            
+            {/* Aggiungi nuova etichetta */}
+            <div className="mb-6 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                Nuova Etichetta
+              </label>
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newLabelName}
+                    onChange={(e) => setNewLabelName(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleAddLabel()}
+                    placeholder="Es: Mailing Lista Nazionale"
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                  <div className="flex gap-1">
+                    {predefinedColors.map(color => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => setNewLabelColor(color)}
+                        className={`w-8 h-8 rounded-lg transition ${
+                          newLabelColor === color ? 'ring-2 ring-offset-2 ring-indigo-500' : ''
+                        }`}
+                        style={{ backgroundColor: color }}
+                        title={color}
+                      />
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddLabel}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Aggiungi
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={newLabelDesc}
+                  onChange={(e) => setNewLabelDesc(e.target.value)}
+                  placeholder="Descrizione (opzionale)"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                />
+              </div>
+            </div>
+
+            {/* Import CSV */}
+            <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Import da CSV
+              </label>
+              <div className="flex items-center gap-4">
+                <label className="flex-1 cursor-pointer">
+                  <div className="flex items-center gap-2 px-4 py-2 bg-white border-2 border-dashed border-gray-300 rounded-lg hover:border-indigo-400 hover:bg-indigo-50 transition">
+                    <Upload className="w-4 h-4 text-gray-400" />
+                    <span className="text-sm text-gray-600">Carica file CSV</span>
+                  </div>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleImportCSV}
+                    className="hidden"
+                    disabled={isImporting}
+                  />
+                </label>
+              </div>
+              {isImporting && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+                    <span>Importazione in corso...</span>
+                    <span>{importProgress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${importProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-gray-500 mt-2">
+                CSV: colonna "nome" (obbligatoria) e "colore" (opzionale, es: #3B82F6)
+              </p>
+            </div>
+
+            {/* Ricerca */}
+            <div className="mb-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Cerca etichetta..."
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
+            </div>
+
+            {/* Lista etichette */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-700">
+                  {filteredLabels.length} {filteredLabels.length === 1 ? 'etichetta' : 'etichette'}
+                </span>
+              </div>
+
+              {filteredLabels.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Tag className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                  <p className="text-sm">Nessuna etichetta trovata</p>
+                </div>
+              ) : (
+                filteredLabels.map((label) => (
+                  <div
+                    key={label.id}
+                    className="flex items-center gap-3 p-3 bg-white border border-gray-200 rounded-lg hover:border-indigo-300 hover:shadow-sm transition"
+                  >
+                    {editingLabel?.id === label.id ? (
+                      <div className="flex-1 space-y-2">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={editingLabel.nome}
+                            onChange={(e) => setEditingLabel({ ...editingLabel, nome: e.target.value })}
+                            onKeyPress={(e) => e.key === 'Enter' && handleUpdateLabel()}
+                            className="flex-1 px-3 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            autoFocus
+                          />
+                          <div className="flex gap-1">
+                            {predefinedColors.map(color => (
+                              <button
+                                key={color}
+                                type="button"
+                                onClick={() => setEditingLabel({ ...editingLabel, color: color })}
+                                className={`w-8 h-8 rounded-lg transition ${
+                                  editingLabel.color === color ? 'ring-2 ring-offset-2 ring-indigo-500' : ''
+                                }`}
+                                style={{ backgroundColor: color }}
+                              />
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleUpdateLabel}
+                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition"
+                          >
+                            <Check className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingLabel(null)}
+                            className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          value={editingLabel.descrizione || ''}
+                          onChange={(e) => setEditingLabel({ ...editingLabel, descrizione: e.target.value })}
+                          placeholder="Descrizione (opzionale)"
+                          className="w-full px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+                        />
+                      </div>
+                    ) : (
+                      <>
+                        <div
+                          className="w-4 h-4 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: label.color }}
+                        />
+                        <div className="flex-1">
+                          <span className="text-sm font-medium text-gray-900">{label.nome}</span>
+                          {label.descrizione && (
+                            <p className="text-xs text-gray-500 mt-0.5">{label.descrizione}</p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setEditingLabel(label)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLabelToDelete(label);
+                            setShowDeleteConfirm(true);
+                          }}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+         {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-2xl flex justify-end">
+          <button
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}  // ✅ AGGIUNGI
+            onClick={(e) => {
+              e.stopPropagation();  // ✅ BLOCCA
+              console.log('🔴 Click bottone Chiudi');
+              onClose();
+            }}
+            className="px-6 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition"
+          >
+            Chiudi
+          </button>
+        </div>
+      </div>
+    </div>
+
+     {/* Modale conferma eliminazione */}
+    {showDeleteConfirm && (
+      <div 
+        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4"
+        style={{ zIndex: 9999999 }}
+        onMouseDown={(e) => e.stopPropagation()}  // ✅ AGGIUNGI
+        onClick={(e) => {
+          e.stopPropagation();  // ✅ BLOCCA
+          if (e.target === e.currentTarget) {
+            setShowDeleteConfirm(false);
+            setLabelToDelete(null);
+          }
+        }}
+      >
+        <div 
+          className="bg-white rounded-xl p-6 max-w-md w-full"
+          onMouseDown={(e) => e.stopPropagation()}  // ✅ AGGIUNGI
+          onClick={(e) => e.stopPropagation()}  // ✅ BLOCCA
+        >
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Conferma eliminazione</h3>
+            <p className="text-gray-600 mb-4">
+              Sei sicuro di voler eliminare l'etichetta "<strong>{labelToDelete?.nome}</strong>"?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setLabelToDelete(null);
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteLabel}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg"
+              >
+                Elimina
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>,
+    document.body
+  );
+};
+// 🏢 MODALE GESTIONE TESTATE
+const TestateManagementModal = ({ show, onClose }) => {
+  const [testate, setTestate] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editingTestata, setEditingTestata] = useState(null);
+  const [newTestataName, setNewTestataName] = useState('');
+  const [searchTestata, setSearchTestata] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
+  const [csvImportFile, setCsvImportFile] = useState(null);
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvImportResult, setCsvImportResult] = useState(null);
+  const mouseDownTarget = useRef(null);
+
+  // ✅ Progress bar state
+  const [importTotal, setImportTotal] = useState(0);
+  const [importProcessed, setImportProcessed] = useState(0);
+  const [importImported, setImportImported] = useState(0);
+  const [importSkipped, setImportSkipped] = useState(0);
+  const [importErrors, setImportErrors] = useState(0);
+
+  // ✅ AGGIUNGI QUESTA FUNZIONE
+  const fetchTestate = async () => {
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('testate')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('nome');
+
+      if (error) throw error;
+      setTestate(data || []);
+    } catch (error) {
+      console.error('❌ Errore caricamento testate:', error);
+      toast.error('Errore nel caricamento delle testate');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ✅ AGGIUNGI QUESTO useEffect
+  useEffect(() => {
+    if (show) fetchTestate();
+  }, [show]);
+
+
+  // 🔥 IMPORT CSV (con progress bar)
+  const handleImportCsv = async () => {
+    if (!csvImportFile) return;
+  
+    setCsvImporting(true);
+    setCsvImportResult(null);
+  
+    // reset progress
+    setImportTotal(0);
+    setImportProcessed(0);
+    setImportImported(0);
+    setImportSkipped(0);
+    setImportErrors(0);
+  
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const text = await csvImportFile.text();
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  
+      if (lines.length < 2) {
+        toast.error("⚠️ Il CSV è vuoto o ha solo l'intestazione");
+        return;
+      }
+  
+      // header
+      const headers = lines[0]
+      .split(',')
+      .map(h => h.trim().toLowerCase().replace(/"/g, '').replace(/^\uFEFF/, '').replace(/\r/g, ''));
+  
+      const nomeIndex = headers.indexOf('nome');
+      if (nomeIndex === -1) {
+        toast.error('❌ Colonna "nome" non trovata nel CSV');
+        return;
+      }
+  
+      // ✅ estrai + split per ";" + trim + dedup
+      const rawNames = lines.slice(1).flatMap((line) => {
+        const cols = line.split(',');
+        const raw = cols[nomeIndex]?.trim().replace(/"/g, '');
+        if (!raw) return [];
+        return raw
+          .split(';')
+          .map(s => s.trim())
+          .filter(Boolean);
+      });
+  
+      const uniqueNames = Array.from(new Set(rawNames));
+  
+      if (uniqueNames.length === 0) {
+        toast.error('⚠️ Nessuna testata trovata nel CSV');
+        return;
+      }
+  
+      setImportTotal(uniqueNames.length);
+  
+      let imported = 0;
+      let skipped = 0;
+      let errors = 0;
+      const errorDetails = [];
+  
+      for (const nome of uniqueNames) {
+        const { error } = await supabase
+          .from('testate')
+          .insert({
+            id: crypto.randomUUID(),
+            user_id: user.id,
+            nome,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+  
+        if (error) {
+          if (error.code === '23505') {
+            skipped++;
+            setImportSkipped(skipped);
+          } else {
+            errors++;
+            setImportErrors(errors);
+            errorDetails.push(`"${nome}": ${error.message}`);
+          }
+        } else {
+          imported++;
+          setImportImported(imported);
+        }
+  
+        setImportProcessed(prev => prev + 1);
+      }
+  
+      setCsvImportResult({ imported, skipped, errors, errorDetails });
+      setCsvImportFile(null);
+  
+      if (imported > 0) {
+        toast.success(`✅ Importate ${imported} testate`);
+        await fetchTestate();
+      } else if (skipped > 0 && imported === 0) {
+        toast(`ℹ️ Tutte le testate erano già presenti`);
+      }
+    } catch (err) {
+      console.error('❌ Errore import CSV:', err);
+      toast.error("Errore durante l'importazione");
+    } finally {
+      setCsvImporting(false);
+    }
+  };
+
+  const handleAddTestata = async () => {
+    if (!newTestataName.trim()) {
+      toast.error('⚠️ Inserisci un nome per la testata');
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
+        .from('testate')
+        .insert({
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          nome: newTestataName.trim(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+
+      if (error) throw error;
+
+      toast.success('✅ Testata creata con successo!');
+      setNewTestataName('');
+      await fetchTestate();
+    } catch (error) {
+      console.error('❌ Errore creazione testata:', error);
+
+      if (error.code === '23505') {
+        toast.error(`⚠️ La testata "${newTestataName.trim()}" esiste già`);
+      } else {
+        toast.error('Errore nella creazione della testata');
+      }
+    }
+  };
+
+  const handleUpdateTestata = async () => {
+    if (!editingTestata) return;
+    try {
+      const { error } = await supabase
+        .from('testate')
+        .update({ 
+          nome: editingTestata.nome,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingTestata.id);
+
+      if (error) throw error;
+      toast.success('✅ Testata aggiornata!');
+      setEditingTestata(null);
+      await fetchTestate();
+    } catch (error) {
+      console.error('❌ Errore aggiornamento testata:', error);
+      if (error.code === '23505') {
+        toast.error(`⚠️ La testata "${editingTestata.nome}" esiste già`);
+      } else {
+        toast.error('Errore aggiornamento testata');
+      }
+    }
+  };
+
+  const handleDeleteTestata = async (testataId) => {
+    try {
+      const { error } = await supabase
+        .from('testate')
+        .delete()
+        .eq('id', testataId);
+
+      if (error) throw error;
+      toast.success('✅ Testata eliminata!');
+      setShowDeleteConfirm(null);
+      await fetchTestate();
+    } catch (error) {
+      console.error('❌ Errore eliminazione testata:', error);
+      toast.error('Errore eliminazione testata');
+    }
+  };
+
+  const filteredTestate = testate.filter(t =>
+    t.nome.toLowerCase().includes(searchTestata.toLowerCase())
+  );
+
+  if (!show) return null;
+
+  const progressPct = importTotal ? Math.round((importProcessed / importTotal) * 100) : 0;
+  const importedPct = importTotal ? Math.round((importImported / importTotal) * 100) : 0;
+  const errorsPct = importTotal ? Math.round((importErrors / importTotal) * 100) : 0;
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+        onMouseDown={(e) => { mouseDownTarget.current = e.target; }}
+        onMouseUp={(e) => {
+          if (
+            mouseDownTarget.current === e.currentTarget &&
+            e.target === e.currentTarget
+          ) {
+            onClose();
+          }
+          mouseDownTarget.current = null;
+        }}
+      >
+        <div
+          className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl"
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseUp={(e) => e.stopPropagation()}
+        >
+
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-indigo-600 p-2 rounded-lg">
+                <Building2 className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Gestione Testate</h2>
+                <p className="text-sm text-gray-600">Organizza le testate dei tuoi contatti</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+
+            {/* Form Aggiungi */}
+            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-xl p-6">
+              <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <Plus className="w-5 h-5 text-indigo-600" />
+                Crea Nuova Testata
+              </h3>
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  placeholder="Nome della testata (es. La Repubblica)"
+                  value={newTestataName}
+                  onChange={(e) => setNewTestataName(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleAddTestata()}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+                <button
+                  onClick={handleAddTestata}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg flex items-center gap-2 transition font-medium"
+                >
+                  <Plus className="w-4 h-4" />
+                  Aggiungi
+                </button>
+              </div>
+            </div>
+
+            {/* 🔥 IMPORT CSV */}
+            <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl p-6">
+              <h3 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                <Upload className="w-5 h-5 text-green-600" />
+                Importa Testate da CSV
+              </h3>
+              <p className="text-xs text-gray-500 mb-4">
+                Il CSV deve avere una colonna <code className="bg-gray-100 px-1 rounded">nome</code> con i nomi delle testate
+              </p>
+
+              <div className="flex gap-3 items-center">
+                <label className="flex-1 cursor-pointer">
+                  <div className="flex items-center gap-3 px-4 py-2 border-2 border-dashed border-green-300 rounded-lg hover:border-green-500 hover:bg-green-50 transition">
+                    <FileText className="w-5 h-5 text-green-500 flex-shrink-0" />
+                    <span className="text-sm text-gray-500 truncate">
+                      {csvImportFile ? csvImportFile.name : 'Seleziona file CSV...'}
+                    </span>
+                  </div>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={(e) => setCsvImportFile(e.target.files[0] || null)}
+                  />
+                </label>
+
+                <button
+                  onClick={handleImportCsv}
+                  disabled={!csvImportFile || csvImporting}
+                  className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg flex items-center gap-2 transition font-medium flex-shrink-0"
+                >
+                  {csvImporting
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Upload className="w-4 h-4" />
+                  }
+                  {csvImporting ? 'Importando...' : 'Importa'}
+                </button>
+              </div>
+
+              {/* ✅ BARRE DI AVANZAMENTO */}
+              {(csvImporting || importProcessed > 0) && (
+                <div className="mt-4 rounded-xl border border-green-200 bg-white/70 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {csvImporting ? "Importazione in corso..." : "Import completato"}
+                      </p>
+                      <p className="text-xs text-gray-600 mt-0.5">
+                        {importProcessed}/{importTotal} elaborate
+                      </p>
+                    </div>
+
+                    <div className="text-right">
+                      <p className="text-xs text-gray-600">Esito</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        ✅ {importImported} · ⏭️ {importSkipped} · ❌ {importErrors}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                      <div
+                        className="h-2 rounded-full bg-green-600 transition-all"
+                        style={{ width: `${progressPct}%` }}
+                      />
+                    </div>
+                    <div className="mt-1 flex justify-between text-[11px] text-gray-500">
+                      <span>Avanzamento</span>
+                      <span>{progressPct}%</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-700">Importate</p>
+                        <p className="text-xs text-gray-500">{importImported}/{importTotal}</p>
+                      </div>
+                      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                        <div
+                          className="h-2 rounded-full bg-emerald-500 transition-all"
+                          style={{ width: `${importedPct}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-700">Non riuscite</p>
+                        <p className="text-xs text-gray-500">{importErrors}/{importTotal}</p>
+                      </div>
+                      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                        <div
+                          className="h-2 rounded-full bg-rose-500 transition-all"
+                          style={{ width: `${errorsPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Risultato import */}
+              {csvImportResult && (
+                <div className={`mt-3 p-3 rounded-lg text-sm flex items-start gap-2 ${
+                  csvImportResult.errors > 0
+                    ? 'bg-yellow-50 text-yellow-800 border border-yellow-200'
+                    : 'bg-green-50 text-green-800 border border-green-200'
+                }`}>
+                  {csvImportResult.errors > 0
+                    ? <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    : <Check className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  }
+                  <div>
+                    <p className="font-medium">
+                      ✅ {csvImportResult.imported} testate importate
+                      {csvImportResult.skipped > 0 && `, ⏭️ ${csvImportResult.skipped} già esistenti ignorate`}
+                      {csvImportResult.errors > 0 && `, ❌ ${csvImportResult.errors} errori`}
+                    </p>
+                    {csvImportResult.errorDetails?.length > 0 && (
+                      <ul className="mt-1 text-xs space-y-0.5 text-yellow-700">
+                        {csvImportResult.errorDetails.map((e, i) => (
+                          <li key={i}>• {e}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Ricerca */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Cerca testata..."
+                value={searchTestata}
+                onChange={(e) => setSearchTestata(e.target.value)}
+                className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+              />
+              <Search className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
+            </div>
+
+            {/* Lista Testate */}
+            {loading ? (
+              <div className="text-center py-10">
+                <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto mb-2" />
+                <p className="text-gray-600">Caricamento...</p>
+              </div>
+            ) : filteredTestate.length === 0 ? (
+              <div className="text-center py-10">
+                <Building2 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 font-medium">Nessuna testata trovata</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredTestate.map(testata => (
+                  <div key={testata.id} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition">
+                    {editingTestata?.id === testata.id ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={editingTestata.nome}
+                          onChange={(e) => setEditingTestata({ ...editingTestata, nome: e.target.value })}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                        <button onClick={handleUpdateTestata} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setEditingTestata(null)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+                            <Building2 className="w-5 h-5 text-indigo-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900">{testata.nome}</p>
+                            <p className="text-xs text-gray-500">ID: {testata.id.slice(0, 8)}...</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => setEditingTestata(testata)} className="text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition">
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => setShowDeleteConfirm(testata)} className="text-red-600 hover:bg-red-50 p-2 rounded-lg transition">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+            <p className="text-sm text-gray-600">{filteredTestate.length} testate</p>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition font-medium"
+            >
+              Chiudi
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Modale Conferma Eliminazione */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70]">
+          <div className="bg-white rounded-xl p-6 max-w-md mx-4 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-red-100 p-3 rounded-full">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900">Elimina Testata</h3>
+            </div>
+            <p className="text-gray-600 mb-6">
+              Sei sicuro di voler eliminare <strong>{showDeleteConfirm.nome}</strong>?
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowDeleteConfirm(null)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition font-medium">
+                Annulla
+              </button>
+              <button onClick={() => handleDeleteTestata(showDeleteConfirm.id)} className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition font-medium">
+                Elimina
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
 // 🏢 MODALE GESTIONE SETTORI
 const SectorsManagementModal = ({ show, onClose }) => {
   const [sectors, setSectors] = useState([]);
@@ -21992,6 +28066,17 @@ const SectorsManagementModal = ({ show, onClose }) => {
   const [newSectorName, setNewSectorName] = useState('');
   const [searchSector, setSearchSector] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
+  const [csvImportFile, setCsvImportFile] = useState(null);
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvImportResult, setCsvImportResult] = useState(null);
+  const mouseDownTarget = useRef(null); // 🔥 già presente, viene usato ora
+
+  // ✅ Progress bar state
+  const [importTotal, setImportTotal] = useState(0);
+  const [importProcessed, setImportProcessed] = useState(0);
+  const [importImported, setImportImported] = useState(0);
+  const [importSkipped, setImportSkipped] = useState(0);
+  const [importErrors, setImportErrors] = useState(0);
 
   const fetchSectors = async () => {
     setLoading(true);
@@ -22015,51 +28100,164 @@ const SectorsManagementModal = ({ show, onClose }) => {
     if (show) fetchSectors();
   }, [show]);
 
+  // 🔥 IMPORT CSV (con progress bar)
+  const handleImportCsv = async () => {
+    if (!csvImportFile) return;
+  
+    setCsvImporting(true);
+    setCsvImportResult(null);
+  
+    // reset progress
+    setImportTotal(0);
+    setImportProcessed(0);
+    setImportImported(0);
+    setImportSkipped(0);
+    setImportErrors(0);
+  
+    try {
+      const text = await csvImportFile.text();
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  
+      if (lines.length < 2) {
+        toast.error("⚠️ Il CSV è vuoto o ha solo l'intestazione");
+        return;
+      }
+  
+      // header
+      const headers = lines[0]
+      .split(',')
+      .map(h => h.trim().toLowerCase().replace(/"/g, '').replace(/^\uFEFF/, '').replace(/\r/g, ''));
+  
+      const nameIndex = headers.indexOf('name');
+      if (nameIndex === -1) {
+        toast.error('❌ Colonna "name" non trovata nel CSV');
+        return;
+      }
+
+      console.log('🔍 Headers raw:', JSON.stringify(lines[0]));
+console.log('🔍 Headers parsed:', headers);
+  
+      // ✅ estrai + split per ";" + trim + dedup
+      const rawNames = lines.slice(1).flatMap((line) => {
+        const cols = line.split(',');
+        const raw = cols[nameIndex]?.trim().replace(/"/g, '');
+        if (!raw) return [];
+        return raw
+          .split(';')
+          .map(s => s.trim())
+          .filter(Boolean);
+      });
+  
+      const uniqueNames = Array.from(new Set(rawNames));
+  
+      if (uniqueNames.length === 0) {
+        toast.error('⚠️ Nessun settore trovato nel CSV');
+        return;
+      }
+  
+      setImportTotal(uniqueNames.length);
+  
+      let imported = 0;
+      let skipped = 0;
+      let errors = 0;
+      const errorDetails = [];
+  
+      for (const name of uniqueNames) {
+        const { error } = await supabase
+          .from('sectors')
+          .insert({
+            id: crypto.randomUUID(), // ✅ serve perché id è uuid nella tabella
+            name,
+          });
+  
+        if (error) {
+          // duplicato su name (se hai unique constraint su name)
+          if (error.code === '23505') {
+            skipped++;
+            setImportSkipped(skipped);
+          } else {
+            errors++;
+            setImportErrors(errors);
+            errorDetails.push(`"${name}": ${error.message}`);
+          }
+        } else {
+          imported++;
+          setImportImported(imported);
+        }
+  
+        setImportProcessed(prev => prev + 1); // ✅ aggiorna barra
+      }
+  
+      setCsvImportResult({ imported, skipped, errors, errorDetails });
+      setCsvImportFile(null);
+  
+      if (imported > 0) {
+        toast.success(`✅ Importati ${imported} settori`);
+        await fetchSectors();
+      } else if (skipped > 0 && imported === 0) {
+        toast(`ℹ️ Tutti i settori erano già presenti`);
+      }
+    } catch (err) {
+      console.error('❌ Errore import CSV:', err);
+      toast.error("Errore durante l'importazione");
+    } finally {
+      setCsvImporting(false);
+    }
+  };
+
   const handleAddSector = async () => {
     if (!newSectorName.trim()) {
       toast.error('⚠️ Inserisci un nome per il settore');
       return;
     }
-  
+
     try {
       const { error } = await supabase
         .from('sectors')
         .insert({
           id: crypto.randomUUID(),
-          name: newSectorName.trim()
+          name: newSectorName.trim(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         });
-  
+
       if (error) throw error;
-      toast.success('✅ Settore creato!');
+
+      toast.success('✅ Settore creato con successo!');
       setNewSectorName('');
       await fetchSectors();
     } catch (error) {
       console.error('❌ Errore creazione settore:', error);
-      toast.error('Errore nella creazione del settore');
+
+      if (error.code === '23505') {
+        toast.error(`⚠️ Il settore "${newSectorName.trim()}" esiste già`);
+      } else {
+        toast.error('Errore nella creazione del settore');
+      }
     }
   };
 
   const handleUpdateSector = async () => {
     if (!editingSector) return;
-  
     try {
       const { error } = await supabase
         .from('sectors')
-        .update({
-          name: editingSector.name
-        })
+        .update({ name: editingSector.name })
         .eq('id', editingSector.id);
-  
+
       if (error) throw error;
       toast.success('✅ Settore aggiornato!');
       setEditingSector(null);
       await fetchSectors();
     } catch (error) {
-      console.error('❌ Errore aggiornamento:', error);
-      toast.error('Errore aggiornamento');
+      console.error('❌ Errore aggiornamento settore:', error);
+      if (error.code === '23505') {
+        toast.error(`⚠️ Il settore "${editingSector.name}" esiste già`);
+      } else {
+        toast.error('Errore aggiornamento settore');
+      }
     }
   };
-
 
   const handleDeleteSector = async (sectorId) => {
     try {
@@ -22074,7 +28272,7 @@ const SectorsManagementModal = ({ show, onClose }) => {
       await fetchSectors();
     } catch (error) {
       console.error('❌ Errore eliminazione settore:', error);
-      toast.error('Errore eliminazione');
+      toast.error('Errore eliminazione settore');
     }
   };
 
@@ -22084,36 +28282,50 @@ const SectorsManagementModal = ({ show, onClose }) => {
 
   if (!show) return null;
 
+  const progressPct = importTotal ? Math.round((importProcessed / importTotal) * 100) : 0;
+  const importedPct = importTotal ? Math.round((importImported / importTotal) * 100) : 0;
+  const errorsPct = importTotal ? Math.round((importErrors / importTotal) * 100) : 0;
+
   return (
     <>
-      <div 
-  className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
-  onClick={onClose}  // 🔥 Chiudi se clicchi sul backdrop
->
-  <div 
-    className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl"
-    onClick={(e) => e.stopPropagation()}  // 🔥 AGGIUNGI QUESTO - ferma propagazione
-  >
-    
-    {/* Header */}
-    <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50 flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <div className="bg-indigo-600 p-2 rounded-lg">
-          <Briefcase className="w-6 h-6 text-white" />
-        </div>
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Gestione Settori</h2>
-          <p className="text-sm text-gray-600">Organizza i settori dei tuoi contatti</p>
-        </div>
-      </div>
-      <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition">
-        <X className="w-6 h-6" />
-      </button>
-    </div>
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+        onMouseDown={(e) => { mouseDownTarget.current = e.target; }}
+        onMouseUp={(e) => {
+          if (
+            mouseDownTarget.current === e.currentTarget &&
+            e.target === e.currentTarget
+          ) {
+            onClose();
+          }
+          mouseDownTarget.current = null;
+        }}
+      >
+        <div
+          className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl"
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseUp={(e) => e.stopPropagation()}
+        >
+
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-indigo-600 p-2 rounded-lg">
+                <Briefcase className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Gestione Settori</h2>
+                <p className="text-sm text-gray-600">Organizza i settori dei tuoi contatti</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
 
           {/* Body */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            
+
             {/* Form Aggiungi */}
             <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-xl p-6">
               <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -22137,6 +28349,138 @@ const SectorsManagementModal = ({ show, onClose }) => {
                   Aggiungi
                 </button>
               </div>
+            </div>
+
+            {/* 🔥 IMPORT CSV */}
+            <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl p-6">
+              <h3 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                <Upload className="w-5 h-5 text-green-600" />
+                Importa Settori da CSV
+              </h3>
+              <p className="text-xs text-gray-500 mb-4">
+                Il CSV deve avere una colonna <code className="bg-gray-100 px-1 rounded">name</code> con i nomi dei settori
+              </p>
+
+              <div className="flex gap-3 items-center">
+                <label className="flex-1 cursor-pointer">
+                  <div className="flex items-center gap-3 px-4 py-2 border-2 border-dashed border-green-300 rounded-lg hover:border-green-500 hover:bg-green-50 transition">
+                    <FileText className="w-5 h-5 text-green-500 flex-shrink-0" />
+                    <span className="text-sm text-gray-500 truncate">
+                      {csvImportFile ? csvImportFile.name : 'Seleziona file CSV...'}
+                    </span>
+                  </div>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={(e) => setCsvImportFile(e.target.files[0] || null)}
+                  />
+                </label>
+
+                <button
+                  onClick={handleImportCsv}
+                  disabled={!csvImportFile || csvImporting}
+                  className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg flex items-center gap-2 transition font-medium flex-shrink-0"
+                >
+                  {csvImporting
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Upload className="w-4 h-4" />
+                  }
+                  {csvImporting ? 'Importando...' : 'Importa'}
+                </button>
+              </div>
+
+              {/* ✅ BARRE DI AVANZAMENTO */}
+              {(csvImporting || importProcessed > 0) && (
+                <div className="mt-4 rounded-xl border border-green-200 bg-white/70 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {csvImporting ? "Importazione in corso..." : "Import completato"}
+                      </p>
+                      <p className="text-xs text-gray-600 mt-0.5">
+                        {importProcessed}/{importTotal} elaborati
+                      </p>
+                    </div>
+
+                    <div className="text-right">
+                      <p className="text-xs text-gray-600">Esito</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        ✅ {importImported} · ⏭️ {importSkipped} · ❌ {importErrors}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                      <div
+                        className="h-2 rounded-full bg-green-600 transition-all"
+                        style={{ width: `${progressPct}%` }}
+                      />
+                    </div>
+                    <div className="mt-1 flex justify-between text-[11px] text-gray-500">
+                      <span>Avanzamento</span>
+                      <span>{progressPct}%</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-700">Importati</p>
+                        <p className="text-xs text-gray-500">{importImported}/{importTotal}</p>
+                      </div>
+                      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                        <div
+                          className="h-2 rounded-full bg-emerald-500 transition-all"
+                          style={{ width: `${importedPct}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-700">Non riuscite</p>
+                        <p className="text-xs text-gray-500">{importErrors}/{importTotal}</p>
+                      </div>
+                      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                        <div
+                          className="h-2 rounded-full bg-rose-500 transition-all"
+                          style={{ width: `${errorsPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Risultato import */}
+              {csvImportResult && (
+                <div className={`mt-3 p-3 rounded-lg text-sm flex items-start gap-2 ${
+                  csvImportResult.errors > 0
+                    ? 'bg-yellow-50 text-yellow-800 border border-yellow-200'
+                    : 'bg-green-50 text-green-800 border border-green-200'
+                }`}>
+                  {csvImportResult.errors > 0
+                    ? <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    : <Check className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  }
+                  <div>
+                    <p className="font-medium">
+                      ✅ {csvImportResult.imported} settori importati
+                      {csvImportResult.skipped > 0 && `, ⏭️ ${csvImportResult.skipped} già esistenti ignorati`}
+                      {csvImportResult.errors > 0 && `, ❌ ${csvImportResult.errors} errori`}
+                    </p>
+                    {csvImportResult.errorDetails?.length > 0 && (
+                      <ul className="mt-1 text-xs space-y-0.5 text-yellow-700">
+                        {csvImportResult.errorDetails.map((e, i) => (
+                          <li key={i}>• {e}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Ricerca */}
@@ -22211,15 +28555,15 @@ const SectorsManagementModal = ({ show, onClose }) => {
           {/* Footer */}
           <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
             <p className="text-sm text-gray-600">{filteredSectors.length} settori</p>
-            <button 
-    onClick={(e) => {
-      e.stopPropagation();  // 🔥 AGGIUNGI QUESTO
-      onClose();
-    }} 
-    className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition font-medium"
-  >
-    Chiudi
-  </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition font-medium"
+            >
+              Chiudi
+            </button>
           </div>
         </div>
       </div>
@@ -22261,6 +28605,21 @@ const ChannelsManagementModal = ({ show, onClose }) => {
   const [searchChannel, setSearchChannel] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
 
+  // ✅ FIX: evita chiusura quando selezioni testo
+  const mouseDownTarget = useRef(null);
+
+  // ✅ CSV IMPORT
+  const [csvImportFile, setCsvImportFile] = useState(null);
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvImportResult, setCsvImportResult] = useState(null);
+
+  // ✅ Progress bar state
+  const [importTotal, setImportTotal] = useState(0);
+  const [importProcessed, setImportProcessed] = useState(0);
+  const [importImported, setImportImported] = useState(0);
+  const [importSkipped, setImportSkipped] = useState(0);
+  const [importErrors, setImportErrors] = useState(0);
+
   const fetchChannels = async () => {
     setLoading(true);
     try {
@@ -22284,49 +28643,50 @@ const ChannelsManagementModal = ({ show, onClose }) => {
   }, [show]);
 
   const handleAddChannel = async () => {
-  if (!newChannelName.trim()) {
-    toast.error('⚠️ Inserisci un nome per il canale');
-    return;
-  }
+    if (!newChannelName.trim()) {
+      toast.error('⚠️ Inserisci un nome per il canale');
+      return;
+    }
+    try {
+      const { error } = await supabase
+        .from('channels')
+        .insert({ id: crypto.randomUUID(), name: newChannelName.trim() });
 
-  try {
-    const { error } = await supabase
-      .from('channels')
-      .insert({
-        id: crypto.randomUUID(),
-        name: newChannelName.trim()
-      });
+      if (error) throw error;
+      toast.success('✅ Canale creato!');
+      setNewChannelName('');
+      await fetchChannels();
+    } catch (error) {
+      console.error('❌ Errore creazione canale:', error);
+      if (error.code === '23505') {
+        toast.error(`⚠️ Il canale "${newChannelName.trim()}" esiste già`);
+      } else {
+        toast.error('Errore nella creazione del canale');
+      }
+    }
+  };
 
-    if (error) throw error;
-    toast.success('✅ Canale creato!');
-    setNewChannelName('');
-    await fetchChannels();
-  } catch (error) {
-    console.error('❌ Errore creazione canale:', error);
-    toast.error('Errore nella creazione');
-  }
-};
+  const handleUpdateChannel = async () => {
+    if (!editingChannel) return;
+    try {
+      const { error } = await supabase
+        .from('channels')
+        .update({ name: editingChannel.name })
+        .eq('id', editingChannel.id);
 
-const handleUpdateChannel = async () => {
-  if (!editingChannel) return;
-
-  try {
-    const { error } = await supabase
-      .from('channels')
-      .update({
-        name: editingChannel.name
-      })
-      .eq('id', editingChannel.id);
-
-    if (error) throw error;
-    toast.success('✅ Canale aggiornato!');
-    setEditingChannel(null);
-    await fetchChannels();
-  } catch (error) {
-    console.error('❌ Errore aggiornamento:', error);
-    toast.error('Errore aggiornamento');
-  }
-};
+      if (error) throw error;
+      toast.success('✅ Canale aggiornato!');
+      setEditingChannel(null);
+      await fetchChannels();
+    } catch (error) {
+      console.error('❌ Errore aggiornamento canale:', error);
+      if (error.code === '23505') {
+        toast.error(`⚠️ Il canale "${editingChannel.name}" esiste già`);
+      } else {
+        toast.error('Errore aggiornamento canale');
+      }
+    }
+  };
 
   const handleDeleteChannel = async (channelId) => {
     try {
@@ -22340,8 +28700,108 @@ const handleUpdateChannel = async () => {
       setShowDeleteConfirm(null);
       await fetchChannels();
     } catch (error) {
-      console.error('❌ Errore eliminazione:', error);
-      toast.error('Errore eliminazione');
+      console.error('❌ Errore eliminazione canale:', error);
+      toast.error('Errore eliminazione canale');
+    }
+  };
+
+  // ✅ IMPORT CSV + progress bar
+  const handleImportChannelsCsv = async () => {
+    if (!csvImportFile) return;
+
+    setCsvImporting(true);
+    setCsvImportResult(null);
+
+    // reset progress
+    setImportTotal(0);
+    setImportProcessed(0);
+    setImportImported(0);
+    setImportSkipped(0);
+    setImportErrors(0);
+
+    try {
+      const text = await csvImportFile.text();
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+      if (lines.length < 2) {
+        toast.error("⚠️ Il CSV è vuoto o ha solo l'intestazione");
+        return;
+      }
+
+      const headers = lines[0]
+  .split(',')
+  .map(h => h.trim().toLowerCase().replace(/"/g, '').replace(/^\uFEFF/, '').replace(/\r/g, ''));
+  // ✅ AGGIUNGI QUI
+console.log('🔍 Headers raw:', JSON.stringify(lines[0]));
+console.log('🔍 Headers parsed:', headers);
+
+      const nameIndex = headers.indexOf('name');
+      if (nameIndex === -1) {
+        toast.error('❌ Colonna "name" non trovata nel CSV');
+        return;
+      }
+
+      // ✅ estrai + split per ";"
+      const rawNames = lines.slice(1).flatMap((line) => {
+        const cols = line.split(',');
+        const raw = cols[nameIndex]?.trim().replace(/"/g, '');
+        if (!raw) return [];
+        return raw
+          .split(';')
+          .map(s => s.trim())
+          .filter(Boolean);
+      });
+
+      const uniqueNames = Array.from(new Set(rawNames));
+
+      if (uniqueNames.length === 0) {
+        toast.error('⚠️ Nessun canale trovato nel CSV');
+        return;
+      }
+
+      setImportTotal(uniqueNames.length);
+
+      let imported = 0;
+      let skipped = 0;
+      let errors = 0;
+      const errorDetails = [];
+
+      for (const name of uniqueNames) {
+        const { error } = await supabase
+          .from('channels')
+          .insert({ id: crypto.randomUUID(), name });
+
+        if (error) {
+          if (error.code === '23505') {
+            skipped++;
+            setImportSkipped(skipped);
+          } else {
+            errors++;
+            setImportErrors(errors);
+            errorDetails.push(`"${name}": ${error.message}`);
+          }
+        } else {
+          imported++;
+          setImportImported(imported);
+        }
+
+        setImportProcessed(prev => prev + 1);
+      }
+
+      setCsvImportResult({ imported, skipped, errors, errorDetails });
+      setCsvImportFile(null);
+
+      if (imported > 0) {
+        toast.success(`✅ Importati ${imported} canali`);
+        await fetchChannels();
+      } else if (skipped > 0 && imported === 0) {
+        toast('ℹ️ Tutti i canali erano già presenti');
+      }
+    } catch (err) {
+      console.error('❌ Errore import CSV:', err);
+      toast.error("Errore durante l'importazione");
+    } finally {
+      setCsvImporting(false);
     }
   };
 
@@ -22351,35 +28811,50 @@ const handleUpdateChannel = async () => {
 
   if (!show) return null;
 
+  const progressPct = importTotal ? Math.round((importProcessed / importTotal) * 100) : 0;
+  const importedPct = importTotal ? Math.round((importImported / importTotal) * 100) : 0;
+  const errorsPct = importTotal ? Math.round((importErrors / importTotal) * 100) : 0;
+
   return (
     <>
-<div 
-  className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
-  onClick={onClose}  // 🔥 Chiudi se clicchi sul backdrop
->
-  <div 
-    className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl"
-    onClick={(e) => e.stopPropagation()}  // 🔥 AGGIUNGI QUESTO - ferma propagazione
-  >
-    
-    {/* Header */}
-    <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50 flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <div className="bg-indigo-600 p-2 rounded-lg">
-          <Briefcase className="w-6 h-6 text-white" />
-        </div>
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Gestione Canali</h2>
-          <p className="text-sm text-gray-600">Organizza i canali delle tue comunicazioni</p>
-        </div>
-      </div>
-      <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition">
-        <X className="w-6 h-6" />
-      </button>
-    </div>
+      {/* ✅ FIX: sostituito onClick con onMouseDown/onMouseUp */}
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+        onMouseDown={(e) => { mouseDownTarget.current = e.target; }}
+        onMouseUp={(e) => {
+          if (
+            mouseDownTarget.current === e.currentTarget &&
+            e.target === e.currentTarget
+          ) {
+            onClose();
+          }
+          mouseDownTarget.current = null;
+        }}
+      >
+        <div
+          className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl"
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseUp={(e) => e.stopPropagation()}
+        >
+
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-indigo-600 p-2 rounded-lg">
+                <Briefcase className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Gestione Canali</h2>
+                <p className="text-sm text-gray-600">Organizza i canali delle tue comunicazioni</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            
+            {/* Crea nuovo */}
             <div className="bg-gradient-to-br from-teal-50 to-blue-50 border-2 border-teal-200 rounded-xl p-6">
               <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
                 <Plus className="w-5 h-5 text-teal-600" />
@@ -22404,6 +28879,139 @@ const handleUpdateChannel = async () => {
               </div>
             </div>
 
+            {/* ✅ IMPORT CSV */}
+            <div className="bg-gradient-to-br from-teal-50 to-emerald-50 border-2 border-teal-200 rounded-xl p-6">
+              <h3 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                <Upload className="w-5 h-5 text-teal-600" />
+                Importa Canali da CSV
+              </h3>
+              <p className="text-xs text-gray-500 mb-4">
+                Il CSV deve avere una colonna <code className="bg-gray-100 px-1 rounded">name</code>
+              </p>
+
+              <div className="flex gap-3 items-center">
+                <label className="flex-1 cursor-pointer">
+                  <div className="flex items-center gap-3 px-4 py-2 border-2 border-dashed border-teal-300 rounded-lg hover:border-teal-500 hover:bg-teal-50 transition">
+                    <FileText className="w-5 h-5 text-teal-500 flex-shrink-0" />
+                    <span className="text-sm text-gray-500 truncate">
+                      {csvImportFile ? csvImportFile.name : 'Seleziona file CSV...'}
+                    </span>
+                  </div>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={(e) => setCsvImportFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+
+                <button
+                  onClick={handleImportChannelsCsv}
+                  disabled={!csvImportFile || csvImporting}
+                  className="bg-teal-600 hover:bg-teal-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg flex items-center gap-2 transition font-medium flex-shrink-0"
+                >
+                  {csvImporting
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Upload className="w-4 h-4" />
+                  }
+                  {csvImporting ? 'Importando...' : 'Importa'}
+                </button>
+              </div>
+
+              {/* ✅ BARRE */}
+              {(csvImporting || importProcessed > 0) && (
+                <div className="mt-4 rounded-xl border border-teal-200 bg-white/70 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {csvImporting ? "Importazione in corso..." : "Import completato"}
+                      </p>
+                      <p className="text-xs text-gray-600 mt-0.5">
+                        {importProcessed}/{importTotal} elaborati
+                      </p>
+                    </div>
+
+                    <div className="text-right">
+                      <p className="text-xs text-gray-600">Esito</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        ✅ {importImported} · ⏭️ {importSkipped} · ❌ {importErrors}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                      <div
+                        className="h-2 rounded-full bg-teal-600 transition-all"
+                        style={{ width: `${progressPct}%` }}
+                      />
+                    </div>
+                    <div className="mt-1 flex justify-between text-[11px] text-gray-500">
+                      <span>Avanzamento</span>
+                      <span>{progressPct}%</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-700">Importati</p>
+                        <p className="text-xs text-gray-500">{importImported}/{importTotal}</p>
+                      </div>
+                      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                        <div
+                          className="h-2 rounded-full bg-emerald-500 transition-all"
+                          style={{ width: `${importedPct}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-700">Non riuscite</p>
+                        <p className="text-xs text-gray-500">{importErrors}/{importTotal}</p>
+                      </div>
+                      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                        <div
+                          className="h-2 rounded-full bg-rose-500 transition-all"
+                          style={{ width: `${errorsPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Risultato import */}
+              {csvImportResult && (
+                <div className={`mt-3 p-3 rounded-lg text-sm flex items-start gap-2 ${
+                  csvImportResult.errors > 0
+                    ? 'bg-yellow-50 text-yellow-800 border border-yellow-200'
+                    : 'bg-green-50 text-green-800 border border-green-200'
+                }`}>
+                  {csvImportResult.errors > 0
+                    ? <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    : <Check className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  }
+                  <div>
+                    <p className="font-medium">
+                      ✅ {csvImportResult.imported} canali importati
+                      {csvImportResult.skipped > 0 && `, ⏭️ ${csvImportResult.skipped} già esistenti ignorati`}
+                      {csvImportResult.errors > 0 && `, ❌ ${csvImportResult.errors} errori`}
+                    </p>
+                    {csvImportResult.errorDetails?.length > 0 && (
+                      <ul className="mt-1 text-xs space-y-0.5 text-yellow-700">
+                        {csvImportResult.errorDetails.map((e, i) => (
+                          <li key={i}>• {e}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Ricerca */}
             <div className="relative">
               <input
                 type="text"
@@ -22415,6 +29023,7 @@ const handleUpdateChannel = async () => {
               <Search className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
             </div>
 
+            {/* Lista */}
             {loading ? (
               <div className="text-center py-10">
                 <Loader2 className="w-8 h-8 animate-spin text-teal-600 mx-auto mb-2" />
@@ -22452,7 +29061,6 @@ const handleUpdateChannel = async () => {
                           </div>
                           <div>
                             <p className="font-medium text-gray-900">{channel.name}</p>
-                            
                           </div>
                         </div>
                         <div className="flex gap-2">
@@ -22473,7 +29081,13 @@ const handleUpdateChannel = async () => {
 
           <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
             <p className="text-sm text-gray-600">{filteredChannels.length} canali</p>
-            <button onClick={onClose} className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition font-medium">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition font-medium"
+            >
               Chiudi
             </button>
           </div>
@@ -22506,7 +29120,6 @@ const handleUpdateChannel = async () => {
     </>
   );
 };
-
 // 👤 MODALE GESTIONE RUOLI
 const RolesManagementModal = ({ show, onClose }) => {
   const [roles, setRoles] = useState([]);
@@ -22515,6 +29128,21 @@ const RolesManagementModal = ({ show, onClose }) => {
   const [newRoleName, setNewRoleName] = useState('');
   const [searchRole, setSearchRole] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
+
+  // ✅ FIX chiusura modale durante selezione testo
+  const mouseDownTarget = useRef(null);
+
+  // ✅ CSV import state
+  const [csvImportFile, setCsvImportFile] = useState(null);
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvImportResult, setCsvImportResult] = useState(null);
+
+  // ✅ Progress bar state
+  const [importTotal, setImportTotal] = useState(0);
+  const [importProcessed, setImportProcessed] = useState(0);
+  const [importImported, setImportImported] = useState(0);
+  const [importSkipped, setImportSkipped] = useState(0);
+  const [importErrors, setImportErrors] = useState(0);
 
   const fetchRoles = async () => {
     setLoading(true);
@@ -22543,43 +29171,44 @@ const RolesManagementModal = ({ show, onClose }) => {
       toast.error('⚠️ Inserisci un nome per il ruolo');
       return;
     }
-  
     try {
       const { error } = await supabase
         .from('contact_roles')
-        .insert({
-          id: crypto.randomUUID(),
-          name: newRoleName.trim()
-        });
-  
+        .insert({ id: crypto.randomUUID(), name: newRoleName.trim() });
+
       if (error) throw error;
       toast.success('✅ Ruolo creato!');
       setNewRoleName('');
       await fetchRoles();
     } catch (error) {
       console.error('❌ Errore creazione ruolo:', error);
-      toast.error('Errore nella creazione');
+      if (error.code === '23505') {
+        toast.error(`⚠️ Il ruolo "${newRoleName.trim()}" esiste già`);
+      } else {
+        toast.error('Errore nella creazione del ruolo');
+      }
     }
   };
-  
+
   const handleUpdateRole = async () => {
     if (!editingRole) return;
-  
     try {
       const { error } = await supabase
         .from('contact_roles')
-        .update({
-          name: editingRole.name
-        })
+        .update({ name: editingRole.name })
         .eq('id', editingRole.id);
-  
+
       if (error) throw error;
       toast.success('✅ Ruolo aggiornato!');
       setEditingRole(null);
       await fetchRoles();
     } catch (error) {
-      console.error('❌ Errore aggiornamento:', error);
-      toast.error('Errore aggiornamento');
+      console.error('❌ Errore aggiornamento ruolo:', error);
+      if (error.code === '23505') {
+        toast.error(`⚠️ Il ruolo "${editingRole.name}" esiste già`);
+      } else {
+        toast.error('Errore aggiornamento ruolo');
+      }
     }
   };
 
@@ -22595,46 +29224,157 @@ const RolesManagementModal = ({ show, onClose }) => {
       setShowDeleteConfirm(null);
       await fetchRoles();
     } catch (error) {
-      console.error('❌ Errore eliminazione:', error);
-      toast.error('Errore eliminazione');
+      console.error('❌ Errore eliminazione ruolo:', error);
+      toast.error('Errore eliminazione ruolo');
     }
   };
 
-  const filteredRoles = roles.filter(r =>
+  // ✅ Import CSV ruoli + barre
+  const handleImportRolesCsv = async () => {
+    if (!csvImportFile) return;
+
+    setCsvImporting(true);
+    setCsvImportResult(null);
+
+    // reset progress
+    setImportTotal(0);
+    setImportProcessed(0);
+    setImportImported(0);
+    setImportSkipped(0);
+    setImportErrors(0);
+
+    try {
+      const text = await csvImportFile.text();
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+      if (lines.length < 2) {
+        toast.error("⚠️ Il CSV è vuoto o ha solo l'intestazione");
+        return;
+      }
+
+      const headers = lines[0]
+      .split(',')
+      .map(h => h.trim().toLowerCase().replace(/"/g, '').replace(/^\uFEFF/, '').replace(/\r/g, ''));
+
+      const nameIndex = headers.indexOf('name');
+      if (nameIndex === -1) {
+        toast.error('❌ Colonna "name" non trovata nel CSV');
+        return;
+      }
+
+      // ✅ estrai + split per ";" (se in una cella ci sono più ruoli)
+      const rawNames = lines.slice(1).flatMap((line) => {
+        const cols = line.split(',');
+        const raw = cols[nameIndex]?.trim().replace(/"/g, '');
+        if (!raw) return [];
+        return raw
+          .split(';')
+          .map(s => s.trim())
+          .filter(Boolean);
+      });
+
+      const uniqueNames = Array.from(new Set(rawNames));
+
+      if (uniqueNames.length === 0) {
+        toast.error('⚠️ Nessun ruolo trovato nel CSV');
+        return;
+      }
+
+      setImportTotal(uniqueNames.length);
+
+      let imported = 0;
+      let skipped = 0;
+      let errors = 0;
+      const errorDetails = [];
+
+      for (const name of uniqueNames) {
+        const { error } = await supabase
+          .from('contact_roles')
+          .insert({ id: crypto.randomUUID(), name });
+
+        if (error) {
+          if (error.code === '23505') {
+            skipped++;
+            setImportSkipped(skipped);
+          } else {
+            errors++;
+            setImportErrors(errors);
+            errorDetails.push(`"${name}": ${error.message}`);
+          }
+        } else {
+          imported++;
+          setImportImported(imported);
+        }
+
+        setImportProcessed(prev => prev + 1);
+      }
+
+      setCsvImportResult({ imported, skipped, errors, errorDetails });
+      setCsvImportFile(null);
+
+      if (imported > 0) {
+        toast.success(`✅ Importati ${imported} ruoli`);
+        await fetchRoles();
+      } else if (skipped > 0 && imported === 0) {
+        toast(`ℹ️ Tutti i ruoli erano già presenti`);
+      }
+    } catch (err) {
+      console.error('❌ Errore import CSV:', err);
+      toast.error("Errore durante l'importazione");
+    } finally {
+      setCsvImporting(false);
+    }
+  };
+
+  const filteredRoles = contactRoles.filter(r =>
     r.name.toLowerCase().includes(searchRole.toLowerCase())
   );
 
   if (!show) return null;
 
+  const progressPct = importTotal ? Math.round((importProcessed / importTotal) * 100) : 0;
+  const importedPct = importTotal ? Math.round((importImported / importTotal) * 100) : 0;
+  const errorsPct = importTotal ? Math.round((importErrors / importTotal) * 100) : 0;
+
   return (
     <>
-<div 
-  className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
-  onClick={onClose}  // 🔥 Chiudi se clicchi sul backdrop
->
-  <div 
-    className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl"
-    onClick={(e) => e.stopPropagation()}  // 🔥 AGGIUNGI QUESTO - ferma propagazione
-  >
-    
-    {/* Header */}
-    <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50 flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <div className="bg-indigo-600 p-2 rounded-lg">
-          <Briefcase className="w-6 h-6 text-white" />
-        </div>
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Gestione Ruoli</h2>
-          <p className="text-sm text-gray-600">Organizza i ruoli dei tuoi contatti</p>
-        </div>
-      </div>
-      <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition">
-        <X className="w-6 h-6" />
-      </button>
-    </div>
+      {/* ✅ FIX: onMouseDown/onMouseUp per evitare chiusura mentre selezioni testo */}
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+        onMouseDown={(e) => { mouseDownTarget.current = e.target; }}
+        onMouseUp={(e) => {
+          if (
+            mouseDownTarget.current === e.currentTarget &&
+            e.target === e.currentTarget
+          ) {
+            onClose();
+          }
+          mouseDownTarget.current = null;
+        }}
+      >
+        <div
+          className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl"
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseUp={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-indigo-600 p-2 rounded-lg">
+                <Briefcase className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Gestione Ruoli</h2>
+                <p className="text-sm text-gray-600">Organizza i ruoli dei tuoi contatti</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-lg transition">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
 
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            
+            {/* Crea nuovo */}
             <div className="bg-gradient-to-br from-orange-50 to-red-50 border-2 border-orange-200 rounded-xl p-6">
               <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
                 <Plus className="w-5 h-5 text-orange-600" />
@@ -22659,6 +29399,139 @@ const RolesManagementModal = ({ show, onClose }) => {
               </div>
             </div>
 
+            {/* ✅ IMPORT CSV RUOLI */}
+            <div className="bg-gradient-to-br from-orange-50 to-amber-50 border-2 border-orange-200 rounded-xl p-6">
+              <h3 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                <Upload className="w-5 h-5 text-orange-600" />
+                Importa Ruoli da CSV
+              </h3>
+              <p className="text-xs text-gray-500 mb-4">
+                Il CSV deve avere una colonna <code className="bg-gray-100 px-1 rounded">name</code>
+              </p>
+
+              <div className="flex gap-3 items-center">
+                <label className="flex-1 cursor-pointer">
+                  <div className="flex items-center gap-3 px-4 py-2 border-2 border-dashed border-orange-300 rounded-lg hover:border-orange-500 hover:bg-orange-50 transition">
+                    <FileText className="w-5 h-5 text-orange-500 flex-shrink-0" />
+                    <span className="text-sm text-gray-500 truncate">
+                      {csvImportFile ? csvImportFile.name : 'Seleziona file CSV...'}
+                    </span>
+                  </div>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={(e) => setCsvImportFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+
+                <button
+                  onClick={handleImportRolesCsv}
+                  disabled={!csvImportFile || csvImporting}
+                  className="bg-orange-600 hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg flex items-center gap-2 transition font-medium flex-shrink-0"
+                >
+                  {csvImporting
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Upload className="w-4 h-4" />
+                  }
+                  {csvImporting ? 'Importando...' : 'Importa'}
+                </button>
+              </div>
+
+              {/* ✅ BARRE */}
+              {(csvImporting || importProcessed > 0) && (
+                <div className="mt-4 rounded-xl border border-orange-200 bg-white/70 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {csvImporting ? "Importazione in corso..." : "Import completato"}
+                      </p>
+                      <p className="text-xs text-gray-600 mt-0.5">
+                        {importProcessed}/{importTotal} elaborati
+                      </p>
+                    </div>
+
+                    <div className="text-right">
+                      <p className="text-xs text-gray-600">Esito</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        ✅ {importImported} · ⏭️ {importSkipped} · ❌ {importErrors}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                      <div
+                        className="h-2 rounded-full bg-orange-600 transition-all"
+                        style={{ width: `${progressPct}%` }}
+                      />
+                    </div>
+                    <div className="mt-1 flex justify-between text-[11px] text-gray-500">
+                      <span>Avanzamento</span>
+                      <span>{progressPct}%</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-700">Importati</p>
+                        <p className="text-xs text-gray-500">{importImported}/{importTotal}</p>
+                      </div>
+                      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                        <div
+                          className="h-2 rounded-full bg-emerald-500 transition-all"
+                          style={{ width: `${importedPct}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-gray-700">Non riuscite</p>
+                        <p className="text-xs text-gray-500">{importErrors}/{importTotal}</p>
+                      </div>
+                      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                        <div
+                          className="h-2 rounded-full bg-rose-500 transition-all"
+                          style={{ width: `${errorsPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Risultato import */}
+              {csvImportResult && (
+                <div className={`mt-3 p-3 rounded-lg text-sm flex items-start gap-2 ${
+                  csvImportResult.errors > 0
+                    ? 'bg-yellow-50 text-yellow-800 border border-yellow-200'
+                    : 'bg-green-50 text-green-800 border border-green-200'
+                }`}>
+                  {csvImportResult.errors > 0
+                    ? <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    : <Check className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  }
+                  <div>
+                    <p className="font-medium">
+                      ✅ {csvImportResult.imported} ruoli importati
+                      {csvImportResult.skipped > 0 && `, ⏭️ ${csvImportResult.skipped} già esistenti ignorati`}
+                      {csvImportResult.errors > 0 && `, ❌ ${csvImportResult.errors} errori`}
+                    </p>
+                    {csvImportResult.errorDetails?.length > 0 && (
+                      <ul className="mt-1 text-xs space-y-0.5 text-yellow-700">
+                        {csvImportResult.errorDetails.map((e, i) => (
+                          <li key={i}>• {e}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Ricerca */}
             <div className="relative">
               <input
                 type="text"
@@ -22670,6 +29543,7 @@ const RolesManagementModal = ({ show, onClose }) => {
               <Search className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
             </div>
 
+            {/* Lista */}
             {loading ? (
               <div className="text-center py-10">
                 <Loader2 className="w-8 h-8 animate-spin text-orange-600 mx-auto mb-2" />
@@ -22707,7 +29581,6 @@ const RolesManagementModal = ({ show, onClose }) => {
                           </div>
                           <div>
                             <p className="font-medium text-gray-900">{role.name}</p>
-                           
                           </div>
                         </div>
                         <div className="flex gap-2">
@@ -22726,15 +29599,23 @@ const RolesManagementModal = ({ show, onClose }) => {
             )}
           </div>
 
+          {/* Footer */}
           <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
             <p className="text-sm text-gray-600">{filteredRoles.length} ruoli</p>
-            <button onClick={onClose} className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition font-medium">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition font-medium"
+            >
               Chiudi
             </button>
           </div>
         </div>
       </div>
 
+      {/* Conferma eliminazione */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70]">
           <div className="bg-white rounded-xl p-6 max-w-md mx-4 shadow-2xl">
