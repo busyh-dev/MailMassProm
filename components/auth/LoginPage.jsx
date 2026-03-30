@@ -571,6 +571,9 @@ console.log('⏰ setTimeout impostato, attendo 1 secondo...');
               </div>
               <h1 className="text-3xl font-bold text-gray-900 mb-2">MailMassProm</h1>
               <p className="text-gray-600 text-lg">Piattaforma Professionale di Email Marketing</p>
+              <p className="text-xs text-gray-400 mt-1">
+  v{process.env.NEXT_PUBLIC_APP_VERSION}
+</p>
             </div>
 
             <div className="space-y-6">
