@@ -3876,7 +3876,7 @@ const confirmExit = () => {
 <RecipientSelect
   value={recipientList}
   onChange={setRecipientList}
-  contacts={contacts}
+  contacts={localContacts}
 />
             {/* 📎 Allegati */}
             <div>
@@ -11336,7 +11336,14 @@ const fetchAllAccounts = async () => {
     setLoadingAllAccounts(false);
   }
 };
-
+useEffect(() => {
+  console.log("🛠️ Stato Modal:", showCampaignModal ? "APERTO" : "CHIUSO");
+  console.log("🛠️ Modalità Corrente:", campaignMode);
+  
+  return () => {
+    console.log("🚨 IL MODALE STA PER ESSERE DISTRUTTO (Unmount)");
+  };
+}, [showCampaignModal, campaignMode]);
 // Carica quando apri il modale campagna
 useEffect(() => {
   if (showCampaignModal) {
@@ -11602,10 +11609,6 @@ const [tiptapEditor, setTiptapEditor] = useState(null);
 const ContentEditableDiv = ({ value, onChange, columnIndex, style }) => {
   const ref = useRef(null);
   const [isEditing, setIsEditing] = useState(false);
-
-
-
-
 
   useEffect(() => {
     console.log('🎭 CampaignModal MOUNTED');
@@ -12143,6 +12146,22 @@ const contentBlocks = [
             </td>
           </tr>
         </table>
+      </td>
+    </tr>
+  </table>`
+},
+{
+  id: 'link-block',
+  name: 'Link Web',
+  icon: '🔗',
+  category: 'basic',
+  description: 'Inserisci un link testuale semplice',
+  html: `<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="padding:10px 20px;">
+    <tr>
+      <td align="left">
+        <a href="https://www.esempio.com" style="color:#2563eb; text-decoration:underline; font-family:Arial, sans-serif; font-size:16px;">
+          Clicca qui per visitare il sito
+        </a>
       </td>
     </tr>
   </table>`
@@ -13760,7 +13779,7 @@ const handleDrop = (e) => {
       const updatedBlocks = [...prev, newBlock];
       
       // ✅ Se è un blocco BASE, apri automaticamente l'editor modale
-      const basicBlockIds = ['header', 'footer', 'image', 'text', 'button', 'divider', 'social'];
+      const basicBlockIds = ['header', 'link-block', 'footer', 'image', 'text', 'button', 'divider', 'social'];
       
       if (basicBlockIds.includes(draggedBlock.id)) {
         console.log('🎨 Apertura automatica editor per blocco BASE:', draggedBlock.id);
@@ -14059,12 +14078,17 @@ const handleGoBack = () => {
   const hasChanges = campaignName || subject || emailContent !== "<p></p>" || attachments.length > 0;
 
   const handleCancel = () => {
-    if (hasChanges) setShowConfirmExit(true);
-    else 
-    // 🔥 AGGIUNGI QUESTA PULIZIA
-  sessionStorage.removeItem('isBuilderTemplate');
-  setIsBuilderTemplate(false);
-   setShowCampaignModal(false);
+    if (hasChanges) {
+      setShowConfirmExit(true);
+    } else {
+      // ✅ Pulizia session storage
+      sessionStorage.removeItem('isBuilderTemplate');
+      sessionStorage.removeItem('builderTemplate');
+      sessionStorage.removeItem('builderBlocks');
+      sessionStorage.removeItem('currentEmailContent');
+      setIsBuilderTemplate(false);
+      setShowCampaignModal(false);
+    }
   };
 
   const handleSend = () => {
@@ -14463,34 +14487,26 @@ const handleSaveDraft = async () => {
 
     const { success, data, error } = await saveCampaign(campaignData, true);
 
-    console.log('📥 Save result:', { success, data, error }); // ✅ DEBUG
-    console.log('📋 Status saved:', data?.status); // ✅ DEBUG
-
     if (!success) throw new Error(error);
 
     setLastSavedData(campaignData);
     setLastAutoSave(new Date());
 
-    // 🔥 Pulizia session storage
-    sessionStorage.removeItem('isBuilderTemplate');
-    setIsBuilderTemplate(false);
-
-    // ✅ FORZA IL RELOAD DELLE CAMPAGNE
-    console.log('🔄 Reloading campaigns...');
-    await loadCampaigns();
-    console.log('✅ Campaigns reloaded');
-
+    // Mostra il successo
     setShowDraftSuccess(true);
     setTimeout(() => setShowDraftSuccess(false), 2000);
-    setTimeout(() => setShowCampaignModal(false), 2300);
+
+    // ✅ MODIFICA QUI: Chiudi il modale solo se richiesto esplicitamente
+    if (shouldClose) {
+      setTimeout(() => setShowCampaignModal(false), 2300);
+    }
 
     if (onSaveDraft) onSaveDraft(data);
     
-    // ✅ Toast di conferma
-    toast.success('💾 Bozza salvata con successo!', { duration: 2000 });
+    toast.success('💾 Bozza salvata correttamente!', { duration: 2000 });
   } catch (error) {
     console.error("❌ Errore salvataggio bozza:", error);
-    toast.error("Errore nel salvataggio della bozza: " + error.message);
+    toast.error("Errore nel salvataggio: " + error.message);
   }
 };
   // Conferma invio
@@ -15595,115 +15611,112 @@ if (campaignMode === 'builder') {
                     : "border-gray-200 bg-white"
                 }`}
               >
-  {/* 🔥 AGGIUNGI QUESTO: Banner per template predefiniti */}
-  {canvasBlocks.length > 0 && canvasBlocks[0].id === 'predefined-template' && (
-    <div className="m-4 p-4 bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-300 rounded-xl shadow-sm">
-      <div className="flex items-start gap-3">
-        <div className="text-3xl">📄</div>
-        <div className="flex-1">
-          <h4 className="font-bold text-gray-900 mb-1">Template Predefinito Caricato</h4>
-          <p className="text-sm text-gray-600 mb-3">
-            Questo template è stato importato come un unico blocco. Convertilo in blocchi separati per modificarlo facilmente, oppure modifica l'HTML direttamente.
-          </p>
+{/* 🔥 BANNER POTENZIATO: Rileva qualsiasi template intero caricato */}
+{canvasBlocks.length === 1 && (
+  canvasBlocks[0].id === 'predefined-template' || 
+  canvasBlocks[0].id === 'template-da-modifica' ||
+  !isNaN(canvasBlocks[0].id) || // Rileva gli ID numerici 1, 2, 3...
+  canvasBlocks[0].html.includes('<table') // Rileva se il blocco contiene una struttura a tabelle
+) && (
+  <div className="m-4 p-4 bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-300 rounded-xl shadow-sm">
+    <div className="flex items-start gap-3">
+      <div className="text-3xl">📄</div>
+      <div className="flex-1">
+        <h4 className="font-bold text-gray-900 mb-1">Template Intero Caricato</h4>
+        <p className="text-sm text-gray-600 mb-3">
+          Questo template è attualmente un blocco unico. Convertilo in blocchi separati per modificare testi e immagini facilmente, oppure modifica l'HTML direttamente.
+        </p>
+        
+        <div className="flex gap-2">
+          <button
+           onClick={() => {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(canvasBlocks[0].html, 'text/html');
+            
+            // Cerchiamo le tabelle che fungono da contenitori di sezione
+            // Proviamo diverse combinazioni comuni nei template email
+            let sections = doc.querySelectorAll('body > table, body > div > table, table[role="presentation"]');
+            
+            // Se non ne trova, cerchiamo tutte le tabelle che hanno un padding o una larghezza definita
+            if (sections.length <= 1) {
+              sections = doc.querySelectorAll('table');
+            }
           
-          <div className="flex gap-2">
+            if (sections.length > 0) {
+              const newBlocks = Array.from(sections)
+                .filter(table => table.innerHTML.trim().length > 50) // Esclude tabelle vuote o di spaziatura
+                .map((table, index) => {
+                  const html = table.outerHTML;
+                  
+                  // Assegna ID intelligenti per attivare l'editor avanzato dopo
+                  let blockId = 'section-custom';
+                  let name = `Sezione ${index + 1}`;
+          
+                  if (index === 0 || html.includes('h1')) { blockId = 'header'; name = 'Header'; }
+                  else if (index === sections.length - 1 || html.includes('©')) { blockId = 'footer'; name = 'Footer'; }
+                  else if (html.includes('<a')) { blockId = 'section-cta'; name = 'Call to Action'; }
+          
+                  return {
+                    id: blockId,
+                    name: name,
+                    icon: '🧱',
+                    category: 'layout',
+                    html: html,
+                    instanceId: `conv-${Date.now()}-${index}`
+                  };
+                });
+          
+              setCanvasBlocks(newBlocks);
+              sessionStorage.setItem('builderBlocks', JSON.stringify(newBlocks));
+              toast.success(`✅ Template diviso in ${newBlocks.length} blocchi!`);
+            } else {
+              toast.error('❌ Struttura non supportata per la conversione automatica');
+            }
+          }}
+            className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-medium transition flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+            Converti in Blocchi Separati
+          </button>
+          
+          <button
+            onClick={() => setShowHTMLEditor(!showHTMLEditor)}
+            className="bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded-lg font-medium transition flex items-center gap-2"
+          >
+            <Code className="w-4 h-4" />
+            {showHTMLEditor ? 'Nascondi HTML' : 'Modifica HTML'}
+          </button>
+        </div>
+
+        {/* Editor HTML */}
+        {showHTMLEditor && (
+          <div className="mt-4 space-y-2">
+            <textarea
+              value={canvasBlocks[0].html}
+              onChange={(e) => {
+                const updated = [...canvasBlocks];
+                updated[0] = { ...updated[0], html: e.target.value };
+                setCanvasBlocks(updated);
+              }}
+              className="w-full h-64 p-3 border border-gray-300 rounded-lg font-mono text-xs resize-none focus:ring-2 focus:ring-blue-500"
+            />
             <button
               onClick={() => {
-                // Converti il template in blocchi separati
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(canvasBlocks[0].html, 'text/html');
-                const tables = doc.querySelectorAll('table[role="presentation"]');
-                
-                if (tables.length > 1) {
-                  // Template con più sezioni (header, content, footer)
-                  const newBlocks = Array.from(tables).map((table, index) => {
-                    const html = table.outerHTML;
-                    const hasGradient = html.includes('gradient');
-                    const hasButton = html.includes('<a');
-                    const tdCount = table.querySelectorAll('td[style*="padding"]').length;
-                    
-                    let name = `Sezione ${index + 1}`;
-                    let blockId = 'section-1col';
-                    
-                    if (hasGradient && index === 0) {
-                      name = 'Header';
-                      blockId = 'header';
-                    } else if (hasButton) {
-                      name = 'Call-to-Action';
-                    } else if (index === tables.length - 1) {
-                      name = 'Footer';
-                      blockId = 'footer';
-                    } else if (tdCount === 2) {
-                      name = 'Sezione 2 Colonne';
-                      blockId = 'section-2col';
-                    } else if (tdCount === 3) {
-                      name = 'Sezione 3 Colonne';
-                      blockId = 'section-3col';
-                    }
-                    
-                    return {
-                      id: blockId,
-                      name: name,
-                      icon: '▭',
-                      category: 'layout',
-                      html: html,
-                      instanceId: `converted-${Date.now()}-${index}`
-                    };
-                  });
-                  
-                  setCanvasBlocks(newBlocks);
-                  // Salva anche i nuovi blocchi
-                  sessionStorage.setItem('builderBlocks', JSON.stringify(newBlocks));
-                  toast.success('✅ Template convertito in blocchi editabili!');
-                } else {
-                  toast.error('❌ Questo template non può essere diviso automaticamente');
-                }
+                toast.success('✅ HTML salvato!');
+                setShowHTMLEditor(false);
               }}
-              className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-medium transition flex items-center gap-2"
+              className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-medium"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-              Converti in Blocchi Separati
-            </button>
-            
-            <button
-              onClick={() => setShowHTMLEditor(!showHTMLEditor)}
-              className="bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded-lg font-medium transition flex items-center gap-2"
-            >
-              <Code className="w-4 h-4" />
-              {showHTMLEditor ? 'Nascondi HTML' : 'Modifica HTML'}
+              Conferma Modifiche HTML
             </button>
           </div>
-
-          {/* Editor HTML (se attivato) */}
-          {showHTMLEditor && (
-            <div className="mt-4 space-y-2">
-              <textarea
-                value={canvasBlocks[0].html}
-                onChange={(e) => {
-                  const updated = [...canvasBlocks];
-                  updated[0] = { ...updated[0], html: e.target.value };
-                  setCanvasBlocks(updated);
-                  sessionStorage.setItem('builderBlocks', JSON.stringify(updated));
-                }}
-                className="w-full h-64 p-3 border border-gray-300 rounded-lg font-mono text-xs resize-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button
-                onClick={() => {
-                  toast.success('✅ HTML salvato!');
-                  setShowHTMLEditor(false);
-                }}
-                className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-medium"
-              >
-                Salva HTML
-              </button>
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
-  )}
+  </div>
+)}
 
                 {/* Se non ci sono blocchi */}
                 {canvasBlocks.length === 0 && !isDraggingOver ? (
@@ -15766,97 +15779,64 @@ if (campaignMode === 'builder') {
                       onDoubleClick={(e) => {
                         e.stopPropagation();
                         e.preventDefault();
-                      
-                        console.log('⚡ DOUBLE CLICK on block:', block.id);
-                     
-                        console.log("BLOCK ID:", block.id);
-                        console.log('⚡ DOUBLE CLICK DEBUG:');
-  console.log('  - block object:', block);
-  console.log('  - block.id:', block.id);
-  console.log('  - block.name:', block.name);
-  console.log('  - index:', index);
-
-                        // 🔥 Lista dei blocchi singoli
-  const singleBlockIds = [
-     // Layout
-     'section-hero',
-     'section-cta',
-     'section-imgtext',
-     'section-textimg',
-     'section-testimonial',
-     
-     // Base ← AGGIUNGI QUESTI
-     'header', 
-     'footer',
-     'image',
-     'text',
-     'button',
-     'divider',
-     'social'
-   ];
-  
-  const isSingleBlock = singleBlockIds.includes(block.id);
-  console.log('  - Is in single blocks list?', isSingleBlock);
-  console.log('  - Single blocks list:', singleBlockIds);
-  
-  if (isSingleBlock) {
-    console.log('✅ Opening single block modal for:', block.id);
-    setBlockEditorRestoreLock(true);
-    setEditingSingleBlock({
-      ...block,
-      index: index
-    });
-    setShowSingleBlockEditor(true);
-    toast.success("✏️ Editor modale aperto!", { duration: 2000 });
-    return;
-  }
-
-  console.log('❌ Block NOT recognized as single block');
-                        // // 🆕 GESTIONE BLOCCHI SINGOLI (Hero, Header, Footer) - PRIMA DI TUTTO
-                        // if (block.id === 'section-hero' || block.id === 'header' || block.id === 'footer') {
-                        //   console.log('🎨 Apertura editor blocco singolo');
-                        //   // 🔥 Imposta il lock PRIMA di aprire il modal
-                        //   setBlockEditorRestoreLock(true);
-                        //   setEditingSingleBlock({
-                        //     ...block,
-                        //     index: index
-                        //   });
-                        //   setShowSingleBlockEditor(true);
-                        //   toast.success("✏️ Editor aperto!", { duration: 2000 });
-                        //   return; // ← IMPORTANTE: esci subito
-                        // }
                         
-                        // 🆕 GESTIONE SEZIONI MULTI-COLONNA (section-2col, section-3col, ecc.)
-                        if (block.id.startsWith('section-')) {
-                          // Conta le colonne nella sezione
-                          const colCount = (block.html.match(/<td[^>]*style="[^"]*padding:[^"]*">/g) || []).length;
-                          console.log('🎨 AMulticolonna');
-                          toast.custom((t) => (
-                            <div className="bg-blue-500 text-white p-4 rounded-lg shadow-lg">
-                              <p className="font-semibold mb-2">📐 Sezione Multi-Colonna</p>
-                              <p className="text-sm opacity-90">
-                                {colCount} colonne rilevate. Usa il pannello Stili per personalizzare ciascuna colonna.
-                              </p>
-                            </div>
-                          ), { duration: 3000 });
+                        console.log('⚡ DOUBLE CLICK on block:', block.id);
+                      
+                        // 🔥 Lista aggiornata: includiamo i template predefiniti
+                        const singleBlockIds = [
+                          // Layout standard
+                          'section-hero',
+                          'section-cta',
+                          'section-imgtext',
+                          'section-textimg',
+                          'section-testimonial',
                           
-                          // Imposta il blocco attivo con informazione sul numero di colonne
-                          setActiveStyleBlock({ ...block, index, columnCount: colCount });
-                          
-                          // Inizializza i campi stile
-                          setStyleFields({
-                            fontSize: block.style?.fontSize || "16px",
-                            textAlign: block.style?.textAlign || "left",
-                            color: block.style?.color || "#333333",
-                            backgroundColor: block.style?.backgroundColor || "#ffffff",
-                            padding: block.style?.padding || "10px",
-                            borderRadius: block.style?.borderRadius || "4px",
+                          // Blocchi Base
+                          'header', 
+                          'link-block',
+                          'footer',
+                          'image',
+                          'text',
+                          'button',
+                          'divider',
+                          'social',
+                      
+                          // ✅ AGGIUNGI QUESTI: ID dei template caricati
+                          'predefined-template',
+                          'custom-template',
+                          'template-da-modifica'
+                        ];
+                      
+                        // Controlliamo se è un blocco singolo o se l'ID contiene la parola "template" 
+                        // (per gestire ID dinamici come edit-123456789)
+                        const isSingleBlock = singleBlockIds.includes(block.id) || 
+                                              block.id.includes('template') || 
+                                              block.id.startsWith('edit-');
+                      
+                        console.log('  - Is recognized as editable modal block?', isSingleBlock);
+                      
+                        if (isSingleBlock) {
+                          console.log('✅ Opening modal editor for:', block.id);
+                          setBlockEditorRestoreLock(true);
+                          setEditingSingleBlock({
+                            ...block,
+                            index: index
                           });
-                          return; // ← ESCI SUBITO
+                          setShowSingleBlockEditor(true);
+                          toast.success("✏️ Editor modale aperto!", { duration: 2000 });
+                          return;
                         }
                       
+                        // Se è una sezione multi-colonna (non riconosciuta sopra)
+                        if (block.id.startsWith('section-')) {
+                          const colCount = (block.html.match(/<td[^>]*style="[^"]*padding:[^"]*">/g) || []).length;
+                          setActiveStyleBlock({ ...block, index, columnCount: colCount });
+                          // ... resto del tuo codice per le sezioni
+                          return;
+                        }
+                      
+                        // Fallback per editing inline
                         handleInlineStart(block, index);
-                       
                       }}
                     >
                      {/* CONTENUTO HTML DEL BLOCCO */}
@@ -15864,10 +15844,11 @@ if (campaignMode === 'builder') {
   dangerouslySetInnerHTML={{ __html: block.html }}
   ref={index === inlineEditing?.index ? editorRef : null}
   // ✅ Disabilita contentEditable per blocchi BASE
-  contentEditable={
-    index === inlineEditing?.index && 
-    !['header', 'footer', 'image', 'text', 'button', 'divider', 'social'].includes(block.id)
-  }
+  // contentEditable={
+  //   index === inlineEditing?.index && 
+  //   !['header', 'footer', 'image', 'text', 'button', 'divider', 'social'].includes(block.id)
+  // }
+  contentEditable={index === inlineEditing?.index}
   suppressContentEditableWarning={true}
   onInput={(e) => setInlineValue(e.currentTarget.innerHTML)}
   className={`transition outline-none ${
@@ -15929,30 +15910,36 @@ if (campaignMode === 'builder') {
                       ))}
 
                       {/* 🎨 EDITOR BLOCCO SINGOLO (Hero, Header, Footer) */}
-                      <AnimatePresence>
+<AnimatePresence>
   {showSingleBlockEditor && editingSingleBlock && (
     <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999999] p-4"
-    onMouseDown={(e) => {
-      // ✅ Chiudi SOLO se il click è DIRETTAMENTE sul backdrop
-      // NON su textarea o altri elementi interni
-      if (e.target === e.currentTarget) {
-        setShowSingleBlockEditor(false);
-      }
-    }}
-  >
-    <motion.div
-      initial={{ scale: 0.9, y: 20 }}
-      animate={{ scale: 1, y: 0 }}
-      exit={{ scale: 0.9, y: 20 }}
-      className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden"
-      onClick={(e) => e.stopPropagation()}
-      onMouseDown={(e) => e.stopPropagation()} // ✅ Previeni propagazione al backdrop
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999999] p-4"
+      // ✅ RIMOSSO: onMouseDown={(e) => { if (e.target === e.currentTarget) setShowSingleBlockEditor(false); }}
+      // Cliccare fuori ora non farà più nulla.
     >
-
+      <motion.div
+        initial={{ scale: 0.9, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.9, y: 20 }}
+        className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()} 
+      >
+        {/* Header con chiusura ESPLICITA */}
+        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+          <h3 className="font-bold text-gray-800 flex items-center gap-2">
+             ✏️ Editor Avanzato: {editingSingleBlock.name}
+          </h3>
+          <button 
+            onClick={() => setShowSingleBlockEditor(false)} // ✅ Unico modo per chiudere
+            className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-full transition"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        </div>
 
 
         {/* Content */}
@@ -16059,6 +16046,30 @@ if (campaignMode === 'builder') {
     </div>
   )}
 
+{editingSingleBlock?.id === 'web-link' && (
+  <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
+    <h4 className="font-bold">Configura Link</h4>
+    <input 
+      type="text" 
+      placeholder="Testo del link"
+      className="w-full p-2 border rounded"
+      onChange={(e) => {
+        const newHtml = editingSingleBlock.html.replace(/>(.*?)</, `>${e.target.value}<`);
+        setEditingSingleBlock({...editingSingleBlock, html: newHtml});
+      }}
+    />
+    <input 
+      type="text" 
+      placeholder="https://..."
+      className="w-full p-2 border rounded"
+      onChange={(e) => {
+        const newHtml = editingSingleBlock.html.replace(/href="(.*?)"/, `href="${e.target.value}"`);
+        setEditingSingleBlock({...editingSingleBlock, html: newHtml});
+      }}
+    />
+  </div>
+)}
+
   {/* 🖼️ IMAGE EDITOR */}
   {editingSingleBlock?.id === "image" && (
     <div className="space-y-4">
@@ -16154,6 +16165,130 @@ if (campaignMode === 'builder') {
       </div>
     </div>
   )}
+
+  {/* Logica da inserire nel modale Editor Avanzato */}
+{['section-imgtext', 'section-textimg', 'link-block'].includes(editingSingleBlock?.id) && (
+  <div className="mt-6 p-4 border rounded-lg bg-blue-50 space-y-4">
+    <h3 className="font-bold text-blue-800">⚙️ Configurazione Avanzata</h3>
+    
+    {/* Se è un blocco link, mostra input URL */}
+    {editingSingleBlock.id === 'link-block' && (
+      <input 
+        type="text" 
+        placeholder="Indirizzo URL (https://...)"
+        className="w-full p-2 border rounded"
+        onChange={(e) => {
+          const newHtml = editingSingleBlock.html.replace(/href="(.*?)"/, `href="${e.target.value}"`);
+          setEditingSingleBlock({...editingSingleBlock, html: newHtml});
+        }}
+      />
+    )}
+
+    {/* Se contiene immagine, mostra tasto upload */}
+    {editingSingleBlock.html.includes('<img') && (
+      <button
+        onClick={() => {
+          const input = document.createElement('input');
+          input.type = 'file'; input.accept = 'image/*';
+          input.onchange = (e) => {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const newHtml = editingSingleBlock.html.replace(/src="(.*?)"/, `src="${reader.result}"`);
+              setEditingSingleBlock({ ...editingSingleBlock, html: newHtml });
+            };
+            reader.readAsDataURL(file);
+          };
+          input.click();
+        }}
+        className="w-full bg-blue-600 text-white py-2 rounded font-bold"
+      >
+        📷 Cambia Immagine nel Layout
+      </button>
+    )}
+  </div>
+)}
+
+  {/* --- 2. NUOVO: EDITOR PER SEZIONI COMPOSTE (Aggiungilo qui sotto) --- */}
+{(editingSingleBlock?.id === "section-imgtext" || editingSingleBlock?.id === "section-textimg") && (
+  <div className="mt-6 p-4 border rounded-lg bg-blue-50 space-y-4">
+    <h3 className="text-lg font-semibold text-blue-800 mb-2 flex items-center gap-2">
+      🖼️ Gestione Immagine nel Layout
+    </h3>
+    
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-2">Sostituisci l'immagine del layout</label>
+      <div className="flex flex-col gap-3">
+        {/* Anteprima Immagine Attuale */}
+        {editingSingleBlock.html.includes('<img') && (
+          <div className="w-32 h-32 border rounded overflow-hidden bg-white mx-auto shadow-sm">
+             <img 
+               src={editingSingleBlock.html.match(/src="([^"]+)"/)?.[1]} 
+               className="w-full h-full object-cover" 
+               alt="Anteprima"
+             />
+          </div>
+        )}
+
+        <button
+          onClick={() => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.onchange = (e) => {
+              const file = e.target.files[0];
+              if (file) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  // Sostituisce l'immagine dentro l'HTML complesso
+                  const newHtml = editingSingleBlock.html.replace(
+                    /src="([^"]+)"/, 
+                    `src="${reader.result}"`
+                  );
+                  setEditingSingleBlock({ ...editingSingleBlock, html: newHtml });
+                  toast.success("🖼️ Immagine aggiornata!");
+                };
+                reader.readAsDataURL(file);
+              }
+            };
+            input.click();
+          }}
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-bold transition flex items-center justify-center gap-2"
+        >
+          📤 Carica Nuova Immagine
+        </button>
+      </div>
+    </div>
+{/* Aggiungi questo subito dopo l'upload immagine sopra per editare anche il testo nello stesso posto */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mt-4">Modifica Titolo della Sezione</label>
+  <input
+    type="text"
+    defaultValue={editingSingleBlock.html.match(/<h3[^>]*>(.*?)<\/h3>/)?.[1] || ""}
+    onChange={(e) => {
+      const newHtml = editingSingleBlock.html.replace(/(<h3[^>]*>)(.*?)(<\/h3>)/, `$1${e.target.value}$3`);
+      setEditingSingleBlock({ ...editingSingleBlock, html: newHtml });
+    }}
+    className="w-full border rounded-lg p-2 mt-1"
+  />
+</div>
+    {/* Modifica Titolo per queste sezioni */}
+    <div className="mt-4">
+      <label className="block text-sm font-medium text-gray-700 mb-1">Titolo Sezione</label>
+      <input
+        type="text"
+        defaultValue={editingSingleBlock.html.match(/<h3[^>]*>(.*?)<\/h3>/)?.[1] || ""}
+        onChange={(e) => {
+          const newHtml = editingSingleBlock.html.replace(/(<h3[^>]*>)(.*?)(<\/h3>)/, `$1${e.target.value}$3`);
+          setEditingSingleBlock({ ...editingSingleBlock, html: newHtml });
+        }}
+        className="w-full border rounded-lg p-2"
+      />
+    </div>
+  </div>
+)}
+
+
 
   {/* 📝 TEXT EDITOR */}
   {editingSingleBlock?.id === "text" && (
@@ -16828,6 +16963,50 @@ if (campaignMode === 'builder') {
   </div>
 )}
 
+{/* ... fine sezione CTA ... */}
+
+{/* 🆕 EDITOR GENERICO PER BLOCCHI CONVERTITI (Se non sono Header, Image, etc.) */}
+{!['header', 'link-block', 'footer', 'image', 'text', 'button', 'section-cta'].includes(editingSingleBlock.id) && (
+  <div className="mt-6 p-4 border rounded-lg bg-blue-50 space-y-4">
+    <h3 className="text-lg font-semibold text-blue-800 mb-2 flex items-center gap-2">
+      📝 Modifica Testi Rapida
+    </h3>
+    <p className="text-xs text-blue-600 mb-2 italic">
+      Abbiamo rilevato un blocco personalizzato. Puoi modificare i testi qui sotto o l'HTML completo più in basso.
+    </p>
+
+    {/* Campo dinamico per il primo Titolo trovato nel blocco */}
+    {editingSingleBlock.html.match(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/) && (
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Titolo Principale</label>
+        <input
+          type="text"
+          defaultValue={editingSingleBlock.html.match(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/)?.[1] || ""}
+          onChange={(e) => {
+            const newHtml = editingSingleBlock.html.replace(/(<h[1-6][^>]*>)(.*?)(<\/h[1-6]>)/, `$1${e.target.value}$3`);
+            setEditingSingleBlock({ ...editingSingleBlock, html: newHtml });
+          }}
+          className="w-full border rounded-lg p-2 mt-1"
+        />
+      </div>
+    )}
+
+    {/* Campo dinamico per il primo Paragrafo trovato nel blocco */}
+    {editingSingleBlock.html.match(/<p[^>]*>(.*?)<\/p>/) && (
+      <div>
+        <label className="block text-sm font-medium text-gray-700">Testo Paragrafo</label>
+        <textarea
+          defaultValue={editingSingleBlock.html.match(/<p[^>]*>(.*?)<\/p>/)?.[1].replace(/<br\s*\/?>/gi, '\n') || ""}
+          onChange={(e) => {
+            const newHtml = editingSingleBlock.html.replace(/(<p[^>]*>)(.*?)(<\/p>)/, `$1${e.target.value.replace(/\n/g, '<br>')}$3`);
+            setEditingSingleBlock({ ...editingSingleBlock, html: newHtml });
+          }}
+          className="w-full border rounded-lg p-2 h-32 mt-1"
+        />
+      </div>
+    )}
+  </div>
+)}
 
 {/* 🔍 Preview aggiornato */}
 {/* <div className="mt-6">
@@ -16877,139 +17056,105 @@ if (campaignMode === 'builder') {
   )}
 </AnimatePresence>
 
-                   {/* ✏️ Modifica contenuto testo */}
+{/* ✏️ Modifica contenuto testo */}
 {activeStyleBlock?.id !== "image" && activeStyleBlock?.id !== "button" && (
   <div>
     <label className="block font-medium text-gray-700 mb-1">
       Contenuto Testo
     </label>
 
-    {/* 🆕 SE È UNA SEZIONE MULTI-COLONNA */}
-    {activeStyleBlock?.id?.startsWith('section-') ? (
+    {/* ✅ CONDIZIONE POTENZIATA: Mostra l'editor avanzato per sezioni, blocchi convertiti e template interi */}
+    {activeStyleBlock?.id?.startsWith('section-') || 
+     activeStyleBlock?.id?.includes('template') || 
+     activeStyleBlock?.id?.includes('conv-') ||
+     ['header', 'link-block', 'footer', 'section-custom', 'section-hero', 'section-cta', 'text'].includes(activeStyleBlock?.id) ? (
+      
       <div className="space-y-4">
-        <p className="text-xs text-gray-600 bg-blue-50 p-2 rounded border border-blue-200">
-          📐 Sezione con {activeStyleBlock.columnCount || 1} colonna/e rilevata.
-          <br />
-          <strong>Doppio click</strong> sul blocco per modificare il testo inline.
-        </p>
+        {/* Banner informativo basato sul tipo di blocco */}
+        <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+          <p className="text-[11px] text-blue-700 leading-relaxed">
+            {activeStyleBlock?.id?.includes('template') 
+              ? "📦 Template intero rilevato. Usa l'Editor Avanzato per modificare l'HTML o i testi." 
+              : `📐 Sezione modulare (${activeStyleBlock.name}) rilevata.`}
+            <br />
+            <strong>Doppio click</strong> sul blocco nel canvas per l'editing diretto.
+          </p>
+        </div>
 
-        {/* Preview contenuto attuale */}
-        <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 max-h-40 overflow-y-auto">
+        {/* Preview miniaturizzata del blocco selezionato */}
+        <div className="border border-gray-200 rounded-lg p-3 bg-white max-h-32 overflow-y-auto shadow-inner">
           <div 
             dangerouslySetInnerHTML={{ __html: activeStyleBlock.html }}
-            className="text-xs"
+            className="text-[10px] origin-top-left transform scale-90"
           />
         </div>
 
-    {/* Pulsante per aprire editor avanzato */}
-<div className="flex gap-2">
-<button
-  onClick={(e) => {
-    e.stopPropagation();
-    
-    console.log('🚀 Opening advanced editor');
-    console.log('activeStyleBlock:', activeStyleBlock); // ← Usa questo
-    
-    // 🔥 Verifica che activeStyleBlock esista
-    if (!activeStyleBlock) {
-      toast.error('⚠️ Nessun blocco selezionato. Clicca prima sul blocco da modificare.', { duration: 3000 });
-      return;
-    }
-    
-    // Usa activeStyleBlock invece di block
-    if (
-      [
-        'section-1col',
-        'section-2col',
-        'section-3col',
-        'section-hero',
-        'header',
-        'footer',
-        'section-testimonial',
-        'section-cta',
-        // 🧩 Aggiunta dei BASIC BLOCK
-        'image',
-        'text',
-        'button',
-        'divider',
-        'social'
-      ].includes(activeStyleBlock.id)
-    ) {
-      setEditingSingleBlock({ ...activeStyleBlock, index: activeStyleBlock.index });
-      setShowSingleBlockEditor(true);
-      toast.success("✏️ Editor aperto!", { duration: 2000 });
-      return;
-    }
-    
-    const { columns, styles } = extractColumnsFromSection(activeStyleBlock.html); // ← activeStyleBlock
-    
-    if (!columns || columns.length <= 1) {
-      toast.error('⚠️ Questa sezione non ha colonne multiple da modificare', { duration: 3000 });
-      return;
-    }
-    
-    setEditingSectionData({
-      blockIndex: activeStyleBlock.index, // ← activeStyleBlock
-      originalHTML: activeStyleBlock.html, // ← activeStyleBlock
-      columns: columns,
-      blockId: activeStyleBlock.id // ← activeStyleBlock
-    });
-    setColumnStyles(styles);
-    setShowSectionEditor(true);
-    
-    toast.success("📝 Editor sezione aperto!", { duration: 2000 });
-  }}
-  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition flex items-center justify-center gap-2"
->
-  <Edit3 className="w-4 h-4" />
-  Editor Avanzato
-</button>
-  <button
-    onClick={() => {
-      // Attiva l'inline editor sul blocco
-      handleInlineStart(activeStyleBlock, activeStyleBlock.index);
-      setActiveStyleBlock(null); // Chiudi pannello stili
-      closeEditor(); // ✅ USA closeEditor() invece di setShowSectionEditor(false)
-      toast.success("✏️ Click sul testo per modificarlo!", { duration: 2000 });
-    }}
-    className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg transition flex items-center justify-center gap-2"
-  >
-    <Type className="w-4 h-4" />
-    Inline
-  </button>
-</div>
+        {/* Pulsanti di Azione */}
+        <div className="flex gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              console.log('🚀 Apertura Editor Avanzato per:', activeStyleBlock.id);
+              
+              // Carica il blocco nel modale dell'editor singolo
+              setEditingSingleBlock({ ...activeStyleBlock, index: activeStyleBlock.index });
+              setShowSingleBlockEditor(true);
+              toast.success("✏️ Editor aperto!");
+            }}
+            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-2 font-bold shadow-md"
+          >
+            <Edit3 className="w-4 h-4" />
+            Editor Avanzato
+          </button>
+          
+          <button
+            onClick={() => {
+              // Avvia l'editing inline direttamente sul canvas
+              handleInlineStart(activeStyleBlock, activeStyleBlock.index);
+              setActiveStyleBlock(null); // Chiude il pannello laterale per dare spazio
+              toast.info("✏️ Modifica il testo direttamente nel template");
+            }}
+            className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-2 font-bold shadow-md"
+          >
+            <Type className="w-4 h-4" />
+            Inline
+          </button>
+        </div>
       </div>
     ) : (
-      /* EDITOR NORMALE PER BLOCCHI SEMPLICI (text, header, footer) */
-      <textarea
-        className="w-full border border-gray-300 rounded-lg p-2 text-sm h-32 focus:ring-2 focus:ring-green-500"
-        value={
-          activeStyleBlock?.html
-            ? activeStyleBlock.html.replace(/<[^>]+>/g, "")
-            : ""
-        }
-        onChange={(e) => {
-          const updatedText = e.target.value;
+      /* 📝 EDITOR STANDARD PER BLOCCHI SEMPLICI (Solo se non rientra nelle categorie sopra) */
+      <div className="space-y-2">
+        <textarea
+          className="w-full border border-gray-300 rounded-lg p-3 text-sm h-40 focus:ring-2 focus:ring-green-500 outline-none transition-all font-sans"
+          placeholder="Scrivi qui il contenuto..."
+          value={activeStyleBlock?.html ? activeStyleBlock.html.replace(/<[^>]+>/g, "").trim() : ""}
+          onChange={(e) => {
+            const updatedText = e.target.value;
+            if (!activeStyleBlock || activeStyleBlock.index == null) return;
 
-          const newHTML = `<div style="
-            font-size:${styleFields.fontSize};
-            text-align:${styleFields.textAlign};
-            color:${styleFields.color};
-            background-color:${styleFields.backgroundColor};
-            padding:${styleFields.padding};
-            border-radius:${styleFields.borderRadius};
-          ">${updatedText}</div>`;
+            // Rigenera l'HTML mantenendo gli stili scelti nei selettori sopra
+            const newHTML = `<div style="
+              font-size:${styleFields.fontSize};
+              text-align:${styleFields.textAlign};
+              color:${styleFields.color};
+              background-color:${styleFields.backgroundColor};
+              padding:${styleFields.padding};
+              border-radius:${styleFields.borderRadius};
+              font-family:${styleFields.fontFamily};
+            ">${updatedText}</div>`;
 
-          if (!activeStyleBlock || activeStyleBlock.index == null) return;
-
-          const updated = [...canvasBlocks];
-          updated[activeStyleBlock.index] = {
-            ...updated[activeStyleBlock.index],
-            html: newHTML,
-          };
-          setCanvasBlocks(updated);
-        }}
-      ></textarea>
+            const updated = [...canvasBlocks];
+            updated[activeStyleBlock.index] = {
+              ...updated[activeStyleBlock.index],
+              html: newHTML,
+            };
+            setCanvasBlocks(updated);
+          }}
+        />
+        <p className="text-[10px] text-gray-400 italic">
+          L'editor standard rimuove la formattazione HTML complessa. Usa "Editor Avanzato" per layout ricchi.
+        </p>
+      </div>
     )}
   </div>
 )}
@@ -18307,20 +18452,27 @@ if (campaignMode === 'builder') {
               <button
   onClick={() => {
     console.log('🔍 DEBUG - INIZIO SALVATAGGIO TEMPLATE');
-    console.log('🔍 canvasBlocks:', canvasBlocks);
     
+    // 1. Genera l'HTML finale unendo i blocchi
     const templateHTML = canvasBlocks.map(block => block.html).join('\n');
-    console.log('📄 Template finale:', templateHTML.substring(0, 200));
     
-    // 🔥 PULISCI il vecchio template prima di salvare il nuovo
-    sessionStorage.removeItem('currentEmailContent');
-    
-    // Salva il nuovo template
+    // 2. Aggiorna i dati nella sessione (per persistenza al refresh)
     sessionStorage.setItem('builderTemplate', templateHTML);
     sessionStorage.setItem('builderBlocks', JSON.stringify(canvasBlocks));
+    sessionStorage.setItem('isBuilderTemplate', 'true');
+    sessionStorage.setItem('currentEmailContent', templateHTML);
+
+    // 3. 🔥 AGGIORNA GLI STATI DI REACT (Fondamentale!)
+    setEmailContent(templateHTML);
+    setIsBuilderTemplate(true);
     
+    // 4. Torna alla modalità normale
     setCampaignMode("normal");
-    toast.success("✅ Template salvato!", { duration: 2000 });
+    
+    // 5. Forza il refresh dell'editor (opzionale ma consigliato)
+    setEditorKey(prev => prev + 1);
+
+    toast.success("✅ Template salvato e applicato!");
   }}
   className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg transition"
 >
@@ -18951,10 +19103,10 @@ if (campaignMode === 'builder') {
   />
 
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-6xl mx-4 max-h-[90vh] overflow-y-auto shadow-lg relative">
+   <div className="bg-white rounded-lg w-full max-w-6xl mx-4 max-h-[90vh] shadow-lg relative flex flex-col">
         {/* Header con Badge e pulsante Indietro */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+        <div className="flex items-center gap-3">
             <button
               onClick={handleGoBack}
               className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors group"
@@ -18983,7 +19135,7 @@ if (campaignMode === 'builder') {
             {campaignMode === 'template' ? '📄 Template Editor' : campaignMode === 'builder' ? '🧩 Builder' : '✏️ Editor Standard'}
           </span>
         </div>
-
+        <div className="flex-1 overflow-y-auto px-6 py-4">
         <div className="space-y-4">
           {/* Nome Campagna */}
           <div>
@@ -19532,37 +19684,38 @@ if (campaignMode === 'builder') {
             <RecipientSelect
               value={recipientList}
               onChange={setRecipientList}
-              contacts={contacts}
+              contacts={localContacts}
             />
           </div>
         </div>
-
-        {/* Pulsanti */}
-        <div className="flex gap-3 mt-6">
-          <button
-            onClick={handleCancel}
-            className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg transition"
-          >
-            Annulla
-          </button>
-          <button
-            onClick={handleSaveDraft}
-            className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white py-2 px-4 rounded-lg transition"
-          >
-            💾 Salva come Bozza
-          </button>
-          <button
-            onClick={handleSend}
-            disabled={!!ccError || !!bccError}
-            className={`flex-1 py-2 px-4 rounded-lg text-white transition ${
-              ccError || bccError
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-700"
-            }`}
-          >
-            Invia Ora
-          </button>
         </div>
+       {/* Pulsanti */}
+<div className="flex gap-3 mt-6 pb-2">
+  <button
+    onClick={handleCancel}
+    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 px-6 rounded-lg transition font-medium"
+  >
+    Annulla
+  </button>
+  <button
+    onClick={handleSaveDraft}
+    className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white py-3 px-6 rounded-lg transition font-medium flex items-center justify-center gap-2"
+  >
+    💾 Salva come Bozza
+  </button>
+  <button
+    onClick={handleSend}
+    disabled={!!ccError || !!bccError}
+    className={`flex-1 py-3 px-6 rounded-lg text-white transition font-medium flex items-center justify-center gap-2 ${
+      ccError || bccError
+        ? "bg-gray-400 cursor-not-allowed"
+        : "bg-blue-600 hover:bg-blue-700"
+    }`}
+  >
+    <Send className="w-4 h-4" />
+    Invia Ora
+  </button>
+</div>
       </div>
 
       {/* Modali di conferma (invariati) */}
@@ -19818,14 +19971,13 @@ const fetchTagLabels = async () => {
 // }, [user?.id]);
 
 const handleAdd = async () => {
-  if (!name.trim() || !email.trim() || selectedTags.length === 0 || !selectedContactLabel) {
+  if (!name.trim() || !email.trim() || selectedTags.length === 0 || !contactLabelId) {
     setError("Tutti i campi sono obbligatori.");
     toast.error("⚠️ Etichetta, nome, email e tag sono obbligatori!");
     setShake(true);
     setTimeout(() => setShake(false), 500);
     return;
   }
-
   try {
     // ✅ 1. Inserisci il contatto
     const { data: savedContact, error: contactError } = await supabase
