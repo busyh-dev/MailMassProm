@@ -66,14 +66,14 @@ export const useCampaigns = () => {
         subject: campaignData.subject,
         email_content: campaignData.emailContent || '<p></p>',
         recipient_list: campaignData.recipientList || [],
-        total_recipients: campaignData.recipientList?.length || 0,
+        total_recipients: campaignData.recipients?.length || campaignData.recipientList?.length || 0,
         cc: campaignData.cc || null,
         bcc: campaignData.bcc || null,
         sender_email: campaignData.senderEmail || localStorage.getItem('resend_sender_email'),
         sender_name: campaignData.senderName || null,
         attachments: campaignData.attachments || [],
         total_attachment_size: campaignData.totalAttachmentSize || 0,
-        status: isDraft ? 'draft' : 'scheduled',
+        status: isDraft ? 'draft' : (campaignData.status || 'scheduled'),
         scheduled_at: campaignData.scheduledAt || null,
         tracking_enabled: campaignData.trackingEnabled !== false,
         open_tracking: campaignData.openTracking !== false,
@@ -82,6 +82,10 @@ export const useCampaigns = () => {
         notes: campaignData.notes || null,
         resend_api_key: localStorage.getItem('resend_api_key') || null,
         reply_to: campaignData.replyTo || null,
+        builder_blocks: campaignData.builderBlocks || null,
+  is_builder_template: campaignData.isBuilderTemplate || false,
+  campaign_mode: campaignData.campaignMode || 'standard', // ✅ AGGIUNGI
+  total_recipients: campaignData.totalRecipients || 0,
       };
   
       console.log('💾 Campaign object da salvare:', campaign); // ✅ DEBUG

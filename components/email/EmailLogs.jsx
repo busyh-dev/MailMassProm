@@ -41,38 +41,50 @@ const EmailLogs = () => {
 
     const loadLogs = async () => {
       setLoading(true);
-      
-      const { data, error } = await supabase
-        .from("email_logs")
-        .select(`
-          id,
-          campaign_id,
-          subject,
-          sent_at,
-          status,
-          opened_count,
-          total_recipients,
-          recipients,
-          cc,
-          bcc,
-          failed_recipients
-        `)
-        .eq("user_id", user.id)
-        .order("sent_at", { ascending: false });
     
-      if (error) {
-        console.error("❌ Errore caricamento email_logs:", error);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+    
+        const { data, error } = await supabase
+          .from("campaign_logs")
+          .select(`
+            id,
+            campaign_id,
+            user_id,
+            recipient_email,
+            status,
+            sent_at,
+            campaigns (
+              campaign_name,
+              subject,
+              total_recipients,
+              opened_count,
+              sent_count,
+               campaign_mode
+            )
+          `)
+          .eq("user_id", session.user.id)
+          .not('campaigns', 'is', null) // ✅ Esclude log senza campagna
+          .order("sent_at", { ascending: false });
+    
+        if (error) {
+          console.error("❌ Errore caricamento campaign_logs:", error);
+          return;
+        }
+    
+        console.log("✅ Logs caricati:", data?.length, data);
+        setLogs(data || []);
+      } catch (err) {
+        if (err.message?.includes('Auth session missing')) return;
+        console.error("❌ Errore:", err);
+      } finally {
         setLoading(false);
-        return;
       }
-    
-      console.log("✅ Logs caricati da Supabase:", data);
-      setLogs(data || []);
-      setLoading(false);
     };
-
+    
     loadLogs();
-  }, [user]);
+    }, [user]);
 
   /* ============================
      📊 STATISTICHE
@@ -111,15 +123,12 @@ const EmailLogs = () => {
   /* ============================
      🔍 FILTRI
   ============================ */
-  const filteredLogs = logs.filter((log) => {
-    const matchSearch = log.subject
-      ?.toLowerCase()
-      .includes(searchTerm.toLowerCase());
-
-    const matchStatus = filter === "all" || log.status === filter;
-
-    return matchSearch && matchStatus;
-  });
+const filteredLogs = logs.filter((log) => {
+  const subject = log.campaigns?.subject || log.campaigns?.campaign_name || "";
+  const matchSearch = subject.toLowerCase().includes(searchTerm.toLowerCase());
+  const matchStatus = filter === "all" || log.status === filter;
+  return matchSearch && matchStatus;
+});
 
   const totalPages = Math.ceil(filteredLogs.length / logsPerPage);
   const currentLogs = filteredLogs.slice(
@@ -242,31 +251,32 @@ const EmailLogs = () => {
                 className="p-6 flex justify-between hover:bg-blue-50 cursor-pointer transition"
               >
                 <div className="flex-1">
-                  <h3 className="font-medium text-gray-900">{log.subject}</h3>
+                  <h3 className="font-medium text-gray-900 flex items-center gap-2">
+                    {log.campaigns?.campaign_name || log.campaigns?.subject || '—'}
+
+                    {/* ✅ Badge tipo campagna */}
+                    {log.campaigns?.campaign_mode && (
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${log.campaigns.campaign_mode === 'builder'
+                          ? 'bg-green-100 text-green-700'
+                          : log.campaigns.campaign_mode === 'template'
+                            ? 'bg-purple-100 text-purple-700'
+                            : 'bg-blue-100 text-blue-700'
+                        }`}>
+                        {log.campaigns.campaign_mode === 'builder' ? '🧩 Builder' :
+                          log.campaigns.campaign_mode === 'template' ? '📄 Template' :
+                            '✏️ Standard'}
+                      </span>
+                    )}
+                  </h3>
                   <p className="text-xs text-gray-500 mt-1">
-                    {recipientsCount} destinatari •{" "}
+                    📧 {log.recipient_email} •{" "}
                     {new Date(log.sent_at).toLocaleDateString("it-IT", {
-                      day: "2-digit",
-                      month: "2-digit",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
+                      day: "2-digit", month: "2-digit", year: "numeric",
+                      hour: "2-digit", minute: "2-digit",
                     })}
                     {" • "}
-                    <span
-                      className={`${
-                        log.status === "sent"
-                          ? "text-green-600"
-                          : log.status === "failed"
-                          ? "text-red-600"
-                          : "text-yellow-600"
-                      }`}
-                    >
-                      {log.status === "sent"
-                        ? "Inviato"
-                        : log.status === "failed"
-                        ? "Fallito"
-                        : "Bozza"}
+                    <span className={log.status === "sent" ? "text-green-600" : "text-red-600"}>
+                      {log.status === "sent" ? "Inviato" : "Fallito"}
                     </span>
                   </p>
                 </div>

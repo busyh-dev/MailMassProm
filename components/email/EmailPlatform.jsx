@@ -1047,23 +1047,58 @@ const fetchAreas = async () => {
 
 const fetchTagLabels = async () => {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return; // ✅ Esci silenziosamente al logout
 
     const { data } = await supabase
       .from('tag_labels')
       .select('*, tags(label)')
-      .eq('user_id', user.id)
+      .eq('user_id', session.user.id)
       .order('label', { ascending: true });
 
     console.log('🏷️ Tag Labels caricate:', data);
     setTagLabels(data || []);
   } catch (error) {
+    if (error.message?.includes('Auth session missing')) return; // ✅ Ignora al logout
     console.error('Errore caricamento tag labels:', error);
   }
 };
 
+// ✅ NUOVA FUNZIONE - aggiungi prima di confirmSend
+// ✅ Aggiungi in EmailPlatform, fuori da tutti i componenti
+const resolveRecipientEmails = (recipientList, contacts, tagLabels = []) => {
+  if (!Array.isArray(recipientList)) return [];
+  
+  if (recipientList.includes('all')) {
+    return contacts.filter(c => c.status === 'active').map(c => c.email);
+  }
 
+  const emailSet = new Set();
+
+  recipientList.forEach(val => {
+    if (val.startsWith('tag:')) {
+      const tagValue = val.replace('tag:', '');
+      contacts
+        .filter(c => c.status === 'active' && c.tags?.includes(tagValue))
+        .forEach(c => emailSet.add(c.email));
+    } else if (val.startsWith('label:')) {
+      const labelId = val.replace('label:', '');
+      contacts
+        .filter(c => c.status === 'active' && c.contact_label_id === labelId)
+        .forEach(c => emailSet.add(c.email));
+    } else if (val.startsWith('tag_label:')) {
+      const tagLabelId = val.replace('tag_label:', '');
+      const tl = tagLabels.find(t => t.id === tagLabelId);
+      if (tl) {
+        contacts
+          .filter(c => c.status === 'active' && c.tag_labels?.includes(tl.label))
+          .forEach(c => emailSet.add(c.email));
+      }
+    }
+  });
+
+  return [...emailSet];
+};
 useEffect(() => {
   const fetchLabels = async () => {
     try {
@@ -1735,24 +1770,27 @@ for (const log of logsFromDb) {
 
 useEffect(() => {
   const loadCampaigns = async () => {
-    setLoading(true);
-
-    const { data, error } = await supabase
-      .from("campaigns")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("❌ Errore caricamento campaigns:", error);
+    try {
+      setLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return; // ✅ Esci silenziosamente al logout
+      
+      const { data, error } = await supabase
+        .from('campaigns')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false });
+  
+      if (error) throw error;
+      setCampaigns(data || []);
+      return { success: true, data };
+    } catch (error) {
+      if (error.message?.includes('Auth session missing')) return;
+      console.error('❌ Errore caricamento campagne:', error);
+      return { success: false, error: error.message };
+    } finally {
+      setLoading(false);
     }
-
-    console.log("📋 Campaigns caricate:", data);
-    console.log("📊 Campaigns SENT:", data?.filter(c => c.status === 'sent').length); // ✅ DEBUG
-    console.log("📋 Prima campagna:", data?.[0]); // ✅ DEBUG
-
-    setCampaigns(data || []);
-    setLoading(false);
   };
 
   // ✅ Aggiungi loadEmailLogs
@@ -1866,38 +1904,68 @@ const monthlyData = Object.values(
 );
 const confirmSendCampaign = async () => {
   setSendingCampaign(true);
+  if (campaignToSend?.id) setSendingId(campaignToSend.id);
 
-  if (campaignToSend?.id) {
-    setSendingId(campaignToSend.id); // ✅ Imposta qui
-  }
-  
   try {
     console.log('🚀 Invio campagna:', campaignToSend);
 
-    // Trova l'account completo
-    const accountObj = accounts.find(acc => acc.email === campaignToSend.sender_email);
-    
-    if (!accountObj) {
-      toast.error("⚠️ Account mittente non trovato");
-      setSendingCampaign(false);
-      return;
-    }
+    // ✅ Carica account dal DB invece di usare `accounts`
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Sessione non valida');
+
+    let accountData = null;
+
+    // ✅ Cerca per email senza filtro user_id (account globali gestiti da admin)
+if (campaignToSend.sender_email) {
+  const { data } = await supabase
+    .from('email_accounts')
+    .select('*')
+    .eq('email', campaignToSend.sender_email.trim())
+    .maybeSingle();
+  accountData = data;
+}
+
+// ✅ Fallback: primo account disponibile
+if (!accountData) {
+  const { data } = await supabase
+    .from('email_accounts')
+    .select('*')
+    .order('is_default', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  accountData = data;
+}
+
+if (!accountData) {
+  throw new Error("Nessun account email configurato. Contatta l'amministratore.");
+}
+
+    // ✅ Risolvi i destinatari reali (gestisce tag:, label:, tag_label:, all)
+    const recipients = resolveRecipientEmails(
+      campaignToSend.recipient_list,
+      contacts,
+      tagLabels
+    );
+
+    if (recipients.length === 0) throw new Error('Nessun destinatario valido trovato');
+
+    console.log('📋 Recipients risolti:', recipients.length);
 
     let successCount = 0;
     let failedCount = 0;
 
     // ✅ INVIO SMTP
-    if (accountObj.provider === "brevo" || accountObj.smtp) {
+    if (accountData.provider === "brevo" || accountData.smtp) {
       const payload = {
-        user_id: user.id,
-        from: accountObj.email,
-        to: campaignToSend.recipient_list,
-        cc: campaignToSend.cc || [],
-        bcc: campaignToSend.bcc || [],
+        user_id: session.user.id,
+        from: accountData.email,
+        to: recipients,  // ✅ email reali
+        cc: campaignToSend.cc ? campaignToSend.cc.split(',').map(e => e.trim()).filter(Boolean) : [],
+        bcc: campaignToSend.bcc ? campaignToSend.bcc.split(',').map(e => e.trim()).filter(Boolean) : [],
         subject: campaignToSend.subject,
         html: campaignToSend.email_content,
         attachments: campaignToSend.attachments || [],
-        smtp: accountObj.smtp,
+        smtp: accountData.smtp,
       };
 
       const response = await fetch("/api/send-campaign", {
@@ -1907,24 +1975,23 @@ const confirmSendCampaign = async () => {
       });
 
       const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.message);
-      }
+      if (!result.success) throw new Error(result.message);
 
       successCount = result.sent;
       failedCount = result.failed || 0;
     }
 
     // ✅ INVIO RESEND
-    if (accountObj.provider === "resend") {
+    if (accountData.provider === "resend") {
+      const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
+      
       const payload = {
         apiKey: resendApiKey,
-        user_id: user.id,
-        from: accountObj.email,
-        to: campaignToSend.recipient_list,
-        cc: campaignToSend.cc || [],
-        bcc: campaignToSend.bcc || [],
+        user_id: session.user.id,
+        from: accountData.email,
+        to: recipients,  // ✅ email reali
+        cc: campaignToSend.cc ? campaignToSend.cc.split(',').map(e => e.trim()).filter(Boolean) : [],
+        bcc: campaignToSend.bcc ? campaignToSend.bcc.split(',').map(e => e.trim()).filter(Boolean) : [],
         subject: campaignToSend.subject,
         html: campaignToSend.email_content,
         attachments: campaignToSend.attachments || [],
@@ -1937,34 +2004,36 @@ const confirmSendCampaign = async () => {
       });
 
       const result = await response.json();
+      if (!result.success) throw new Error(result.message);
 
-      if (!result.success) {
-        throw new Error(result.message);
-      }
-
-      successCount = result.sent || campaignToSend.recipient_list.length;
+      successCount = result.sent || recipients.length;
     }
 
-    // ✅ AGGIORNA STATUS
-    const { error: updateError } = await supabase
+    // ✅ Aggiorna status campagna
+    await supabase
       .from("campaigns")
       .update({
         status: "sent",
         sent_at: new Date().toISOString(),
         sent_count: successCount,
         failed_count: failedCount,
+        total_recipients: recipients.length,
       })
       .eq("id", campaignToSend.id)
-      .eq("user_id", user.id);
+      .eq("user_id", session.user.id);
 
-    if (updateError) {
-      console.error("⚠️ Errore aggiornamento:", updateError);
-    }
+    // ✅ Salva log
+    const logsPayload = recipients.map(email => ({
+      campaign_id: campaignToSend.id,
+      user_id: session.user.id,
+      recipient_email: email,
+      status: 'sent',
+      sent_at: new Date().toISOString(),
+    }));
+    await supabase.from('campaign_logs').insert(logsPayload);
 
     await loadCampaigns();
-
     toast.success(`✅ Campagna inviata a ${successCount} destinatari!`, { duration: 3000 });
-
     setShowConfirmSendCampaign(false);
     setCampaignToSend(null);
 
@@ -1973,7 +2042,7 @@ const confirmSendCampaign = async () => {
     toast.error(`❌ ${error.message}`);
   } finally {
     setSendingCampaign(false);
-    setSendingId(null); // ✅ Reset qui
+    setSendingId(null);
   }
 };
 
@@ -2018,28 +2087,20 @@ const confirmSend = async () => {
 
   try {
     console.log('🚀 confirmSend - Inizio invio');
-    
-    // ✅ Determina da dove prendere i dati
-    const account = selectedAccount; // Dal form "Invia Ora"
-    const recipients = recipientList;
+
     const emailSubject = subject;
     const content = emailContent;
     const emailCc = cc ? cc.split(",").map(e => e.trim()).filter(Boolean) : [];
     const emailBcc = bcc ? bcc.split(",").map(e => e.trim()).filter(Boolean) : [];
-    const attachments = attachmentsData || [];
-
-    console.log('📧 Account:', account);
-    console.log('📋 Recipients:', recipients);
-    console.log('📝 Subject:', emailSubject);
 
     // ✅ Validazioni
-    if (!account) {
+    if (!selectedAccount) {
       toast.error("⚠️ Seleziona un account di invio");
       setSending(false);
       return;
     }
 
-    if (!recipients || recipients.length === 0) {
+    if (!recipientList || recipientList.length === 0) {
       toast.error("⚠️ Aggiungi almeno un destinatario");
       setSending(false);
       return;
@@ -2057,22 +2118,49 @@ const confirmSend = async () => {
       return;
     }
 
-    // Trova l'oggetto account completo
-    const accountObj = accounts.find(acc => acc.email === account);
-    
-    if (!accountObj) {
-      toast.error("⚠️ Account non trovato nella lista");
+    // ✅ Risolvi destinatari reali
+    const recipients = resolveRecipientEmails(recipientList, contacts, tagLabels);
+    if (recipients.length === 0) {
+      toast.error("⚠️ Nessun destinatario valido trovato");
       setSending(false);
       return;
     }
 
-    console.log('✅ Account trovato:', accountObj);
+    // ✅ Carica account dal DB senza filtro user_id
+    let accountObj = null;
+
+    if (selectedAccount) {
+      const { data } = await supabase
+        .from('email_accounts')
+        .select('*')
+        .eq('email', selectedAccount.trim())
+        .maybeSingle();
+      accountObj = data;
+    }
+
+    if (!accountObj) {
+      const { data } = await supabase
+        .from('email_accounts')
+        .select('*')
+        .order('is_default', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      accountObj = data;
+    }
+
+    if (!accountObj) {
+      toast.error("⚠️ Account non trovato");
+      setSending(false);
+      return;
+    }
+
+    console.log('✅ Account trovato:', accountObj.email);
 
     let successCount = 0;
     let failedCount = 0;
 
-    // ✅ INVIO SMTP
-    if (accountObj.provider === "brevo" || accountObj.smtp) {
+    // ✅ SMTP
+    if (accountObj.provider === "brevo" || (accountObj.smtp && accountObj.provider !== "resend")) {
       console.log('📤 Invio via SMTP...');
 
       const payload = {
@@ -2083,7 +2171,7 @@ const confirmSend = async () => {
         bcc: emailBcc,
         subject: emailSubject,
         html: content,
-        attachments: attachments,
+        attachments: [],
         smtp: accountObj.smtp,
       };
 
@@ -2094,18 +2182,17 @@ const confirmSend = async () => {
       });
 
       const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.message || "Errore durante l'invio");
-      }
+      if (!result.success) throw new Error(result.message || "Errore SMTP");
 
       successCount = result.sent;
       failedCount = result.failed || 0;
-    }
 
-    // ✅ INVIO RESEND
-    if (accountObj.provider === "resend") {
+    // ✅ RESEND
+    } else if (accountObj.provider === "resend") {
       console.log('📤 Invio via Resend...');
+
+      const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
+      if (!resendApiKey) throw new Error("API key Resend mancante");
 
       const payload = {
         apiKey: resendApiKey,
@@ -2116,7 +2203,7 @@ const confirmSend = async () => {
         bcc: emailBcc,
         subject: emailSubject,
         html: content,
-        attachments: attachments,
+        attachments: [],
       };
 
       const response = await fetch("/api/resend/send", {
@@ -2126,17 +2213,13 @@ const confirmSend = async () => {
       });
 
       const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.message || "Errore durante l'invio");
-      }
+      if (!result.success) throw new Error(result.message || "Errore Resend");
 
       successCount = result.sent || recipients.length;
     }
 
     toast.success(`✅ Email inviata a ${successCount} destinatari!`, { duration: 3000 });
 
-    // Reset
     setProgress(100);
     setSentCount(successCount);
     setFailedCount(failedCount);
@@ -2154,7 +2237,6 @@ const confirmSend = async () => {
     setSending(false);
   }
 };
-
 // 📧 Re-invia una campagna già inviata
 const handleResendCampaign = (campaign) => {
   setSelectedCampaign(campaign);
@@ -2388,8 +2470,15 @@ const fetchContacts = async () => {
     
     if (loading) {
       return (
-        <div className="text-center py-10 text-gray-500">
-          Caricamento campagne…
+        <div className="flex flex-col items-center justify-center min-h-[500px] gap-4">
+          <div className="relative">
+            <div className="w-14 h-14 border-4 border-blue-100 rounded-full"></div>
+            <div className="w-14 h-14 border-4 border-blue-600 border-t-transparent rounded-full animate-spin absolute inset-0"></div>
+          </div>
+          <div className="text-center">
+            <p className="text-gray-700 font-semibold text-base">Caricamento campagne</p>
+            <p className="text-gray-400 text-sm mt-1">Recupero dati in corso...</p>
+          </div>
         </div>
       );
     }
@@ -2777,18 +2866,40 @@ useEffect(() => {
   // Mostra loading fino a quando il componente non è montato lato client
   if (!isClient) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-pulse">
-            <Mail className="w-12 h-12 text-blue-600 mx-auto mb-4" />
+          
+          {/* Logo + Spinner */}
+          <div className="relative flex items-center justify-center mb-6">
+            <div className="w-20 h-20 border-4 border-blue-100 rounded-full"></div>
+            <div className="w-20 h-20 border-4 border-blue-600 border-t-transparent rounded-full animate-spin absolute inset-0"></div>
+            <Mail className="w-8 h-8 text-blue-600 absolute" />
           </div>
-          <h2 className="text-xl font-semibold text-gray-700 mb-2">MailMassProm</h2>
-          <p className="text-gray-500">Caricamento piattaforma...</p>
+  
+          {/* Testo */}
+          <h2 className="text-2xl font-bold text-gray-800 mb-1">MailMassProm</h2>
+          <p className="text-gray-400 text-sm mb-6">Inizializzazione piattaforma...</p>
+  
+          {/* Barra progresso animata */}
+          <div className="w-48 h-1 bg-gray-200 rounded-full mx-auto overflow-hidden">
+            <div className="h-full bg-blue-600 rounded-full animate-[loading_1.5s_ease-in-out_infinite]"
+              style={{
+                animation: 'loading 1.5s ease-in-out infinite',
+              }}
+            />
+          </div>
+  
+          <style>{`
+            @keyframes loading {
+              0% { width: 0%; margin-left: 0%; }
+              50% { width: 60%; margin-left: 20%; }
+              100% { width: 0%; margin-left: 100%; }
+            }
+          `}</style>
         </div>
       </div>
     );
   }
-
   // Componente Dashboard
 // =======================
 // 📊 DASHBOARD AVANZATA
@@ -2802,38 +2913,53 @@ const Dashboard = ({ setActiveTab }) => {
     const loadData = async () => {
       setLoading(true);
   
-      // Campagne
-      const { data: campaignsData } = await supabase
-        .from("campaigns")
-        .select("*")
-        .order("sent_at", { ascending: false });
+      try {
+        // ✅ Verifica sessione
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
   
-      // ✅ Contatti con paginazione
-      let allContacts = [];
-      let page = 0;
-      const pageSize = 1000;
+        // Campagne e contatti in parallelo
+        const [campaignsResult] = await Promise.all([
+          supabase
+            .from("campaigns")
+            .select("*")
+            .eq('user_id', session.user.id)
+            .order("sent_at", { ascending: false }),
+        ]);
   
-      while (true) {
-        const { data, error } = await supabase
-          .from("contacts")
-          .select("*")
-          .range(page * pageSize, (page + 1) * pageSize - 1);
+        // ✅ Contatti con paginazione
+        let allContacts = [];
+        let page = 0;
+        const pageSize = 1000;
   
-        if (error) { console.error("Errore caricamento contatti:", error); break; }
-        if (!data || data.length === 0) break;
-        allContacts = [...allContacts, ...data];
-        if (data.length < pageSize) break;
-        page++;
+        while (true) {
+          const { data, error } = await supabase
+            .from("contacts")
+            .select("*")
+            .eq('user_id', session.user.id)
+            .range(page * pageSize, (page + 1) * pageSize - 1);
+  
+          if (error) { console.error("Errore contatti:", error); break; }
+          if (!data || data.length === 0) break;
+          allContacts = [...allContacts, ...data];
+          if (data.length < pageSize) break;
+          page++;
+        }
+  
+        setCampaigns(campaignsResult.data || []);
+        setContacts(allContacts);
+  
+      } catch (err) {
+        // ✅ Ignora errori di sessione al logout
+        if (err.message?.includes('Auth session missing')) return;
+        console.error("Errore loadData dashboard:", err);
+      } finally {
+        setLoading(false); // ✅ Sempre eseguito
       }
-  
-      setCampaigns(campaignsData || []);
-      setContacts(allContacts);
-      setLoading(false);
     };
   
     loadData();
   }, []);
-
   // =========================
   // 🔢 METRICHE PRINCIPALI
   // =========================
@@ -3007,8 +3133,15 @@ const Dashboard = ({ setActiveTab }) => {
 
   if (loading) {
     return (
-      <div className="text-center py-10 text-gray-500">
-        Caricamento dashboard…
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <div className="relative">
+          <div className="w-16 h-16 border-4 border-blue-100 rounded-full"></div>
+          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin absolute inset-0"></div>
+        </div>
+        <div className="text-center">
+          <p className="text-gray-700 font-semibold text-lg">Caricamento in corso</p>
+          <p className="text-gray-400 text-sm mt-1">Stiamo preparando la tua dashboard...</p>
+        </div>
       </div>
     );
   }
@@ -3385,6 +3518,7 @@ const [editorKey, setEditorKey] = useState(0);
 const [tiptapEditor, setTiptapEditor] = useState(null);
     // 🆕 Aggiungi l'hook per caricare gli account
   const { accounts, defaultAccount, loading: loadingAccounts } = useEmailAccounts();
+  const [localContacts, setLocalContacts] = useState([]);
 
     const [cc, setCc] = useState(campaign.cc || "");
   
@@ -3623,11 +3757,22 @@ const confirmExit = () => {
 };
     /* ------------------------- RENDER ------------------------- */
     return (
-      <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto shadow-lg animate-fadeZoomIn">
-          <h3 className="text-xl font-bold mb-6">✏️ Modifica Campagna</h3>
+<div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+  <div className="bg-white rounded-lg w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden shadow-lg animate-fadeZoomIn flex flex-col">
+    
+    {/* ✅ HEADER FISSO */}
+    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white sticky top-0 z-10">
+      <h3 className="text-xl font-bold text-gray-900">✏️ Modifica Campagna</h3>
+      <button
+        onClick={onClose}
+        className="p-2 hover:bg-gray-100 rounded-lg transition text-gray-500 hover:text-gray-700"
+      >
+        <X className="w-5 h-5" />
+      </button>
+    </div>
   
           {/* Form */}
+          <div className="flex-1 overflow-y-auto px-6 py-4">
           <div className="space-y-4">
             {/* Nome */}
             <div>
@@ -3752,40 +3897,42 @@ const confirmExit = () => {
   onClick={() => {
     console.log('🎨 Click su Modifica nel Builder');
     
-    // 1️⃣ Crea un blocco dal contenuto della campagna
-    const templateBlock = {
+    // 1️⃣ Usa i blocchi salvati nel DB se esistono, altrimenti crea blocco unico
+  const blocks = campaign.builder_blocks?.length > 0 
+  ? campaign.builder_blocks  // ✅ blocchi originali dal DB
+  : [{
       id: 'predefined-template',
       name: campaignName || 'Template da Modifica',
       icon: '📄',
       category: 'layout',
       html: emailContent,
       instanceId: `edit-${Date.now()}`
-    };
+    }];
 
     // 2️⃣ Salva in sessionStorage
-    sessionStorage.setItem('builderBlocks', JSON.stringify([templateBlock]));
-    sessionStorage.setItem('builderTemplate', emailContent);
-    sessionStorage.setItem('currentEmailContent', emailContent);
-    sessionStorage.setItem('isBuilderTemplate', 'true');
-    
-    // 3️⃣ Salva i dati della campagna
-    sessionStorage.setItem('editingCampaignData', JSON.stringify({
-      id: campaign.id,
-      campaign_name: campaignName,
-      subject: subject,
-      sender_email: selectedAccount,
-      cc: cc,
-      bcc: bcc,
-      recipient_list: recipientList,
-      attachments: attachments
-    }));
-    sessionStorage.setItem('editingCampaignId', campaign.id);
+  sessionStorage.setItem('builderBlocks', JSON.stringify(blocks));
+  sessionStorage.setItem('builderTemplate', emailContent);
+  sessionStorage.setItem('currentEmailContent', emailContent);
+  sessionStorage.setItem('isBuilderTemplate', 'true');
+  
+  // 3️⃣ Salva i dati della campagna
+  sessionStorage.setItem('editingCampaignData', JSON.stringify({
+    id: campaign.id,
+    campaign_name: campaignName,
+    subject: subject,
+    sender_email: selectedAccount,
+    cc: cc,
+    bcc: bcc,
+    recipient_list: recipientList,
+    attachments: attachments,
+    builder_blocks: campaign.builder_blocks || [],
+  }));
+  sessionStorage.setItem('editingCampaignId', campaign.id);
 
-    console.log('💾 Template salvato in sessionStorage');
+  console.log('💾 Blocchi caricati:', blocks.length, campaign.builder_blocks?.length > 0 ? 'dal DB' : 'creato da HTML');
 
-    // 4️⃣ Chiudi questo modal
-    onClose();
-
+  // 4️⃣ Chiudi questo modal
+  onClose();
     // 5️⃣ ✅ Apri in modalità 'builder'
     if (onOpenBuilder) {
       onOpenBuilder('builder'); // ✅ PASSA 'builder' QUI
@@ -3957,18 +4104,18 @@ const confirmExit = () => {
               )}
             </div>
           </div>
-  
+          </div>
           {/* Pulsanti */}
-          <div className="flex gap-3 mt-6">
+          <div className="flex gap-3 px-6 py-4 border-t border-gray-200 bg-white sticky bottom-0">
             <button
               onClick={handleCancel}
-              className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg transition"
+              className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 px-6 rounded-lg transition font-medium"
             >
               Annulla
             </button>
             <button
               onClick={handleSaveClick}
-              className={`flex-1 py-2 px-4 rounded-lg text-white transition ${
+              className={`flex-1 py-3 px-6 rounded-lg text-white transition font-medium flex items-center justify-center gap-2 ${
                 ccError || bccError ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
               }`}
               disabled={!!ccError || !!bccError}
@@ -4173,6 +4320,71 @@ const ViewCampaignModal = ({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [miniToast, setMiniToast] = useState(null); // ✅ mini notifica interna
   const { duplicateCampaign, deleteCampaign } = useCampaigns();
+    // ✅ AGGIUNGI questi stati
+    const [contactLabels, setContactLabels] = useState([]);
+    const [tagLabels, setTagLabels] = useState([]);
+    // ✅ AGGIUNGI stato contacts
+const [contacts, setContacts] = useState([]);
+
+// ✅ AGGIUNGI nel useEffect loadLabels
+const loadLabels = async () => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const [{ data: labels }, { data: tLabels }, { data: contactsData }] = await Promise.all([
+      supabase.from('contact_labels').select('*').eq('user_id', session.user.id),
+      supabase.from('tag_labels').select('*').eq('user_id', session.user.id),
+      supabase.from('contacts').select('id, name, email, contact_label_id, status').eq('user_id', session.user.id),
+    ]);
+
+    setContactLabels(labels || []);
+    setTagLabels(tLabels || []);
+    setContacts(contactsData || []);
+  } catch (err) {
+    console.warn('Errore:', err.message);
+  }
+};
+
+
+useEffect(() => {
+  const loadData = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      // ✅ Estrai tutti i labelId dalla recipient_list
+      const labelIds = (campaign.recipient_list || [])
+        .filter(v => v.startsWith('label:'))
+        .map(v => v.replace('label:', ''));
+
+      const tagValues = (campaign.recipient_list || [])
+        .filter(v => v.startsWith('tag:'))
+        .map(v => v.replace('tag:', ''));
+
+      const [{ data: labels }, { data: tLabels }, { data: contactsData }] = await Promise.all([
+        supabase.from('contact_labels').select('*').eq('user_id', session.user.id),
+        supabase.from('tag_labels').select('*').eq('user_id', session.user.id),
+        // ✅ Carica SOLO i contatti rilevanti senza limite
+        supabase
+          .from('contacts_full')
+          .select('id, name, email, contact_label_id, status, tags, tag_labels')
+          .eq('user_id', session.user.id)
+          .eq('status', 'active')
+          .in('contact_label_id', labelIds.length > 0 ? labelIds : ['__none__'])
+      ]);
+
+      setContactLabels(labels || []);
+      setTagLabels(tLabels || []);
+      setContacts(contactsData || []);
+
+      console.log('✅ Contatti caricati per etichette:', contactsData?.length);
+    } catch (err) {
+      console.warn('Errore caricamento dati:', err.message);
+    }
+  };
+  loadData();
+}, []);
 
   if (!campaign) return null;
 
@@ -4348,18 +4560,82 @@ const ViewCampaignModal = ({
                     />
                   </div>
 
-                  {/* Destinatari */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-600 mb-1">
-                      Lista Destinatari
-                    </label>
-                    <div className="bg-gray-50 border border-gray-200 p-3 rounded-lg text-gray-800 flex items-center gap-2">
-                      <Users className="w-4 h-4 text-gray-500" />
-                      {Array.isArray(campaign.recipient_list)
-                        ? campaign.recipient_list.join(", ")
-                        : "—"}
-                    </div>
-                  </div>
+                 {/* Destinatari */}
+<div>
+  <label className="block text-sm font-semibold text-gray-600 mb-1">
+    Lista Destinatari
+  </label>
+  <div className="bg-gray-50 border border-gray-200 p-3 rounded-lg text-gray-800 flex items-center gap-2 flex-wrap">
+    <Users className="w-4 h-4 text-gray-500 flex-shrink-0" />
+    {Array.isArray(campaign.recipient_list) && campaign.recipient_list.length > 0 ? (
+      <div className="flex flex-wrap gap-2">
+      {campaign.recipient_list.map((val, i) => {
+  let label = val;
+  let color = 'bg-gray-100 text-gray-700';
+  let emails = [];
+
+  if (val === 'all') {
+    emails = contacts.filter(c => c.status === 'active');
+    label = `✅ Tutti i contatti attivi`;
+    color = 'bg-green-100 text-green-700';
+  } else if (val.startsWith('label:')) {
+    const labelId = val.replace('label:', '');
+    const found = contactLabels.find(l => l.id === labelId);
+    // ✅ Filtra per contact_label_id che è un UUID
+    emails = contacts.filter(c => 
+      c.status === 'active' && c.contact_label_id === labelId
+    );
+    label = `📌 ${found?.nome || 'Etichetta'}`;
+    color = 'bg-indigo-100 text-indigo-700';
+  } else if (val.startsWith('tag:')) {
+    const tagValue = val.replace('tag:', '');
+    // ✅ Filtra per tag
+    emails = contacts.filter(c => 
+      c.status === 'active' && c.tags?.includes(tagValue)
+    );
+    label = `🏷️ ${tagValue}`;
+    color = 'bg-blue-100 text-blue-700';
+  } else if (val.startsWith('tag_label:')) {
+    const tagLabelId = val.replace('tag_label:', '');
+    const found = tagLabels.find(t => t.id === tagLabelId);
+    // ✅ Filtra per tag_labels
+    emails = contacts.filter(c => 
+      c.status === 'active' && c.tag_labels?.includes(found?.label)
+    );
+    label = `→ ${found?.label || 'Sotto-etichetta'}`;
+    color = 'bg-amber-100 text-amber-700';
+  }
+
+  return (
+    <div key={i} className="w-full">
+      {/* Badge etichetta */}
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${color}`}>
+        {label} ({emails.length})
+      </span>
+
+      {/* Lista email */}
+      {emails.length > 0 && (
+        <div className="mt-2 ml-2 space-y-1 max-h-40 overflow-y-auto">
+          {emails.map((c, idx) => (
+            <div key={idx} className="flex items-center gap-2 text-xs text-gray-600 bg-white border border-gray-100 rounded px-2 py-1">
+              <div className="w-5 h-5 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-bold text-[10px] flex-shrink-0">
+                {c.name?.charAt(0)?.toUpperCase() || '?'}
+              </div>
+              <span className="font-medium truncate">{c.name}</span>
+              <span className="text-gray-400 truncate">{c.email}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+})}
+      </div>
+    ) : (
+      <span className="text-gray-400 italic text-sm">Nessun destinatario</span>
+    )}
+  </div>
+</div>
 
                   {/* Allegati */}
 {campaign.attachments?.length > 0 && (
@@ -4579,7 +4855,7 @@ const ViewCampaignModal = ({
 };
 
   // ----------------------- COMPONENTE CAMPAGNE (Supabase) -----------------------
-const Campaigns = ({ setActiveTab }) => {
+  const Campaigns = ({ setActiveTab, contacts, tagLabels = [] }) => {
   const {
     campaigns,
     loading,
@@ -4728,175 +5004,207 @@ const [recipients, setRecipients] = useState([]);
   }, [showEditModal, selectedCampaign, showCampaignModal, campaignMode]);
 
   // ✅ Conferma invio: marca la campagna corrente come “sent”
-const confirmSend = async () => {
-  setSending(true); // Invece di setIsSending
-  setShowConfirmSend(false);
-
-  try {
-    console.log('🚀 confirmSend - Inizio invio');
-    console.log('📧 selectedAccount:', selectedAccount);
-    console.log('📋 recipientList:', recipientList);
-    console.log('📝 subject:', subject);
-    console.log('📄 emailContent length:', emailContent?.length);
-    console.log('🎯 selectedCampaign:', selectedCampaign); // ✅ DEBUG
-
-    // ✅ Validazioni
-    if (!selectedAccount) {
-      toast.error("⚠️ Seleziona un account di invio");
-      setSending(false); // Invece di setIsSending
-      return;
-    }
-
-    if (!recipientList || recipientList.length === 0) {
-      toast.error("⚠️ Aggiungi almeno un destinatario");
-      setSending(false); // Invece di setIsSending
-      return;
-    }
-
-    if (!subject) {
-      toast.error("⚠️ Inserisci l'oggetto dell'email");
-      setSending(false); // Invece di setIsSending
-      return;
-    }
-
-    if (!emailContent) {
-      toast.error("⚠️ Il contenuto dell'email è vuoto");
-      setSending(false); // Invece di setIsSending
-      return;
-    }
-
-    // Trova l'oggetto account completo
-    const accountObj = accounts.find(acc => acc.email === selectedAccount);
-    
-    if (!accountObj) {
-      toast.error("⚠️ Account non trovato");
-      setSending(false); // Invece di setIsSending
-      return;
-    }
-
-    console.log('✅ Account trovato:', accountObj);
-
-    let successCount = 0;
-    let failedCount = 0;
-    let failedRecipients = [];
-
-    // ✅ INVIO SMTP
-    if (accountObj.provider === "brevo" || accountObj.smtp) {
-      console.log('📤 Invio via SMTP...');
-
-      const payload = {
-        user_id: user.id,
-        from: accountObj.email,
-        to: recipientList,
-        cc: cc ? cc.split(",").map((e) => e.trim()).filter(Boolean) : [],
-        bcc: bcc ? bcc.split(",").map((e) => e.trim()).filter(Boolean) : [],
-        subject,
-        html: emailContent,
-        attachments: attachmentsData,
-        smtp: accountObj.smtp,
-      };
-
-      console.log('📦 Payload SMTP:', payload);
-
-      const response = await fetch("/api/send-campaign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const result = await response.json();
-      console.log('📥 Risultato SMTP:', result);
-
-      if (!result.success) {
-        throw new Error(result.message || "Errore durante l'invio");
+  const confirmSend = async () => {
+    if (!selectedCampaign) return;
+  
+    setShowSendConfirm(false);
+    setShowSendingProgress(true);
+    setSendingProgress({
+      current: 0,
+      total: 0,
+      status: 'preparing',
+      message: 'Preparazione invio...'
+    });
+  
+    try {
+      // ✅ Carica destinatari
+      setSendingProgress(prev => ({ ...prev, message: 'Caricamento destinatari...' }));
+  
+      const recipients = resolveRecipientEmails(
+        selectedCampaign.recipient_list,
+        contacts,
+        tagLabels
+      );
+  
+      console.log('✅ Recipients risolti:', recipients.length);
+  
+      if (recipients.length === 0) {
+        throw new Error("Nessun destinatario valido trovato");
       }
-
-      successCount = result.sent;
-      failedCount = result.failed || 0;
-      failedRecipients = result.errors?.map(e => e.email) || [];
-    }
-
-    // ✅ INVIO RESEND
-    if (accountObj.provider === "resend") {
-      console.log('📤 Invio via Resend...');
-
-      const payload = {
-        apiKey: resendApiKey,
-        user_id: user.id,
-        from: accountObj.email,
-        to: recipientList,
-        cc: cc ? cc.split(",").map((e) => e.trim()).filter(Boolean) : [],
-        bcc: bcc ? bcc.split(",").map((e) => e.trim()).filter(Boolean) : [],
-        subject,
-        html: emailContent,
-        attachments: attachmentsData,
-      };
-
-      const response = await fetch("/api/resend/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+  
+      setSendingProgress({
+        current: 0,
+        total: recipients.length,
+        status: 'sending',
+        message: `Invio a ${recipients.length} destinatari...`
       });
-
-      const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.message || "Errore durante l'invio");
+  
+      const attachments = Array.isArray(selectedCampaign.attachments) ? selectedCampaign.attachments : [];
+  
+      // ✅ Carica account
+      setSendingProgress(prev => ({ ...prev, message: 'Verifica account mittente...' }));
+  
+      const senderEmail = selectedCampaign.sender_email || "";
+      let accountObj = null;
+  
+      if (senderEmail) {
+        const { data } = await supabase
+          .from('email_accounts')
+          .select('*')
+          .eq('email', senderEmail.trim())
+          .maybeSingle();
+        accountObj = data;
       }
-
-      successCount = result.sent || recipientList.length;
-    }
-
-    // ✅ AGGIORNA LO STATUS DELLA CAMPAGNA SE È UNA BOZZA
-    if (selectedCampaign?.id && selectedCampaign.status === "draft") {
-      console.log('🔄 Aggiornamento status campagna da draft a sent...');
-      
-      const { error: updateError } = await supabase
-        .from("campaigns")
+  
+      if (!accountObj) {
+        const { data } = await supabase
+          .from('email_accounts')
+          .select('*')
+          .order('is_default', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        accountObj = data;
+      }
+  
+      if (!accountObj) {
+        throw new Error("Nessun account email configurato. Contatta l'amministratore.");
+      }
+  
+      console.log('✅ Account trovato:', accountObj.email);
+  
+      let successCount = 0;
+      let failedCount = 0;
+  
+      // ✅ SMTP
+      if (accountObj.provider === "brevo" || (accountObj.smtp && accountObj.provider !== "resend")) {
+        console.log('📤 Invio via SMTP a:', recipients.length, 'destinatari');
+  
+        const payload = {
+          user_id: user.id,
+          from: accountObj.email,
+          to: recipients,
+          cc: Array.isArray(selectedCampaign.cc) ? selectedCampaign.cc : [],
+          bcc: Array.isArray(selectedCampaign.bcc) ? selectedCampaign.bcc : [],
+          subject: selectedCampaign.subject || "",
+          html: selectedCampaign.email_content || "<p></p>",
+          attachments,
+          smtp: accountObj.smtp,
+        };
+  
+        const response = await fetch("/api/send-campaign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+  
+        const result = await response.json();
+        if (!result.success) throw new Error(result.message || "Errore invio SMTP");
+  
+        successCount = result.sent;
+        failedCount = result.failed || 0;
+  
+        setSendingProgress({
+          current: successCount,
+          total: recipients.length,
+          status: 'sending',
+          message: `Inviate ${successCount}/${recipients.length} email...`
+        });
+  
+      // ✅ RESEND
+      } else if (accountObj.provider === "resend") {
+        console.log('📤 Invio via Resend a:', recipients.length, 'destinatari');
+        setSendingProgress(prev => ({ ...prev, message: 'Invio via Resend in corso...' }));
+  
+        const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
+        if (!resendApiKey) throw new Error("API key Resend mancante");
+  
+        const payload = {
+          apiKey: resendApiKey,
+          user_id: user.id,
+          from: accountObj.email,
+          to: recipients,
+          cc: Array.isArray(selectedCampaign.cc) ? selectedCampaign.cc : [],
+          bcc: Array.isArray(selectedCampaign.bcc) ? selectedCampaign.bcc : [],
+          subject: selectedCampaign.subject || "",
+          html: selectedCampaign.email_content || "<p></p>",
+          attachments,
+        };
+  
+        const response = await fetch("/api/resend/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+  
+        const result = await response.json();
+        if (!result.success) throw new Error(result.message || "Errore invio Resend");
+  
+        successCount = result.sent || recipients.length;
+  
+        setSendingProgress({
+          current: successCount,
+          total: recipients.length,
+          status: 'sending',
+          message: `Inviate ${successCount}/${recipients.length} email...`
+        });
+      }
+  
+      console.log(`✅ Email inviate: ${successCount}, fallite: ${failedCount}`);
+  
+      // ✅ COMPLETATO
+      setSendingProgress({
+        current: successCount,
+        total: recipients.length,
+        status: 'completed',
+        message: `✅ ${successCount} email inviate con successo!`
+      });
+  
+      // ✅ Aggiorna status campagna
+      await supabase
+        .from('campaigns')
         .update({
-          status: "sent",
+          status: 'sent',
           sent_at: new Date().toISOString(),
           sent_count: successCount,
           failed_count: failedCount,
+          total_recipients: recipients.length,
         })
-        .eq("id", selectedCampaign.id)
-        .eq("user_id", user.id);
-
-      if (updateError) {
-        console.error("⚠️ Errore aggiornamento campagna:", updateError);
-      } else {
-        console.log("✅ Campagna aggiornata a 'sent'");
-        
-        // ✅ Ricarica le campagne per aggiornare la UI
-        await loadCampaigns();
-      }
+        .eq('id', selectedCampaign.id);
+  
+      // ✅ Salva log
+      const logsPayload = recipients.map(email => ({
+        campaign_id: selectedCampaign.id,
+        user_id: user.id,
+        recipient_email: email,
+        status: 'sent',
+        sent_at: new Date().toISOString(),
+      }));
+      await supabase.from('campaign_logs').insert(logsPayload);
+  
+      await loadCampaigns();
+  
+      setTimeout(() => {
+        setShowSendingProgress(false);
+        toast.success(`✅ Campagna inviata a ${successCount} destinatari!`, { duration: 3000 });
+        setSelectedCampaign(null);
+        setSendingId(null);
+      }, 2000);
+  
+    } catch (err) {
+      console.error("💥 Errore invio:", err);
+      setSendingProgress({
+        current: 0,
+        total: 0,
+        status: 'error',
+        message: `❌ ${err.message}`
+      });
+  
+      setTimeout(() => {
+        setShowSendingProgress(false);
+      }, 3000);
     }
+  };
 
-    // ✅ FEEDBACK SUCCESSO
-    setProgress(100);
-    setSentCount(successCount);
-    setFailedCount(failedCount);
-
-    toast.success(
-      `✅ Email inviata con successo a ${successCount} destinatari!`,
-      { duration: 3000 }
-    );
-
-    // Reset stati
-    setTimeout(() => {
-      setProgress(0);
-      setSentCount(0);
-      setFailedCount(0);
-      setSelectedCampaign(null); // ✅ Reset campagna selezionata
-    }, 3000);
-
-  } catch (error) {
-    console.error("💥 Errore invio:", error);
-    toast.error(`❌ Errore: ${error.message}`);
-  } finally {
-    setSending(false);
-  }
-};
   useEffect(() => {
     const handleKey = (e) => {
       if (!selectedCampaign) return;
@@ -4959,78 +5267,18 @@ const confirmSend = async () => {
   
       // 1) Ricavo destinatari
       // const recipientsRaw = getRecipientsArray(campaignToResend);
-      let recipientsRaw = campaignToResend.recipient_list;
-      console.log('📧 recipient_list dal DB:', recipientsRaw);
-      console.log('📧 Type:', typeof recipientsRaw)
+      // ✅ SOSTITUISCI CON
+const recipients = resolveRecipientEmails(
+  campaignToResend.recipient_list,
+  contacts,
+  tagLabels
+);
 
-    // ✅ PRENDI DIRETTAMENTE recipient_list
-    let recipients = [];
-    
-    console.log('📧 recipient_list dal DB:', recipientsRaw);
-    console.log('📧 Type:', typeof recipientsRaw);
-      
-      // ✅ VALIDA E PULISCI I DESTINATARI
-     
-    
-      // ✅ GESTISCI IL CASO "all"
-    if (Array.isArray(recipientsRaw) && recipientsRaw.length === 1 && recipientsRaw[0] === 'all') {
-      console.log('📋 Destinatari = "all", carico tutti i contatti...');
+console.log('✅ Recipients risolti:', recipients.length);
 
-      setSendingProgress(prev => ({
-        ...prev,
-        message: 'Caricamento contatti dalla rubrica...'
-      }));
-      
-      
-      // Carica tutti i contatti dal database
-      const { data: contactsData, error: contactsError } = await supabase
-        .from('contacts_full')
-        .select('email')
-        .eq('user_id', user.id);
-
-      if (contactsError) {
-        throw new Error('Errore caricamento contatti: ' + contactsError.message);
-      }
-
-      if (!contactsData || contactsData.length === 0) {
-        throw new Error('Nessun contatto trovato nel database');
-      }
-
-      recipients = contactsData
-        .map(c => c.email)
-        .filter(email => email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
-      
-      console.log('✅ Caricati', recipients.length, 'contatti dalla rubrica');
-    } 
-    // ✅ ALTRIMENTI VALIDA LE EMAIL NORMALI
-    else if (Array.isArray(recipientsRaw)) {
-      recipients = recipientsRaw
-        .filter(email => typeof email === 'string' && email.trim() && email !== 'all')
-        .map(email => email.trim())
-        .filter(email => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
-    } else if (typeof recipientsRaw === 'string') {
-      try {
-        const parsed = JSON.parse(recipientsRaw);
-        if (Array.isArray(parsed)) {
-          recipients = parsed
-            .filter(email => typeof email === 'string' && email.trim() && email !== 'all')
-            .map(email => email.trim())
-            .filter(email => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
-        }
-      } catch {
-        recipients = recipientsRaw
-          .split(/[,;\n]/)
-          .map(e => e.trim())
-          .filter(e => e !== 'all' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
-      }
-    }
-    
-    console.log('✅ Recipients finali:', recipients);
-    console.log('✅ Totale:', recipients.length);
-    
-    if (recipients.length === 0) {
-      throw new Error("Nessun destinatario valido trovato");
-    }
+if (recipients.length === 0) {
+  throw new Error("Nessun destinatario valido trovato");
+}
 
     // ✅ AGGIORNA TOTALE DESTINATARI
     setSendingProgress({
@@ -5049,22 +5297,43 @@ const confirmSend = async () => {
     }));
 
     // ✅ CARICA L'ACCOUNT
-    const senderEmail = campaignToResend.sender_email || localStorage.getItem("resend_sender_email") || "";
-    
-    const { data: accountsData, error: accountsError } = await supabase
-      .from('email_accounts')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('email', senderEmail)
-      .single();
+    const senderEmail = campaignToResend.sender_email || "";
 
-    if (accountsError || !accountsData) {
-      throw new Error("Account mittente non trovato");
+    console.log('🔍 Cercando account per email:', senderEmail);
+    
+    let accountsData = null;
+    
+    // ✅ Cerca per email senza filtro user_id
+    if (senderEmail) {
+      const { data } = await supabase
+        .from('email_accounts')
+        .select('*')
+        .eq('email', senderEmail.trim())
+        .maybeSingle();
+      accountsData = data;
+      console.log('📧 Account trovato per email:', accountsData?.email);
     }
     
+    // ✅ Fallback: primo account disponibile
+    if (!accountsData) {
+      console.log('⚠️ Account non trovato per email, uso account default...');
+      const { data } = await supabase
+        .from('email_accounts')
+        .select('*')
+        .order('is_default', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      accountsData = data;
+      console.log('📧 Account fallback:', accountsData?.email);
+    }
+    
+    if (!accountsData) {
+      throw new Error("Nessun account email configurato. Contatta l'amministratore.");
+    }
+    
+    console.log('✅ Account trovato:', accountsData.email);
     const accountObj = accountsData;
-    console.log('✅ Account trovato:', accountObj.email);
-
+    
     let successCount = 0;
     let failedCount = 0;
 
@@ -5180,36 +5449,30 @@ const confirmSend = async () => {
     status: 'completed',
     message: `✅ ${successCount} email inviate con successo!`
   });
-      // ✅ 5) Salva duplicato
-      const payload = {
-        campaignName: `${getName(campaignToResend)} (Re-invio)`,
-        subject: campaignToResend.subject || "",
-        emailContent: campaignToResend.email_content || campaignToResend.content || "<p></p>",
-        recipientList: recipients,
-        cc: campaignToResend.cc || "",
-        bcc: campaignToResend.bcc || "",
-        senderEmail: senderEmail,
-        attachments: attachments,
-        totalAttachmentSize: campaignToResend.total_attachment_size || 0,
-      };
-  
-      const saveRes = await saveCampaign(payload, false);
-      
-      if (saveRes.success && saveRes.data?.id) {
-        await updateCampaignAfterSend(saveRes.data.id, {
-          sentCount: successCount,
-          failedCount: failedCount,
-          totalRecipients: recipients.length,
-        });
-      }
-  
-      await loadCampaigns();
-  
-      // ✅ CHIUDI MODALE DOPO 2 SECONDI
-    setTimeout(() => {
-      setShowSendingProgress(false);
-      toast.success(`✅ Campagna reinviata a ${successCount} destinatari!`, { duration: 3000 });
-    }, 2000);
+      // ✅ 5) Aggiorna campagna originale invece di creare duplicato
+const baseName = campaignToResend.campaign_name?.replace(/ \(Re-invio \d+\)$/, '') || getName(campaignToResend);
+const newResendCount = (campaignToResend.resend_count || 0) + 1;
+
+await supabase
+  .from('campaigns')
+  .update({
+    status: 'sent',
+    sent_at: new Date().toISOString(),
+    last_resent_at: new Date().toISOString(),
+    resend_count: newResendCount,
+    sent_count: (campaignToResend.sent_count || 0) + successCount,
+    failed_count: (campaignToResend.failed_count || 0) + failedCount,
+    total_recipients: recipients.length,
+    campaign_name: `${baseName} (Re-invio ${newResendCount})`,
+  })
+  .eq('id', campaignToResend.id);
+
+await loadCampaigns();
+
+setTimeout(() => {
+  setShowSendingProgress(false);
+  toast.success(`✅ Campagna reinviata (${newResendCount}° invio) a ${successCount} destinatari!`, { duration: 3000 });
+}, 2000);
   
     } catch (err) {
       console.error("💥 Errore re-invio:", err);
@@ -5426,293 +5689,369 @@ const confirmSend = async () => {
       Nuova Campagna
     </button>
      {/* 🖨️ Stampa lista campagne */}
-  <button
-    onClick={() => {
-      // Apri una nuova finestra per stampare
-      const printWindow = window.open("", "_blank");
-      if (!printWindow) return;
+     <button
+  onClick={() => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
 
-      // Crea il contenuto HTML della tabella
-      const tableHtml = `
-        <html>
-          <head>
-            <title>Lista Campagne</title>
-            <style>
-              table { border-collapse: collapse; width: 100%; }
-              th, td { border: 1px solid #333; padding: 8px; text-align: left; }
-              th { background-color: #f0f0f0; }
-            </style>
-          </head>
-          <body>
-            <h1>Lista Campagne</h1>
-            <table>
-              <thead>
-                <tr>
-                  <th>Soggetto</th>
-                  <th>Data Invio</th>
-                  <th>Destinatari</th>
-                  <th>Aperte</th>
-                  <th>Stato</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${campaigns
-                  .map(
-                    (c) => `
+    const now = new Date().toLocaleString("it-IT");
+
+    const tableHtml = `
+      <html>
+        <head>
+          <title>Lista Campagne – ${now}</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: 'Segoe UI', Arial, sans-serif; background: #f9fafb; color: #1f2937; padding: 40px; }
+            .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; border-bottom: 3px solid #2563eb; padding-bottom: 16px; }
+            .header h1 { font-size: 24px; font-weight: 700; color: #1e3a8a; }
+            .header .meta { font-size: 12px; color: #6b7280; text-align: right; }
+            .stats { display: flex; gap: 16px; margin-bottom: 28px; }
+            .stat-box { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 20px; flex: 1; text-align: center; }
+            .stat-box .value { font-size: 22px; font-weight: 700; color: #2563eb; }
+            .stat-box .label { font-size: 11px; color: #9ca3af; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.05em; }
+            table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+            thead tr { background: #1e3a8a; }
+            thead th { color: white; padding: 12px 16px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+            tbody tr { border-bottom: 1px solid #f3f4f6; }
+            tbody tr:last-child { border-bottom: none; }
+            tbody tr:nth-child(even) { background: #f8fafc; }
+            tbody td { padding: 11px 16px; font-size: 13px; color: #374151; }
+            .badge { display: inline-block; padding: 3px 10px; border-radius: 9999px; font-size: 11px; font-weight: 600; }
+            .badge-sent { background: #dcfce7; color: #166534; }
+            .badge-draft { background: #fef9c3; color: #854d0e; }
+            .badge-scheduled { background: #e0e7ff; color: #3730a3; }
+            .footer { margin-top: 24px; font-size: 11px; color: #9ca3af; text-align: center; }
+            @media print {
+              body { background: white; padding: 20px; }
+              .stat-box { box-shadow: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <h1>📧 Lista Campagne Email</h1>
+              <p style="margin-top:4px; font-size:13px; color:#6b7280;">Report generato automaticamente dalla piattaforma</p>
+            </div>
+            <div class="meta">
+              <div>Data: ${now}</div>
+              <div>Totale campagne: ${campaigns.length}</div>
+            </div>
+          </div>
+
+          <div class="stats">
+            <div class="stat-box">
+              <div class="value">${campaigns.length}</div>
+              <div class="label">Totale</div>
+            </div>
+            <div class="stat-box">
+              <div class="value">${campaigns.filter(c => c.status === 'sent').length}</div>
+              <div class="label">Inviate</div>
+            </div>
+            <div class="stat-box">
+              <div class="value">${campaigns.filter(c => c.status === 'draft').length}</div>
+              <div class="label">Bozze</div>
+            </div>
+            <div class="stat-box">
+              <div class="value">${campaigns.reduce((s, c) => s + (c.sent_count || c.total_recipients || 0), 0).toLocaleString('it-IT')}</div>
+              <div class="label">Email Inviate</div>
+            </div>
+            <div class="stat-box">
+              <div class="value">${campaigns.reduce((s, c) => s + (c.opened_count || 0), 0).toLocaleString('it-IT')}</div>
+              <div class="label">Aperture</div>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Nome Campagna</th>
+                <th>Oggetto</th>
+                <th>Stato</th>
+                <th>Destinatari</th>
+                <th>Aperture</th>
+                <th>Click</th>
+                <th>Re-invii</th>
+                <th>Data Invio</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${campaigns.map((c, i) => {
+                const date = c.sent_at || c.created_at;
+                const formatted = date ? new Date(date).toLocaleString('it-IT', {
+                  day: '2-digit', month: '2-digit', year: 'numeric',
+                  hour: '2-digit', minute: '2-digit'
+                }) : '—';
+                const sent = c.sent_count || c.total_recipients || 0;
+                const opened = c.opened_count || 0;
+                const openRate = sent > 0 ? ` (${Math.round((opened / sent) * 100)}%)` : '';
+                const badgeClass = c.status === 'sent' ? 'badge-sent' : c.status === 'scheduled' ? 'badge-scheduled' : 'badge-draft';
+                const badgeLabel = c.status === 'sent' ? 'Inviata' : c.status === 'scheduled' ? 'Programmata' : 'Bozza';
+
+                return `
                   <tr>
-                    <td>${c.subject || "-"}</td>
-                    <td>${c.sentAt || "-"}</td>
-                    <td>${c.recipients?.length || 0}</td>
-                    <td>${c.opened || 0}</td>
-                    <td>${c.status || "-"}</td>
+                    <td style="color:#9ca3af; font-size:12px;">${i + 1}</td>
+                    <td style="font-weight:600;">${c.campaign_name || '—'}</td>
+                    <td style="color:#6b7280;">${c.subject || '—'}</td>
+                    <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
+                    <td>${sent.toLocaleString('it-IT')}</td>
+                    <td>${opened.toLocaleString('it-IT')}${openRate}</td>
+                    <td>${(c.clicked_count || 0).toLocaleString('it-IT')}</td>
+                    <td>${c.resend_count > 0 ? `🔁 ${c.resend_count}x` : '—'}</td>
+                    <td style="color:#6b7280; font-size:12px;">${formatted}</td>
                   </tr>
-                `
-                  )
-                  .join("")}
-              </tbody>
-            </table>
-          </body>
-        </html>
-      `;
+                `;
+              }).join('')}
+            </tbody>
+          </table>
 
-      // Scrivi il contenuto nella nuova finestra e apri la stampa
-      printWindow.document.write(tableHtml);
-      printWindow.document.close();
-      printWindow.focus();
+          <div class="footer">
+            Generato da MailMassProm · ${now}
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(tableHtml);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
       printWindow.print();
-      printWindow.close();
-    }}
-    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-  >
-    🖨️ Stampa Campagne
-  </button>
+    }, 500);
+  }}
+  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+>
+  🖨️ Stampa Campagne
+</button>
 </div>
 
 </div>
 
 
-      {/* 🧾 Lista Campagne */}
-{/* ======================= */}
-{/*   VISTA A GRIGLIA       */}
-{/* ======================= */}
 {viewMode === "grid" && (
   <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
     {loading ? (
-      <p className="text-gray-500">Caricamento campagne…</p>
+      <div className="col-span-3 flex flex-col items-center justify-center py-16 gap-3">
+        <div className="relative">
+          <div className="w-10 h-10 border-4 border-blue-100 rounded-full"></div>
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin absolute inset-0"></div>
+        </div>
+        <p className="text-gray-400 text-sm">Caricamento campagne...</p>
+      </div>
     ) : campaigns.length > 0 ? (
       campaigns.map((campaign) => (
-        <div key={campaign.id} className="bg-white p-6 rounded-xl shadow-sm border hover:shadow-md transition-shadow">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">{getName(campaign)}</h3>
-                  <p className="text-sm text-gray-600">{campaign.subject}</p>
-                  {/* opzionale: sent_at/scheduled */}
-                  {campaign.sent_at && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      Inviata il {formatDate(campaign.sent_at)}
-                    </p>
-                  )}
-                </div>
-                <span
-                  className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                    campaign.status === "sent"
-                      ? "bg-green-100 text-green-800"
-                      : campaign.status === "scheduled"
-                      ? "bg-indigo-100 text-indigo-800"
-                      : "bg-yellow-100 text-yellow-800"
-                  }`}
-                >
-                  {campaign.status === "sent"
-                    ? "Inviata"
-                    : campaign.status === "scheduled"
-                    ? "Programm."
-                    : "Bozza"}
-                </span>
-              </div>
+        <div key={campaign.id} className="bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-lg transition-all duration-200 overflow-hidden group flex flex-col">
 
-              <div className="space-y-2 mb-5">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Destinatari:</span>
-                  
+          {/* Barra colore status */}
+          <div className={`h-1 w-full ${
+            campaign.status === "sent" ? "bg-green-500" :
+            campaign.status === "scheduled" ? "bg-indigo-500" :
+            "bg-yellow-400"
+          }`} />
 
-                  <button
-  onClick={async () => {
-    setRecipientsCampaign(campaign);
-    setShowRecipientsModal(true);
+          <div className="p-5 flex flex-col flex-1">
 
-    const { data } = await supabase
-      .from("campaign_recipients")
-      .select("email, name, status, sent_at, opened_at")
-      .eq("campaign_id", campaign.id)
-      .order("sent_at", { ascending: false });
-
-    setRecipients(data || []);
-  }}
-  className="font-medium text-blue-600 hover:text-blue-800 underline"
->
-  {campaign.total_recipients}
-</button>
-
-
-
-                </div>
-                {campaign.status === "sent" && (
-                  <>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Aperture:</span>
-                      <span className="font-medium">{getOpened(campaign)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Click:</span>
-                      <span className="font-medium">{getClicked(campaign)}</span>
-                    </div>
-                  </>
+            {/* Header */}
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex-1 min-w-0 pr-3">
+                <h3 className="text-base font-semibold text-gray-900 truncate group-hover:text-blue-600 transition-colors">
+                  {getName(campaign)}
+                </h3>
+                <p className="text-sm text-gray-500 truncate mt-0.5">{campaign.subject}</p>
+                {campaign.sent_at && (
+                  <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    {formatDate(campaign.sent_at)}
+                  </p>
                 )}
               </div>
+              <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full flex-shrink-0 ${
+                campaign.status === "sent"
+                  ? "bg-green-50 text-green-700 ring-1 ring-green-200"
+                  : campaign.status === "scheduled"
+                  ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200"
+                  : "bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200"
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  campaign.status === "sent" ? "bg-green-500" :
+                  campaign.status === "scheduled" ? "bg-indigo-500" :
+                  "bg-yellow-500"
+                }`} />
+                {campaign.status === "sent" ? "Inviata" :
+                 campaign.status === "scheduled" ? "Programmata" : "Bozza"}
+              </span>
+            </div>
 
-              {/* 🔘 Pulsanti */}
-           
-             <div className="px-6 py-4"> {/* ✅ Cambiato da <td> a <div> */}
-  <div className="flex justify-end items-center gap-2 relative">
+            {/* Stats */}
+            <div className="grid grid-cols-3 gap-2 py-3 border-y border-gray-100 mb-4">
+              <div className="text-center">
+                <button
+                  onClick={async () => {
+                    setRecipientsCampaign(campaign);
+                    setShowRecipientsModal(true);
+                    const { data } = await supabase
+                      .from("campaign_recipients")
+                      .select("email, name, status, sent_at, opened_at")
+                      .eq("campaign_id", campaign.id)
+                      .order("sent_at", { ascending: false });
+                    setRecipients(data || []);
+                  }}
+                  className="text-lg font-bold text-blue-600 hover:text-blue-800 transition-colors"
+                >
+                  {campaign.total_recipients || 0}
+                </button>
+                <p className="text-xs text-gray-400">Destinatari</p>
+              </div>
+              <div className="text-center border-x border-gray-100">
+                <p className="text-lg font-bold text-emerald-600">{getOpened(campaign)}</p>
+                <p className="text-xs text-gray-400">Aperture</p>
+              </div>
+              <div className="text-center">
+                <p className="text-lg font-bold text-purple-600">{getClicked(campaign)}</p>
+                <p className="text-xs text-gray-400">Click</p>
+              </div>
+            </div>
 
-    {/* VEDI */}
-    <button
-      disabled={sendingId === campaign.id}
-      onClick={() => {
-        setSelectedCampaign(campaign);
-        setShowViewModal(true);
-      }}
-      className="btn-action btn-blue"
-    >
-      <Eye className="w-4 h-4" />
-      Vedi
-    </button>
+            {/* Pulsanti azione */}
+            <div className="flex items-center gap-2 mt-auto relative">
+              <button
+                disabled={sendingId === campaign.id}
+                onClick={() => {
+                  setSelectedCampaign(campaign);
+                  setShowViewModal(true);
+                }}
+                className="btn-action btn-blue flex-1"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                Vedi
+              </button>
 
-    {/* MODIFICA */}
-    <button
-      disabled={sendingId === campaign.id}
-      onClick={() => {
-        setSelectedCampaign(campaign);
-        setShowEditModal(true);
-      }}
-      className="btn-action btn-gray"
-    >
-      <Edit3 className="w-4 h-4" />
-      Modifica
-    </button>
+              <button
+                disabled={sendingId === campaign.id}
+                onClick={() => {
+                  setSelectedCampaign(campaign);
+                  setShowEditModal(true);
+                }}
+                className="btn-action btn-gray flex-1"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                Modifica
+              </button>
 
-    {/* INVIA / RE-INVIA */}
-    {campaign.status === "draft" && (
-  <button
-    disabled={sendingId === campaign.id}
-    onClick={() => {
-      console.log('🎯 Click su Invia - Campaign:', campaign);
-      setSendingId(campaign.id);
-      handleSendCampaign(campaign); // ✅ NON impostare sendingId qui
-    }}
-    className="btn-action btn-green"
-  >
-    {sendingId === campaign.id ? (
-      <Loader2 className="w-4 h-4 animate-spin" />
+              {campaign.status === "draft" && (
+                <button
+                  disabled={sendingId === campaign.id}
+                  onClick={() => {
+                    setSendingId(campaign.id);
+                    handleSendCampaign(campaign);
+                  }}
+                  className="btn-action btn-green flex-1"
+                >
+                  {sendingId === campaign.id ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      Invia
+                    </>
+                  )}
+                </button>
+              )}
+
+              {/* ✅ AGGIUNGI questo per scheduled */}
+              {campaign.status === "scheduled" && (
+                <button
+                  disabled={sendingId === campaign.id}
+                  onClick={() => {
+                    setSendingId(campaign.id);
+                    handleSendCampaign(campaign);
+                  }}
+                  className="btn-action btn-indigo flex-1"
+                >
+                  {sendingId === campaign.id ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <><Send className="w-3.5 h-3.5" />Invia</>
+                  )}
+                </button>
+              )}
+
+              {campaign.status === "sent" && (
+                <button
+                  disabled={sendingId === campaign.id}
+                  onClick={async () => {
+                    setSendingId(campaign.id);
+                    await handleResendCampaign(campaign);
+                    setSendingId(null);
+                  }}
+                  className="btn-action btn-indigo flex-1"
+                >
+                  {sendingId === campaign.id ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5 rotate-180" />
+                      Re-invia
+                    </>
+                  )}
+                </button>
+              )}
+
+              {/* Menu dropdown */}
+              <button
+                onClick={() => setOpenMenuId(openMenuId === campaign.id ? null : campaign.id)}
+                className="btn-action btn-light px-2"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+
+              {openMenuId === campaign.id && (
+                <div className="absolute right-0 bottom-10 z-50 w-44 bg-white border border-gray-100 rounded-xl shadow-xl overflow-hidden">
+                  <button
+                    onClick={() => { setSelectedCampaign(campaign); setShowViewModal(true); setOpenMenuId(null); }}
+                    className="menu-item"
+                  >
+                    👁️ Vedi
+                  </button>
+                  <button
+                    onClick={() => { setSelectedCampaign(campaign); setShowEditModal(true); setOpenMenuId(null); }}
+                    className="menu-item"
+                  >
+                    ✏️ Modifica
+                  </button>
+                  <button
+                    onClick={() => { handleResendCampaign(campaign); setOpenMenuId(null); }}
+                    className="menu-item"
+                  >
+                    🔁 Duplica
+                  </button>
+                  <div className="border-t border-gray-100" />
+                  <button
+                    onClick={() => { setSelectedCampaign(campaign); setShowDeleteConfirm(true); setOpenMenuId(null); }}
+                    className="menu-item text-red-600 hover:bg-red-50"
+                  >
+                    🗑️ Elimina
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ))
     ) : (
-      <>
-        <Send className="w-4 h-4" />
-        Invia
-      </>
-    )}
-  </button>
-)}
-
-    {campaign.status === "sent" && (
-      <button
-        disabled={sendingId === campaign.id}
-        onClick={async () => {
-          setSendingId(campaign.id);
-          await handleResendCampaign(campaign);
-          setSendingId(null);
-        }}
-        className="btn-action btn-indigo"
-      >
-        {sendingId === campaign.id ? (
-  <Loader2 className="w-4 h-4 animate-spin" />
-) : (
-  <>
-    <Send className="w-4 h-4 rotate-180" />
-    Re-invia
-  </>
-)}
-      </button>
-    )}
-
-    {/* ⋯ ALTRE AZIONI */}
-    <button
-      onClick={() =>
-        setOpenMenuId(openMenuId === campaign.id ? null : campaign.id)
-      }
-      className="btn-action btn-light px-2"
-    >
-      <MoreVertical className="w-4 h-4" />
-    </button>
-
-    {/* MENU DROPDOWN */}
-    {openMenuId === campaign.id && (
-      <div className="absolute right-0 top-10 z-50 w-44 bg-white border rounded-lg shadow-lg overflow-hidden">
-        <button
-          onClick={() => {
-            setSelectedCampaign(campaign);
-            setShowViewModal(true);
-            setOpenMenuId(null);
-          }}
-          className="menu-item"
-        >
-          👁️ Vedi (V)
-        </button>
-
-        <button
-          onClick={() => {
-            setSelectedCampaign(campaign);
-            setShowEditModal(true);
-            setOpenMenuId(null);
-          }}
-          className="menu-item"
-        >
-          ✏️ Modifica (E)
-        </button>
-
-        <button
-          onClick={() => {
-            handleResendCampaign(campaign);
-            setOpenMenuId(null);
-          }}
-          className="menu-item"
-        >
-          🔁 Duplica
-        </button>
-
-        <button
-          onClick={() => {
-            setSelectedCampaign(campaign);
-            setShowDeleteConfirm(true);
-            setOpenMenuId(null);
-          }}
-          className="menu-item text-red-600"
-        >
-          🗑️ Elimina (DEL)
-        </button>
+      <div className="col-span-3 flex flex-col items-center justify-center py-20 gap-3">
+        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
+          <Mail className="w-8 h-8 text-gray-400" />
+        </div>
+        <p className="text-gray-500 font-medium">Nessuna campagna disponibile</p>
+        <p className="text-gray-400 text-sm">Crea la tua prima campagna email</p>
       </div>
     )}
   </div>
-  </div> {/* ✅ Chiuso con </div> invece di </td> */}
-
-
-
-
-            </div>
-          ))
-        ) : (
-          <p className="text-gray-500 italic">Nessuna campagna disponibile.</p>
-        )}
-      </div>
 )}
 {/* ======================= */}
 {/*   VISTA A LISTA / TABELLA */}
@@ -5885,6 +6224,15 @@ const confirmSend = async () => {
         <Send className="w-4 h-4" /> Invia
       </button>
     )}
+
+{campaigns.status === "scheduled" && (
+  <button
+    onClick={() => handleSendCampaign(campaigns)}
+    className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-800"
+  >
+    <Send className="w-4 h-4" /> Invia
+  </button>
+)}
 
     {campaigns.status === "sent" && (
       <button
@@ -6489,20 +6837,20 @@ console.log('🔍 coperturaCanale ricevuta:', coperturaCanale);
  // ✅ FUNZIONE PER CARICARE TAG LABELS
  const fetchTagLabels = async () => {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return; // ✅ Esci silenziosamente al logout
 
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('tag_labels')
-      .select('*, tags(id, label, value)')
-      .eq('user_id', user.id)
-      .order('label');
+      .select('*, tags(label)')
+      .eq('user_id', session.user.id)
+      .order('label', { ascending: true });
 
-    if (error) throw error;
-    console.log('🏷️ Tag Labels caricati in EditContactModal:', data);
+    console.log('🏷️ Tag Labels caricate:', data);
     setTagLabels(data || []);
-  } catch (err) {
-    console.error("💥 Errore fetch tag labels:", err);
+  } catch (error) {
+    if (error.message?.includes('Auth session missing')) return; // ✅ Ignora al logout
+    console.error('Errore caricamento tag labels:', error);
   }
 };
 
@@ -11276,6 +11624,44 @@ const CampaignModal = ({
     closeEditor
   } = useEditorState();
 
+
+  // ✅ AGGIUNGI QUI - Helper functions per sessionStorage
+const compressBlocksForStorage = (blocks) => {
+  return blocks.map(block => ({
+    id: block.id,
+    name: block.name,
+    icon: block.icon,
+    category: block.category,
+    instanceId: block.instanceId,
+    html: block.html,
+  }));
+};
+
+const safeSessionSet = (key, value) => {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch (e) {
+    if (e.name === 'QuotaExceededError') {
+      // ✅ Pulisci TUTTO tranne le chiavi critiche
+      const editingId = sessionStorage.getItem('editingCampaignId');
+      const editingData = sessionStorage.getItem('editingCampaignData');
+      
+      sessionStorage.clear();
+      
+      // Ripristina solo le chiavi critiche
+      if (editingId) sessionStorage.setItem('editingCampaignId', editingId);
+      if (editingData) sessionStorage.setItem('editingCampaignData', editingData);
+      
+      try {
+        sessionStorage.setItem(key, value);
+      } catch (e2) {
+        console.error('❌ Storage ancora pieno dopo pulizia:', e2);
+        toast.error('⚠️ Template troppo grande per la cache del browser');
+      }
+    }
+  }
+};
+
   useEffect(() => {
     // CASO 1: Se stiamo modificando una campagna tramite editingCampaign prop
     if (editingCampaign && showCampaignModal && campaignMode === null) {
@@ -11309,16 +11695,20 @@ const CampaignModal = ({
 const [isSelecting, setIsSelecting] = useState(false);
 const [allAccounts, setAllAccounts] = useState([]); // 🔥 Nuovo state per account globali
 const [loadingAccounts, setLoadingAccounts] = useState(false);
-
+const [tagLabels, setTagLabels] = useState([]);
 const [loadingAllAccounts, setLoadingAllAccounts] = useState(false);
 const [showSingleBlockEditor, setShowSingleBlockEditor] = useState(false);
 const [editingSingleBlock, setEditingSingleBlock] = useState(null);
 const [blockEditorRestoreLock, setBlockEditorRestoreLock] = useState(false); // ← Nuovo
 const [localContacts, setLocalContacts] = useState([]);
 // Funzione per caricare TUTTI gli account
+// ✅ In fetchAllAccounts
 const fetchAllAccounts = async () => {
   setLoadingAllAccounts(true);
   try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return; // ✅ Esci silenziosamente
+    
     const { data, error } = await supabase
       .from('email_accounts')
       .select('*')
@@ -11326,12 +11716,10 @@ const fetchAllAccounts = async () => {
       .order('is_default', { ascending: false });
 
     if (error) throw error;
-
-    console.log('📧 Tutti gli account caricati:', data);
     setAllAccounts(data || []);
   } catch (error) {
-    console.error('❌ Errore:', error);
-    toast.error('Errore nel caricamento degli account');
+    if (error.message?.includes('Auth session missing')) return;
+    console.warn('⚠️ fetchAllAccounts:', error.message);
   } finally {
     setLoadingAllAccounts(false);
   }
@@ -11344,12 +11732,33 @@ useEffect(() => {
     console.log("🚨 IL MODALE STA PER ESSERE DISTRUTTO (Unmount)");
   };
 }, [showCampaignModal, campaignMode]);
-// Carica quando apri il modale campagna
+// 3. Aggiorna l'useEffect esistente
 useEffect(() => {
   if (showCampaignModal) {
     fetchAllAccounts();
+    fetchTagLabels(); // ✅ aggiunto
   }
 }, [showCampaignModal]);
+
+// 2. Aggiungi la funzione fetch
+const fetchTagLabels = async () => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return; // ✅ Esci silenziosamente al logout
+
+    const { data } = await supabase
+      .from('tag_labels')
+      .select('*, tags(label)')
+      .eq('user_id', session.user.id)
+      .order('label', { ascending: true });
+
+    console.log('🏷️ Tag Labels caricate:', data);
+    setTagLabels(data || []);
+  } catch (error) {
+    if (error.message?.includes('Auth session missing')) return; // ✅ Ignora al logout
+    console.error('Errore caricamento tag labels:', error);
+  }
+};
 // 🧩 Estrae i contenuti strutturali dal blocco HTML
 const parseHeroContent = () => {
   const wrapper = document.createElement("div");
@@ -11452,6 +11861,41 @@ useEffect(() => {
     }
   }
 }, [campaignMode, showCampaignModal, editingCampaign]);
+
+// ✅ Aggiungi questa funzione nel CampaignModal
+const checkDuplicateCampaign = async (subject, emailContent, recipientList) => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return false;
+
+    const { data } = await supabase
+      .from('campaigns')
+      .select('id, subject, email_content, recipient_list')
+      .eq('user_id', session.user.id)
+      .eq('subject', subject)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (!data || data.length === 0) return false;
+
+    // ✅ Normalizza HTML rimuovendo whitespace extra
+    const normalizeHTML = (html) => html
+      ?.replace(/\s+/g, ' ')
+      ?.trim() || '';
+
+    const normalizedNew = normalizeHTML(emailContent);
+
+    return data.some(c =>
+      c.subject === subject &&
+      normalizeHTML(c.email_content) === normalizedNew &&
+      JSON.stringify(c.recipient_list) === JSON.stringify(recipientList)
+    );
+  } catch (err) {
+    console.warn('Errore check duplicato:', err);
+    return false;
+  }
+};
+
 // 🔧 Aggiorna dinamicamente titolo, sottotitolo e pulsante
 const updateHeroContent = (prop, value) => {
   const wrapper = document.createElement("div");
@@ -14222,6 +14666,8 @@ const handleGoBack = () => {
         openTracking: true,
         clickTracking: true,
         status: "sending",
+        campaignMode: campaignMode === 'builder' ? 'builder' : 
+                campaignMode === 'template' ? 'template' : 'standard', // ✅ AGGIUNGI
       };
   
       const saveResult = await saveCampaign(campaignData, false);
@@ -14453,61 +14899,129 @@ useEffect(() => {
 
 
   // Salva bozza
-  // Salva bozza
-const handleSaveDraft = async () => {
-  if (!campaignName || !subject) {
-    setShowDraftError(true);
-    setTimeout(() => setShowDraftError(false), 3000);
+  const handleSaveDraft = async () => {
+    if (!campaignName || !subject) {
+      setShowDraftError(true);
+      setTimeout(() => setShowDraftError(false), 3000);
+      return;
+    }
+
+     // ✅ Controlla duplicati
+  const isDuplicate = await checkDuplicateCampaign(subject, emailContent, recipientList);
+  if (isDuplicate) {
+    toast.error('⚠️ Esiste già una campagna identica. Modifica l\'oggetto o il contenuto prima di salvare.', { duration: 4000 });
     return;
   }
 
-  try {
-    const campaignData = {
-      campaignName,
-      subject,
-      emailContent,
-      recipientList,
-      senderEmail: selectedAccount,
-      cc,
-      bcc,
-      attachments: attachments.map((a) => ({
-        filename: a.file?.name || a.filename,
-        size: a.file?.size || a.size,
-        type: a.file?.type || a.type,
-      })),
-      totalAttachmentSize: attachments.reduce(
-        (sum, a) => sum + (a.file?.size || a.size || 0),
-        0
-      ),
-      status: "draft", // ✅ Questo è corretto
-      savedAt: new Date().toISOString(),
-    };
+ 
+   const resolvedRecipients = resolveRecipientEmails(recipientList, localContacts, tagLabels);
+  
+    try {
+      const campaignData = {
+        campaignName,
+        subject,
+        emailContent,
+        recipientList,
+        senderEmail: selectedAccount,
+        cc,
+        bcc,
+        attachments: attachments.map((a) => ({
+          filename: a.file?.name || a.filename,
+          size: a.file?.size || a.size,
+          type: a.file?.type || a.type,
+        })),
+        totalAttachmentSize: attachments.reduce(
+          (sum, a) => sum + (a.file?.size || a.size || 0), 0
+        ),
+        builderBlocks: canvasBlocks,           // ✅ AGGIUNTO
+        isBuilderTemplate: isBuilderTemplate,   // ✅ AGGIUNTO
+        status: "draft",
+        totalRecipients: resolvedRecipients.length, // ✅ Conta i destinatari reali
+      };
+  
+      const { success, data, error } = await saveCampaign(campaignData, true);
+      if (!success) throw new Error(error);
+  
+      setLastSavedData(campaignData);
+      setLastAutoSave(new Date());
+      setShowDraftSuccess(true);
+      setTimeout(() => setShowDraftSuccess(false), 2000);
+  
+      if (onSaveDraft) onSaveDraft(data);
 
-    console.log('💾 Saving draft with data:', campaignData); // ✅ DEBUG
-
-    const { success, data, error } = await saveCampaign(campaignData, true);
-
-    if (!success) throw new Error(error);
-
-    setLastSavedData(campaignData);
-    setLastAutoSave(new Date());
-
-    // Mostra il successo
-    setShowDraftSuccess(true);
-    setTimeout(() => setShowDraftSuccess(false), 2000);
-
-    // ✅ MODIFICA QUI: Chiudi il modale solo se richiesto esplicitamente
-    if (shouldClose) {
-      setTimeout(() => setShowCampaignModal(false), 2300);
+      // ✅ Toast con scelta continua/chiudi
+      toast((t) => (
+        <div className="p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-2xl">💾</span>
+            <p className="font-semibold text-gray-800">Bozza salvata!</p>
+          </div>
+          <p className="text-sm text-gray-500 mb-3">
+            Vuoi continuare a modificare o chiudere?
+          </p>
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => toast.dismiss(t.id)}
+              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition"
+            >
+              ✏️ Continua a modificare
+            </button>
+            <button
+              onClick={() => {
+                toast.dismiss(t.id);
+                sessionStorage.removeItem('isBuilderTemplate');
+                sessionStorage.removeItem('builderTemplate');
+                sessionStorage.removeItem('builderBlocks');
+                sessionStorage.removeItem('currentEmailContent');
+                setIsBuilderTemplate(false);
+                setShowCampaignModal(false);
+              }}
+              className="px-3 py-1.5 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium transition"
+            >
+              ✅ Chiudi
+            </button>
+          </div>
+        </div>
+      ), { duration: 8000 });
+  
+    } catch (error) {
+      console.error("❌ Errore salvataggio bozza:", error);
+      toast.error("Errore nel salvataggio: " + error.message);
     }
-
-    if (onSaveDraft) onSaveDraft(data);
-    
-    toast.success('💾 Bozza salvata correttamente!', { duration: 2000 });
-  } catch (error) {
-    console.error("❌ Errore salvataggio bozza:", error);
-    toast.error("Errore nel salvataggio: " + error.message);
+  };
+// ✅ NUOVA FUNZIONE - aggiungi prima di confirmSend
+const resolveRecipientEmails = (recipientList, contacts, tagLabels = []) => {
+  if (!Array.isArray(recipientList)) return [];
+  
+  if (recipientList.includes('all')) {
+    return contacts.filter(c => c.status === 'active').map(c => c.email);
   }
+
+  const emailSet = new Set();
+
+  recipientList.forEach(val => {
+    if (val.startsWith('tag:')) {
+      const tagValue = val.replace('tag:', '');
+      contacts
+        .filter(c => c.status === 'active' && c.tags?.includes(tagValue))
+        .forEach(c => emailSet.add(c.email));
+    } else if (val.startsWith('label:')) {
+      const labelId = val.replace('label:', '');
+      contacts
+        .filter(c => c.status === 'active' && c.contact_label_id === labelId)
+        .forEach(c => emailSet.add(c.email));
+    } else if (val.startsWith('tag_label:')) {
+      const tagLabelId = val.replace('tag_label:', '');
+      const tl = tagLabels.find(t => t.id === tagLabelId);
+      if (tl) {
+        contacts
+          .filter(c => c.status === 'active' && c.tag_labels?.includes(tl.label))
+          .forEach(c => emailSet.add(c.email));
+      }
+    }
+  });
+
+  return [...emailSet];
 };
   // Conferma invio
   const confirmSend = async () => {
@@ -14516,7 +15030,8 @@ const handleSaveDraft = async () => {
     console.log('  selectedAccount (stringa):', selectedAccount);
     
     // ✅ Trova l'oggetto account completo
-    const accountObj = accounts.find(acc => acc.email === selectedAccount);
+    // const accountObj = accounts.find(acc => acc.email === selectedAccount);
+    const accountObj = allAccounts.find(acc => acc.email === selectedAccount);
     
     console.log('  accountObj trovato:', accountObj);
     console.log('  accountObj.email:', accountObj?.email);
@@ -14541,221 +15056,213 @@ const handleSaveDraft = async () => {
   
       console.log('📧 Account completo:', accountObj);
   
-      // ✅ 2. Calcola recipients
-      const recipients = recipientList.includes("all")
-        ? contacts.filter((c) => c.status === "active").map((c) => c.email)
-        : recipientList.includes("premium")
-        ? contacts.filter((c) => c.tags?.includes("premium")).map((c) => c.email)
-        : recipientList.includes("prospect")
-        ? contacts.filter((c) => c.tags?.includes("prospect")).map((c) => c.email)
-        : Array.isArray(recipientList) ? recipientList : [];
-  
-      console.log('📋 Recipients:', recipients.length);
-  
-      if (recipients.length === 0) {
-        toast.error("⚠️ Nessun destinatario trovato!");
-        setIsSending(false);
-        return;
-      }
-  
-      setTotalRecipients(recipients.length);
-  
-      // ✅ 3. Prepara allegati
-      const attachmentsData = await Promise.all(
-        attachments.map(async (a) => ({
-          filename: a.file.name,
-          content: await fileToBase64(a.file),
-        }))
-      );
-  
-      // ✅ 4. Salva campagna
-      const campaignData = {
-        campaignName,
-        subject,
-        emailContent,
-        recipientList,
-        recipients,
-        cc,
-        bcc,
-        senderEmail: accountObj.email, // ✅ Usa accountObj
-        attachments: attachments.map(a => ({
-          filename: a.file.name,
-          size: a.file.size,
-          type: a.file.type
-        })),
-        totalAttachmentSize: attachments.reduce((sum, a) => sum + a.file.size, 0),
-        trackingEnabled: true,
-        openTracking: true,
-        clickTracking: true,
-        status: "sending",
-      };
-  
-      const saveResult = await saveCampaign(campaignData, false);
-  
-      if (!saveResult.success) {
-        throw new Error('Impossibile salvare la campagna');
-      }
-  
-      const campaignId = saveResult.data.id;
-  
-      // ✅ 5. INVIO tramite provider corretto
-      let successCount = 0;
-      let failedRecipients = [];
-  
-      // 🔀 BRANCHING: Resend vs SMTP
-      if (accountObj.provider === "resend") {
-        // ========== RESEND API ==========
-        const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
-  
-        if (!resendApiKey) {
-          throw new Error("API key Resend mancante");
-        }
-  
-  
-        for (let i = 0; i < recipients.length; i++) {
-          // Nel blocco SMTP, PRIMA di creare il payload
-console.log('🔍 Account trovato:', accountObj);
-console.log('🔍 accountObj.smtp:', accountObj.smtp);
-console.log('🔍 accounts array:', accounts);
-          const payload = {
-            apiKey: resendApiKey, // ✅ Passa l'API key al proxy
-            from: accountObj.email,
-            to: [recipients[i]],
-            subject,
-            html: emailContent,
-            cc: cc ? cc.split(",").map((e) => e.trim()).filter(Boolean) : [],
-            bcc: bcc ? bcc.split(",").map((e) => e.trim()).filter(Boolean) : [],
-            subject,
-            html: emailContent,
-            attachments: attachmentsData,
-          };
-  
-          try {
-            const response = await fetch("/api/resend/send", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${resendApiKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify(payload),
-            });
-  
-            if (response.ok) {
-              successCount++;
-              setSentCount(prev => prev + 1);
-            } else {
-              setFailedCount(prev => prev + 1);
-              failedRecipients.push(recipients[i]);
-            }
-          } catch (error) {
-            console.error('Errore invio:', error);
-            setFailedCount(prev => prev + 1);
-            failedRecipients.push(recipients[i]);
-          }
-  
-          setProgress(Math.round(((i + 1) / recipients.length) * 100));
-        }
-  
-      } else {
-        // ========== SMTP (Brevo, Gmail, ecc.) ==========
-        // Nel blocco SMTP, PRIMA di creare il payload
-console.log('🔍 Account trovato:', accountObj);
-console.log('🔍 accountObj.smtp:', accountObj.smtp);
-console.log('🔍 accounts array:', accounts);
+     
+    if (isDuplicate) {
+      setIsSending(false);
+      toast((t) => (
+        <div className="p-3">
+          <p className="font-medium text-gray-800 mb-1">⚠️ Campagna già esistente</p>
+          <p className="text-sm text-gray-500 mb-3">
+            Esiste già una campagna con lo stesso oggetto e contenuto. Vuoi inviarla comunque?
+          </p>
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => toast.dismiss(t.id)}
+              className="px-3 py-1 rounded bg-gray-200 text-gray-700 text-sm"
+            >
+              Annulla
+            </button>
+            <button
+              onClick={async () => {
+                toast.dismiss(t.id);
+                setIsSending(true);
+                await proceedWithSend(accountObj);
+              }}
+              className="px-3 py-1 rounded bg-blue-600 text-white text-sm"
+            >
+              Invia comunque
+            </button>
+          </div>
+        </div>
+      ), { duration: 8000 });
+      return;
+    }
+
+    await proceedWithSend(accountObj);
+
+  } catch (error) {
+    console.error('❌ Errore:', error);
+    toast.error(`❌ ${error.message}`);
+    setIsSending(false);
+  }
+};
+
+// ✅ LOGICA DI INVIO ESTRATTA IN FUNZIONE SEPARATA
+const proceedWithSend = async (accountObj) => {
+  try {
+    const recipients = resolveRecipientEmails(recipientList, localContacts, tagLabels);
+
+    if (recipients.length === 0) {
+      toast.error("⚠️ Nessun destinatario trovato!");
+      setIsSending(false);
+      return;
+    }
+
+    setTotalRecipients(recipients.length);
+
+    const attachmentsData = await Promise.all(
+      attachments.map(async (a) => ({
+        filename: a.file.name,
+        content: await fileToBase64(a.file),
+      }))
+    );
+
+    const campaignData = {
+      campaignName,
+      subject,
+      emailContent,
+      recipientList,
+      recipients,
+      cc,
+      bcc,
+      senderEmail: accountObj.email,
+      attachments: attachments.map(a => ({
+        filename: a.file?.name || a.filename,
+        size: a.file?.size || a.size,
+        type: a.file?.type || a.type,
+      })),
+      totalAttachmentSize: attachments.reduce((sum, a) => sum + (a.file?.size || a.size || 0), 0),
+      builderBlocks: canvasBlocks,
+      isBuilderTemplate: isBuilderTemplate,
+      trackingEnabled: true,
+      openTracking: true,
+      clickTracking: true,
+      status: "sending",
+    };
+
+    const saveResult = await saveCampaign(campaignData, false);
+    if (!saveResult.success) throw new Error('Impossibile salvare la campagna');
+
+    const campaignId = saveResult.data.id;
+    let successCount = 0;
+    let failedRecipients = [];
+
+    // 🔀 SMTP vs RESEND
+    if (accountObj.provider === "resend") {
+      const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
+      if (!resendApiKey) throw new Error("API key Resend mancante");
+
+      for (let i = 0; i < recipients.length; i++) {
         const payload = {
-          apiKey: resendApiKey, // ✅ Passa l'API key al proxy
-          user_id: user.id,
-          from: accountObj.email, // ✅ Usa accountObj
-          to: recipients,
-          cc: cc ? cc.split(",").map((e) => e.trim()).filter(Boolean) : [],
-          bcc: bcc ? bcc.split(",").map((e) => e.trim()).filter(Boolean) : [],
+          apiKey: resendApiKey,
+          from: accountObj.email,
+          to: [recipients[i]],
           subject,
           html: emailContent,
+          cc: cc ? cc.split(",").map((e) => e.trim()).filter(Boolean) : [],
+          bcc: bcc ? bcc.split(",").map((e) => e.trim()).filter(Boolean) : [],
           attachments: attachmentsData,
-          smtp: accountObj.smtp, // ✅ Usa accountObj
         };
-  
-        console.log('📤 Payload:', payload);
-        console.log('📤 Invio via SMTP...');
-  
-        const response = await fetch("/api/resend/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-  
-        const result = await response.json();
-        console.log('📥 Risultato SMTP:', result);
-  
-        if (!result.success) {
-          throw new Error(result.message || "Errore durante l'invio");
-        }
-  
-        successCount = result.sent;
-        failedRecipients = result.errors?.map(e => e.email) || [];
-        setSentCount(result.sent);
-        setFailedCount(result.failed || 0);
-        setProgress(100);
-      }
-  
-  
-      // ✅ 6. Aggiorna campagna con risultati
-      await updateCampaignAfterSend(campaignId, {
-        sentCount: successCount,
-        failedCount: failedRecipients.length,
-        totalRecipients: recipients.length,
-        status: "sent",
-      });
-  
-      // ✅ 7. Salva log
-      // const logs = JSON.parse(localStorage.getItem("emailLogs") || "[]");
-      // const newLog = {
-      //   id: campaignId,
-      //   name: campaignName,
-      //   subject,
-      //   recipients: recipients.length,
-      //   opened: 0,
-      //   status: "sent",
-      //   sentAt: new Date().toISOString(),
-      // };
-      // localStorage.setItem("emailLogs", JSON.stringify([...logs, newLog]));
-  // ✅ 7. Salva log su Supabase
-const logsPayload = recipients.map(email => ({
-  campaign_id: campaignId,
-  user_id: user.id,
-  sender_email: accountObj.email,
-  recipient_email: email,
-  subject,
-  status: failedRecipients.includes(email) ? "failed" : "sent",
-  provider: accountObj.provider,
-}));
 
-await supabase.from("email_logs").insert(logsPayload);
-      // ✅ 8. Mostra risultato
-      toast.dismiss();
-  
-      if (failedRecipients.length === 0) {
-        toast.success(`✅ Campagna inviata con successo a ${successCount} destinatari!`);
-        setTimeout(() => exportResendLog("csv", true), 1500);
-      } else {
-        toast.success(
-          `⚠️ Completata: ${successCount} inviate, ${failedRecipients.length} fallite`
-        );
+        try {
+          const response = await fetch("/api/resend/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          if (response.ok) { successCount++; setSentCount(prev => prev + 1); }
+          else { setFailedCount(prev => prev + 1); failedRecipients.push(recipients[i]); }
+        } catch (error) {
+          setFailedCount(prev => prev + 1);
+          failedRecipients.push(recipients[i]);
+        }
+
+        setProgress(Math.round(((i + 1) / recipients.length) * 100));
       }
-  
-      setTimeout(() => {
-        setIsSending(false);
-        setShowCampaignModal(false);
-        setShowSuccess(true);
-        setTimeout(() => setShowSuccess(false), 3000);
-      }, 1500);
-  
-    } catch (error) {
-      console.error('❌ Errore durante l\'invio:', error);
-      toast.error(`❌ ${error.message}`);
-      setIsSending(false);
+
+    } else {
+      const payload = {
+        user_id: user.id,
+        from: accountObj.email,
+        to: recipients,
+        cc: cc ? cc.split(",").map((e) => e.trim()).filter(Boolean) : [],
+        bcc: bcc ? bcc.split(",").map((e) => e.trim()).filter(Boolean) : [],
+        subject,
+        html: emailContent,
+        attachments: attachmentsData,
+        smtp: accountObj.smtp,
+      };
+
+      const response = await fetch("/api/resend/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await response.json();
+      if (!result.success) throw new Error(result.message || "Errore durante l'invio");
+
+      successCount = result.sent;
+      failedRecipients = result.errors?.map(e => e.email) || [];
+      setSentCount(result.sent);
+      setFailedCount(result.failed || 0);
+      setProgress(100);
     }
-  };
+
+    // ✅ Aggiorna campagna
+    await updateCampaignAfterSend(campaignId, {
+      sentCount: successCount,
+      failedCount: failedRecipients.length,
+      totalRecipients: recipients.length,
+      status: "sent",
+    });
+
+    // ✅ Salva log
+    const logsPayload = recipients.map(email => ({
+      campaign_id: campaignId,
+      user_id: user.id,
+      recipient_email: email,
+      status: failedRecipients.includes(email) ? 'failed' : 'sent',
+      sent_at: new Date().toISOString(),
+    }));
+    await supabase.from('campaign_logs').insert(logsPayload);
+
+    const recipientsPayload = recipients.map(email => {
+      const contact = localContacts.find(c => c.email === email);
+      return {
+        campaign_id: campaignId,
+        contact_id: contact?.id || null,
+        email,
+        name: contact?.name || null,
+        status: failedRecipients.includes(email) ? 'failed' : 'sent',
+        sent_at: new Date().toISOString(),
+        provider: accountObj.provider || 'smtp',
+      };
+    });
+    await supabase.from('campaign_recipients').insert(recipientsPayload);
+
+    toast.dismiss();
+
+    if (failedRecipients.length === 0) {
+      toast.success(`✅ Campagna inviata a ${successCount} destinatari!`);
+    } else {
+      toast.success(`⚠️ Completata: ${successCount} inviate, ${failedRecipients.length} fallite`);
+    }
+
+    setTimeout(() => {
+      setIsSending(false);
+      setShowCampaignModal(false);
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+    }, 1500);
+
+  } catch (error) {
+    console.error('❌ Errore durante l\'invio:', error);
+    toast.error(`❌ ${error.message}`);
+    setIsSending(false);
+  }
+};
 
   const confirmExit = () => {
     setShowConfirmExit(false);
@@ -18450,30 +18957,34 @@ if (campaignMode === 'builder') {
               </button>
 
               <button
-  onClick={() => {
-    console.log('🔍 DEBUG - INIZIO SALVATAGGIO TEMPLATE');
-    
-    // 1. Genera l'HTML finale unendo i blocchi
-    const templateHTML = canvasBlocks.map(block => block.html).join('\n');
-    
-    // 2. Aggiorna i dati nella sessione (per persistenza al refresh)
-    sessionStorage.setItem('builderTemplate', templateHTML);
-    sessionStorage.setItem('builderBlocks', JSON.stringify(canvasBlocks));
-    sessionStorage.setItem('isBuilderTemplate', 'true');
-    sessionStorage.setItem('currentEmailContent', templateHTML);
+onClick={() => {
+  console.log('🔍 DEBUG - INIZIO SALVATAGGIO TEMPLATE');
+  
+  // 1. Genera l'HTML finale
+  const templateHTML = canvasBlocks.map(block => block.html).join('\n');
+  
+  // 2. Pulisci tutto il sessionStorage
+  sessionStorage.clear(); // ✅ Pulisce tutto in un colpo
+  
+  // 3. Salva SOLO i dati leggeri (no HTML)
+  const compressed = compressBlocksForStorage(canvasBlocks);
+  
+  // Salva solo se non troppo grande
+  try {
+    safeSessionSet('builderBlocks', JSON.stringify(compressed));
+    safeSessionSet('isBuilderTemplate', 'true');
+  } catch(e) {
+    console.warn('Storage pieno, uso solo stato React');
+  }
 
-    // 3. 🔥 AGGIORNA GLI STATI DI REACT (Fondamentale!)
-    setEmailContent(templateHTML);
-    setIsBuilderTemplate(true);
-    
-    // 4. Torna alla modalità normale
-    setCampaignMode("normal");
-    
-    // 5. Forza il refresh dell'editor (opzionale ma consigliato)
-    setEditorKey(prev => prev + 1);
+  // 4. ✅ Usa SOLO lo stato React per l'HTML (non sessionStorage)
+  setEmailContent(templateHTML);
+  setIsBuilderTemplate(true);
+  setCampaignMode("normal");
+  setEditorKey(prev => prev + 1);
 
-    toast.success("✅ Template salvato e applicato!");
-  }}
+  toast.success("✅ Template salvato e applicato!");
+}}
   className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg transition"
 >
   ✅ Usa questo Template
@@ -19547,35 +20058,59 @@ if (campaignMode === 'builder') {
       <div className="flex gap-2">
       <button
   onClick={() => {
-    sessionStorage.setItem('editingBuilderTemplate', emailContent);
+    // ✅ Controlla se stiamo modificando una campagna esistente con blocchi salvati
+    const editingId = sessionStorage.getItem('editingCampaignId');
+    const editingData = sessionStorage.getItem('editingCampaignData');
     
-    // 🔥 Se abbiamo i blocchi, salvali per il builder
-    const savedBlocks = sessionStorage.getItem('builderBlocks');
-    if (savedBlocks) {
-      sessionStorage.setItem('editingBuilderBlocks', savedBlocks);
-      console.log('💾 Blocchi salvati per modifica');
+    if (editingId && editingData) {
+      const data = JSON.parse(editingData);
+      
+      // ✅ Usa i builder_blocks dal DB se esistono
+      if (data.builder_blocks?.length > 0) {
+        sessionStorage.setItem('editingBuilderBlocks', JSON.stringify(data.builder_blocks));
+        console.log('💾 Blocchi caricati dal DB:', data.builder_blocks.length);
+      } else {
+        // Fallback: usa i blocchi del sessionStorage o crea blocco unico
+        const savedBlocks = sessionStorage.getItem('builderBlocks');
+        if (savedBlocks) {
+          sessionStorage.setItem('editingBuilderBlocks', savedBlocks);
+        } else {
+          const contentBlock = {
+            id: 'custom-template',
+            name: 'Template Personalizzato',
+            icon: '📄',
+            category: 'layout',
+            html: emailContent,
+            instanceId: `custom-${Date.now()}`
+          };
+          sessionStorage.setItem('editingBuilderBlocks', JSON.stringify([contentBlock]));
+        }
+      }
     } else {
-      // Se non ci sono blocchi, crea un blocco dal contenuto corrente
-      const contentBlock = {
-        id: 'custom-template',
-        name: 'Template Personalizzato',
-        icon: '📄',
-        category: 'layout',
-        html: emailContent,
-        instanceId: `custom-${Date.now()}`
-      };
-      sessionStorage.setItem('editingBuilderBlocks', JSON.stringify([contentBlock]));
-      console.log('💾 Creato blocco dal contenuto corrente');
+      // ✅ Nuova campagna - comportamento originale
+      const savedBlocks = sessionStorage.getItem('builderBlocks');
+      if (savedBlocks) {
+        sessionStorage.setItem('editingBuilderBlocks', savedBlocks);
+      } else {
+        const contentBlock = {
+          id: 'custom-template',
+          name: 'Template Personalizzato',
+          icon: '📄',
+          category: 'layout',
+          html: emailContent,
+          instanceId: `custom-${Date.now()}`
+        };
+        sessionStorage.setItem('editingBuilderBlocks', JSON.stringify([contentBlock]));
+      }
     }
+
+    sessionStorage.setItem('editingBuilderTemplate', emailContent);
     
     setCampaignMode('builder');
     toast('📝 Ritorno al builder...', { 
       duration: 1500,
       icon: '🔄',
-      style: {
-        background: '#3b82f6',
-        color: '#fff',
-      }
+      style: { background: '#3b82f6', color: '#fff' }
     });
   }}
   className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg transition flex items-center justify-center gap-2"
@@ -24009,6 +24544,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
     <Campaigns
       setActiveTab={setActiveTab}
       contacts={contacts}
+      tagLabels={tagLabels}        // ✅ AGGIUNGI
     />
   )}
 
