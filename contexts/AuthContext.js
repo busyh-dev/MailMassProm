@@ -17,42 +17,78 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const lastSignInTime = useRef(0); // ✅ useRef invece di useState
-  const currentUserId = useRef(null); // ✅ traccia userId corrente
+  const lastSignInTime = useRef(0);
+  const currentUserId = useRef(null);
   const router = useRouter();
 
+    // ✅ AGGIUNGI QUESTO useEffect
+    useEffect(() => {
+      const handleUnhandledRejection = (event) => {
+        if (
+          event.reason?.name === 'AuthSessionMissingError' ||
+          event.reason?.message?.includes('Auth session missing')
+        ) {
+          console.log('ℹ️ AuthSessionMissingError ignorato');
+          event.preventDefault();
+        }
+      };
+  
+      window.addEventListener('unhandledrejection', handleUnhandledRejection);
+      return () => window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    }, []);
+
   useEffect(() => {
-    const getSession = async () => {
-      console.log('🔍 AuthContext: chiamata getSession');
-      
+    const getSession = async (retryCount = 0) => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
-
+    
         if (error) {
+          // ✅ Se è un errore di rete, riprova fino a 3 volte
+          if (error.message?.includes('Failed to fetch') || 
+              error.message?.includes('fetch') ||
+              error.name === 'AuthRetryableFetchError') {
+            if (retryCount < 3) {
+              console.log(`⏳ Retry getSession ${retryCount + 1}/3...`);
+              await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+              return getSession(retryCount + 1);
+            }
+          }
+    
           if (error.message?.includes('Auth session missing')) {
             setUser(null);
             setLoading(false);
             return;
           }
-          console.error('❌ Errore sessione:', error);
+    
           setUser(null);
           setLoading(false);
           return;
         }
-
+    
         if (session?.user) {
-          console.log('✅ Sessione trovata:', session.user.email);
           setUser(session.user);
           currentUserId.current = session.user.id;
         } else {
           setUser(null);
         }
-
+    
         setLoading(false);
       } catch (err) {
-        if (err.message?.includes('Auth session missing')) {
-          console.log('ℹ️ Nessuna sessione (normale)');
-        } else {
+        // ✅ Gestisci errore di rete con retry
+        if (err.name === 'AuthRetryableFetchError' || 
+            err.message?.includes('Failed to fetch')) {
+          if (retryCount < 3) {
+            console.log(`⏳ Retry getSession dopo errore rete ${retryCount + 1}/3...`);
+            await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+            return getSession(retryCount + 1);
+          }
+          console.warn('⚠️ Connessione non disponibile dopo 3 tentativi');
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+    
+        if (!err.message?.includes('Auth session missing')) {
           console.error('❌ Errore getSession:', err);
         }
         setUser(null);
@@ -63,52 +99,90 @@ export const AuthProvider = ({ children }) => {
     getSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (isLoggingOut) {
-        console.log('🚫 Evento ignorato durante logout:', event);
+      // ✅ Ignora durante logout
+      if (isLoggingOut) return;
+
+      if (event === 'TOKEN_REFRESHED') {
+        console.log('🔄 Token refreshed');
+        if (session?.user) {
+          setUser(prev => prev?.id === session.user.id ? prev : session.user);
+          currentUserId.current = session.user.id;
+        }
         return;
       }
 
+      // ✅ Ignora INITIAL_SESSION
       if (event === 'INITIAL_SESSION') return;
 
+      // ✅ SIGNED_IN
       if (event === 'SIGNED_IN') {
         const now = Date.now();
         const timeSinceLastSignIn = now - lastSignInTime.current;
-
-        // ✅ Ignora se è lo stesso utente e < 5 secondi
+      
+        // ✅ Ignora tab switch su pagina login SOLO se c'è già un utente attivo
+        // e NON è un nuovo login (window.__currentLoginUserId è null = nuovo login)
+        if (
+          typeof window !== 'undefined' &&
+          window.__loginPageActive === true
+        ) {
+          // ✅ Se è un nuovo login (nessun utente precedente) accetta sempre
+          if (window.__currentLoginUserId === null) {
+            console.log('✅ SIGNED_IN accettato - nuovo login dalla pagina login');
+            lastSignInTime.current = now;
+            currentUserId.current = session?.user?.id;
+            // ✅ Aggiorna il flag così i prossimi tab switch vengono ignorati
+            window.__currentLoginUserId = session?.user?.id;
+            setUser(session?.user ?? null);
+            return;
+          }
+          
+          // ✅ Tab switch con utente già loggato - ignora
+          if (session?.user?.id === window.__currentLoginUserId) {
+            console.log('🚫 SIGNED_IN ignorato - tab switch su pagina login');
+            lastSignInTime.current = now;
+            return;
+          }
+        }
+      
+        // ✅ Ignora duplicati fuori dalla pagina di login
         if (
           timeSinceLastSignIn < 5000 &&
-          session?.user?.id === currentUserId.current
+          session?.user?.id === currentUserId.current &&
+          (typeof window === 'undefined' || window.__loginPageActive !== true)
         ) {
-          console.log(`🚫 SIGNED_IN duplicato ignorato (${timeSinceLastSignIn}ms fa, stesso utente)`);
+          console.log(`🚫 SIGNED_IN duplicato ignorato (${timeSinceLastSignIn}ms fa)`);
           return;
         }
-
+      
         console.log('✅ SIGNED_IN accettato:', session?.user?.email);
         lastSignInTime.current = now;
         currentUserId.current = session?.user?.id;
         setUser(session?.user ?? null);
         return;
       }
+      // ✅ SIGNED_OUT
+     // ✅ In AuthContext, nel SIGNED_OUT aggiungi anche il reset al navigare su login
+if (event === 'SIGNED_OUT') {
+  console.log('👋 SIGNED_OUT event');
+  setUser(null);
+  currentUserId.current = null; // ✅ già presente
+  lastSignInTime.current = 0;   // ✅ AGGIUNGI - resetta anche il timer
+  sessionStorage.clear();
+  localStorage.clear();
+  if (router.pathname !== '/login' && router.pathname !== '/register') {
+    router.push('/login');
+  }
+  return;
+}
 
-      if (event === 'SIGNED_OUT') {
-        console.log('👋 SIGNED_OUT event');
-        setUser(null);
-        currentUserId.current = null;
-        sessionStorage.clear();
-        localStorage.clear();
-        if (router.pathname !== '/login' && router.pathname !== '/register') {
-          router.push('/login');
-        }
-        return;
-      }
-
+      // ✅ TOKEN_REFRESHED - aggiorna silenziosamente senza reset
       if (event === 'TOKEN_REFRESHED') {
-        console.log('🔄 Token refreshed - aggiorno solo sessione, non resetto');
-        // ✅ Non resettare lo stato, aggiorna solo silenziosamente
+        console.log('🔄 Token refreshed');
         setUser(prev => prev?.id === session?.user?.id ? prev : session?.user ?? null);
         return;
       }
 
+      // ✅ Altri eventi
       if (session?.user) {
         setUser(session.user);
         currentUserId.current = session.user.id;
@@ -118,7 +192,7 @@ export const AuthProvider = ({ children }) => {
     });
 
     return () => subscription.unsubscribe();
-  }, [isLoggingOut]); // ✅ rimosso lastSignInTime dalle dipendenze
+  }, [isLoggingOut]);
 
   const login = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });

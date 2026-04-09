@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from "next/navigation";
 import { supabase } from '../../lib/supabaseClient';
 import toast from "react-hot-toast";
@@ -20,6 +20,8 @@ import {
   X,
   MailOpen
 } from 'lucide-react';
+
+
 
 // ============================================
 // MODALE EMAIL NON CONFERMATA
@@ -142,6 +144,46 @@ const LoginPage = () => {
   
   const [errors, setErrors] = useState({});
   const [successMessage, setSuccessMessage] = useState('');
+// ✅ In LoginPage, aggiungi questo useEffect
+useEffect(() => {
+  // ✅ Azzera l'utente corrente quando sei sulla pagina di login
+  // così il prossimo SIGNED_IN viene sempre accettato
+  if (typeof window !== 'undefined') {
+    window.__loginPageActive = true;
+    window.__currentLoginUserId = null; // ✅ segnala che non c'è utente attivo
+  }
+
+  return () => {
+    if (typeof window !== 'undefined') {
+      window.__loginPageActive = false;
+      window.__currentLoginUserId = null;
+    }
+  };
+}, []);
+// ✅ Aggiungi in LoginPage nel useEffect esistente
+useEffect(() => {
+  // ✅ Resetta currentUserId quando sei sulla pagina di login
+  // Questo permette al prossimo SIGNED_IN di essere accettato
+  
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'visible') {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFocus = () => {
+    setIsLoading(false);
+  };
+
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  window.addEventListener('focus', handleFocus);
+
+  return () => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('focus', handleFocus);
+  };
+}, []);
+
 
   // Gestione input
   const handleInputChange = (e) => {
@@ -221,23 +263,54 @@ const LoginPage = () => {
       
       setShowEmailNotConfirmed(false); // Chiudi il modale
       
-    } catch (error) {
-      console.error('❌ Errore reinvio email:', error);
-      toast.error('Errore durante l\'invio dell\'email. Riprova più tardi.');
-    } finally {
-      setIsResending(false);
-    }
+   // ✅ Sostituisci il finally con questo
+} catch (error) {
+  console.error('❌ Errore catch finale:', error);
+  const errorMessage = error.message || 'Errore sconosciuto';
+
+  if (errorMessage.includes('already registered')) {
+    setErrors({ email: 'Questa email è già registrata' });
+    toast.error('Email già registrata. Prova ad accedere.');
+  } else if (errorMessage.includes('Invalid login credentials')) {
+    setErrors({ general: 'Email o password non corretti' });
+    toast.error('Credenziali non valide');
+  } else if (errorMessage.includes('pending') || errorMessage.includes('attesa')) {
+    setErrors({ general: errorMessage });
+    toast.error('Account in attesa di approvazione');
+  } else if (errorMessage.includes('rejected') || errorMessage.includes('rifiutato')) {
+    setErrors({ general: errorMessage });
+    toast.error('Account rifiutato');
+  } else if (errorMessage.includes('inactive') || errorMessage.includes('disattivato')) {
+    setErrors({ general: errorMessage });
+    toast.error('Account disattivato');
+  } else {
+    setErrors({ general: errorMessage });
+    toast.error(errorMessage);
+  }
+  
+  // ✅ Resetta loading solo in caso di errore
+  setIsLoading(false);
+  
+} finally {
+  // ✅ NON resettare loading qui - lo fa il setTimeout o il catch
+  // setIsLoading(false); // ❌ RIMUOVI questa riga
+}
   };
 
   // Submit
   const handleSubmit = async (e) => {
     e.preventDefault();
-  
     if (!validateForm()) return;
-  
+    
     setIsLoading(true);
     setErrors({});
     setSuccessMessage('');
+  
+    // ✅ AGGIUNGI QUESTE DUE RIGHE - azzera il flag prima del login
+    if (typeof window !== 'undefined') {
+      window.__currentLoginUserId = null;
+      window.__loginPageActive = false; // ✅ disabilita temporaneamente il blocco
+    }
   
     try {
       const cleanEmail = formData.email.trim().toLowerCase();
@@ -400,10 +473,17 @@ console.log('🚀 Preparazione redirect...', {
 setTimeout(() => {
   console.log('🚀 Eseguo redirect ora!');
   
-  // 🔥 Redirect unificato a /dashboard per tutti
-  router.push('/dashboard');
+  if (typeof window !== 'undefined') {
+    window.__loginPageActive = false;
+    window.__currentLoginUserId = null;
+  }
+
+  setIsLoading(false);
   
-  console.log('✅ router.push() chiamato');
+  // ✅ Usa window.location invece di router.push
+  window.location.href = '/dashboard';
+  
+  console.log('✅ Redirect chiamato');
 }, 1000);
 
 console.log('⏰ setTimeout impostato, attendo 1 secondo...');
