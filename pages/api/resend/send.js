@@ -1,4 +1,3 @@
-// pages/api/resend/send.js
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -6,12 +5,52 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// ✅ Inietta pixel apertura e traccia i link
+const injectTracking = (html, campaignId, recipientEmail) => {
+  if (!campaignId || !html) { // <--- Aggiungi parentesi
+    console.log('⚠️ injectTracking: campaignId o html mancante', { campaignId });
+    return html;
+  }
+
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || '';
+
+  console.log('✅ Tracking iniettato:', { 
+    campaignId, 
+    recipientEmail, 
+    baseUrl 
+  });
+  
+  const encodedEmail = encodeURIComponent(recipientEmail);
+
+  // ✅ Pixel apertura 1x1
+  const trackingPixel = `<img src="${baseUrl}/api/track/open?campaign_id=${campaignId}&recipient=${encodedEmail}" width="1" height="1" style="display:none;border:0;" alt="" />`;
+
+  // ✅ Riscrivi i link per tracciare i click
+  let trackedHtml = html.replace(
+    /href="(https?:\/\/[^"]+)"/g,
+    (match, url) => {
+      if (url.includes('/api/track') || url.includes('unsubscribe')) return match;
+      const encodedUrl = encodeURIComponent(url);
+      return `href="${baseUrl}/api/track/click?campaign_id=${campaignId}&recipient=${encodedEmail}&url=${encodedUrl}"`;
+    }
+  );
+
+  // ✅ Aggiungi pixel prima di </body> o alla fine
+  if (trackedHtml.includes('</body>')) {
+    trackedHtml = trackedHtml.replace('</body>', `${trackingPixel}</body>`);
+  } else {
+    trackedHtml += trackingPixel;
+  }
+
+  return trackedHtml;
+};
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ success: false, message: "Method not allowed" });
   }
 
-  const { apiKey, user_id, from, to, subject, html, cc, bcc, attachments } = req.body;
+  const { apiKey, user_id, from, to, subject, html, cc, bcc, attachments, campaign_id } = req.body;
 
   if (!apiKey || !from || !to || !subject || !html) {
     return res.status(400).json({
@@ -21,6 +60,13 @@ export default async function handler(req, res) {
   }
 
   try {
+    const recipients = Array.isArray(to) ? to : [to];
+
+    // ✅ Inietta tracking per ogni destinatario
+    // Per invio bulk usa il primo destinatario come riferimento
+    const recipientForTracking = recipients.length === 1 ? recipients[0] : 'bulk';
+    const trackedHtml = injectTracking(html, campaign_id, recipientForTracking);
+
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -29,9 +75,9 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         from,
-        to: Array.isArray(to) ? to : [to],
+        to: recipients,
         subject,
-        html,
+        html: trackedHtml, // ✅ usa HTML con tracking
         cc: cc || [],
         bcc: bcc || [],
         attachments: attachments || [],
@@ -49,78 +95,12 @@ export default async function handler(req, res) {
       });
     }
 
-    // ✅ Salva nel database se user_id è presente
-    if (user_id) {
-      try {
-        console.log('💾 Salvataggio dati nel database...');
-        console.log('  - user_id:', user_id);
-        console.log('  - recipients:', to);
-
-        // Salva in campaigns
-        const { data: campaignData, error: campaignError } = await supabase
-          .from("campaigns")
-          .insert([
-            {
-              user_id: user_id,
-              name: subject,
-              subject,
-              html_content: html,
-              sender_email: from,
-              recipients: Array.isArray(to) ? to : [to],
-              cc: cc || [],
-              bcc: bcc || [],
-              status: "sent",
-              sent_at: new Date().toISOString(),
-              sent_count: Array.isArray(to) ? to.length : 1,
-              failed_count: 0,
-            },
-          ])
-          .select();
-
-        if (campaignError) {
-          console.error("⚠️ Errore salvataggio campaign:", campaignError);
-        } else {
-          console.log("✅ Campaign salvata:", campaignData);
-
-          if (campaignData && campaignData.length > 0) {
-            const campaignId = campaignData[0].id;
-
-            // Salva in email_logs
-            const { error: logError } = await supabase
-              .from("email_logs")
-              .insert([
-                {
-                  user_id: user_id,
-                  campaign_id: campaignId,
-                  subject: subject,
-                  sent_at: new Date().toISOString(),
-                  status: "sent",
-                  opened_count: 0,
-                  total_recipients: Array.isArray(to) ? to.length : 1,
-                  recipients: Array.isArray(to) ? to : [to],
-                  cc: cc || [],
-                  bcc: bcc || [],
-                  failed_recipients: null,
-                },
-              ]);
-
-            if (logError) {
-              console.error("⚠️ Errore salvataggio log:", logError);
-            } else {
-              console.log("✅ Log salvato in email_logs");
-            }
-          }
-        }
-      } catch (dbErr) {
-        console.error("⚠️ Errore database:", dbErr);
-      }
-    }
-
     return res.status(200).json({
       success: true,
       data,
-      sent: Array.isArray(to) ? to.length : 1,
+      sent: recipients.length,
     });
+
   } catch (error) {
     console.error("❌ Errore send Resend:", error);
     return res.status(500).json({

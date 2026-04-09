@@ -1,30 +1,42 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
 export const useCampaigns = () => {
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const loadingTimeout = useRef(null); // ✅ timeout di sicurezza
 
   // ✅ Carica tutte le campagne dell'utente
   const loadCampaigns = async () => {
     try {
       setLoading(true);
   
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (loadingTimeout.current) clearTimeout(loadingTimeout.current);
+      loadingTimeout.current = setTimeout(() => {
+        console.warn('⚠️ loadCampaigns timeout - forzato stop loading');
+        setLoading(false);
+      }, 10000);
+  
+      // ✅ Usa getSession invece di getUser
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
-      if (userError) throw userError;
-      if (!user) throw new Error('Utente non autenticato');
+      if (sessionError || !session?.user) {
+        console.log('⚠️ Sessione non disponibile, riprovo tra 2s...');
+        clearTimeout(loadingTimeout.current);
+        setLoading(false);
+        setTimeout(() => loadCampaigns(), 2000);
+        return;
+      }
   
       const { data, error } = await supabase
         .from('campaigns')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', session.user.id) // ✅ session.user.id
         .order('created_at', { ascending: false });
   
       if (error) throw error;
   
-      // ✅ DEBUG: Vedi i dati RAW dal database
       console.log('📦 RAW DATA FROM DATABASE:', data);
       console.log('📋 First campaign raw:', data?.[0]);
       console.log('📋 Status from DB:', data?.[0]?.status);
@@ -35,6 +47,7 @@ export const useCampaigns = () => {
       console.error('❌ Errore nel caricamento campagne:', error);
       return { success: false, error: error.message };
     } finally {
+      clearTimeout(loadingTimeout.current);
       setLoading(false);
     }
   };
@@ -43,6 +56,7 @@ export const useCampaigns = () => {
   useEffect(() => {
     loadCampaigns();
   }, []);
+
 
   // 💾 Salva campagna (crea o aggiorna)
   const saveCampaign = async (campaignData, isDraft = true) => {

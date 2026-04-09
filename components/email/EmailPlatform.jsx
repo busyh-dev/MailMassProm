@@ -23,6 +23,9 @@ import AddTagModal from "../modals/AddTagModal";
 import { useUserSettings } from '../../hooks/useUserSettings';
 import { useTags } from "../../hooks/useTags";
 import Papa from "papaparse";
+  // ✅ Aggiungi in cima al componente Dashboard
+  import * as XLSX from 'xlsx';
+  import { saveAs } from 'file-saver';
 // In cima al file EmailPlatform.jsx
 import { usePermissions } from '../../src/contexts/PermissionsContext';
 // import { Can } from '../components/Can';
@@ -71,6 +74,7 @@ import {
   ChevronUp,
   Upload,
   UserCheck,
+  CalendarClock, // ✅ AGGIUNGI
   Search,
   Copy,
   Briefcase,
@@ -199,7 +203,7 @@ function App() {
 //   <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
 //     {loading ? (
 //       <p className="text-gray-500">Caricamento campagne…</p>
-//     ) : campaigns.length > 0 ? (
+//     ) : (campaigns || []).length > 0 ? (
 //       campaigns.map((campaign) => {
 //         const recipients = Array.isArray(campaign.recipients)
 //           ? campaign.recipients.length
@@ -823,6 +827,17 @@ const useAnimatedUnmount = (isMounted, delay = 250) => {
 };
 
 const EmailPlatform = () => {
+  // ✅ useCampaigns QUI - con nomi diversi per evitare conflitti
+  const {
+    campaigns,
+    loading: campaignsLoading,
+    loadCampaigns,
+    deleteCampaign,
+    saveCampaign: saveCampaignHook,
+    updateCampaignAfterSend,
+    getCampaign,
+  } = useCampaigns();
+  console.log('📦 campaigns in EmailPlatform:', campaigns?.length, campaigns);
    // 1. Inizializzazione dello stato dell'editor (recuperato dal localStorage)
    const [editorState, setEditorState] = useState({});
    useEffect(() => {
@@ -832,7 +847,8 @@ const EmailPlatform = () => {
     }
   }, []);
 
-  // 2. Effetto per salvare e recuperare lo stato dell'editor
+
+    // 2. Effetto per salvare e recuperare lo stato dell'editor
   useEffect(() => {
     // Salva lo stato ogni volta che cambia
     if (editorState) {
@@ -855,18 +871,68 @@ const EmailPlatform = () => {
     loading: permissionsLoading  // 👈 Rinominato
   } = usePermissions();
 
-
+  const [contacts, setContacts] = useState([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
   const [registerMessage, setRegisterMessage] = useState(null);
+  const [emailLogs, setEmailLogs] = useState([]);
+const [emailLogsLoading, setEmailLogsLoading] = useState(false);
+
+const loadEmailLogs = useCallback(async () => {
+  if (!user?.id) return;
+  setEmailLogsLoading(true);
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const { data, error } = await supabase
+      .from("campaign_logs")
+      .select(`
+        id, campaign_id, user_id, recipient_email, status, sent_at,
+        campaigns (
+          campaign_name, subject, total_recipients,
+          opened_count, sent_count, campaign_mode
+        )
+      `)
+      .eq("user_id", session.user.id)
+      .not('campaigns', 'is', null)
+      .order("sent_at", { ascending: false });
+
+    if (error) throw error;
+    setEmailLogs(data || []);
+  } catch (err) {
+    if (err.message?.includes('Auth session missing')) return;
+    console.error("❌ Errore:", err);
+  } finally {
+    setEmailLogsLoading(false);
+  }
+}, [user?.id]);
+
+useEffect(() => {
+  if (!user?.id) return;
+  loadEmailLogs();
+}, [user?.id]);
 // Aggiungi questo state se non ce l'hai già
 const [currentUser, setCurrentUser] = useState(null);
   // ========================================
   // 2️⃣ STATI
   // ========================================
+  // ✅ In EmailPlatform - aggiungi questi stati
+const [tags, setTags] = useState([]);
+const [tagLabels, setTagLabels] = useState([]);
+const [sectors, setSectors] = useState([]);
+const [channels, setChannels] = useState([]);
+const [roles, setRoles] = useState([]);
+const [areas, setAreas] = useState([]);
+const [tipologiaCanale, setTipologiaCanale] = useState([]);
+const [periodicitaCanale, setPeriodicitaCanale] = useState([]);
+const [coperturaCanale, setCoperturaCanale] = useState([]);
+const [testate, setTestate] = useState([]);
+const [contactLabels, setContactLabels] = useState([]);
   const [rejectedUsers, setRejectedUsers] = useState([]);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-   const [campaigns, setCampaigns] = useState([]);
+  
   const queueCount = useQueueCount();
   const [selectedCampaign, setSelectedCampaign] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -897,21 +963,15 @@ const [testateLoading, setTestateLoading] = useState(false);
 const [showTipologiaCanaleModal, setShowTipologiaCanaleModal] = useState(false);
 const [showPeriodicitaCanaleModal, setShowPeriodicitaCanaleModal] = useState(false);
 const [showCoperturaCanaleModal, setShowCoperturaCanaleModal] = useState(false);
-const [tipologiaCanale, setTipologiaCanale] = useState([]);
-const [periodicitaCanale, setPeriodicitaCanale] = useState([]);
-const [coperturaCanale, setCoperturaCanale] = useState([]);
-const [areas, setAreas] = useState([]);
 const [showAreasModal, setShowAreasModal] = useState(false);
   // Aggiungi questo stato all'inizio del componente
 const [selectedLogForModal, setSelectedLogForModal] = useState(null);
-const [emailLogs, setEmailLogs] = useState([]);
 const [profileLoaded, setProfileLoaded] = useState(false);
 const [showApproveModal, setShowApproveModal] = useState(false);
 const [userToApprove, setUserToApprove] = useState(null);
-const [testate, setTestate] = useState([]); // ✅ Aggiungi questo
 const [showAddTestataModal, setShowAddTestataModal] = useState(false);
 // const [editingContact, setEditingContact] = useState(null);
-const [tagLabels, setTagLabels] = useState([]);
+
 const [showTagLabelsModal, setShowTagLabelsModal] = useState(false);
 const [selectedTagForLabels, setSelectedTagForLabels] = useState(null);
 // State
@@ -932,11 +992,6 @@ const [userToReject, setUserToReject] = useState(null);
 const [showSectorsModal, setShowSectorsModal] = useState(false);
 const [showChannelsModal, setShowChannelsModal] = useState(false);
 const [showRolesModal, setShowRolesModal] = useState(false);
-const [sectors, setSectors] = useState([]);
-const [channels, setChannels] = useState([]);
-const [roles, setRoles] = useState([]);
-const [tags, setTags] = useState([]);
-const [contactLabels, setContactLabels] = useState([]);
 const [showContactLabelsModal, setShowContactLabelsModal] = useState(false);
 const contact_labels = window.contact_labels || [];
   // logsFromDb = risultato della query supabase su email_logs
@@ -958,6 +1013,46 @@ const logs = uniqueByCampaign.map(log => ({
   opened: log.opened_count,
   status: "sent"
 }));
+
+const fetchContacts = useCallback(async () => {
+  if (!user?.id) return;
+  setContactsLoading(true);
+  try {
+    let allData = [];
+    let page = 0;
+    const pageSize = 1000;
+    
+    while (true) {
+      const { data, error } = await supabase
+        .from('contacts_full')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true })
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allData = [...allData, ...data];
+      if (data.length < pageSize) break;
+      page++;
+    }
+
+    setContacts(allData.map(c => ({
+      ...c,
+      name: c.name?.replace(/\bnan\b/gi, '').trim() || c.name
+    })));
+  } catch (error) {
+    console.error('💥 Errore contatti:', error);
+  } finally {
+    setContactsLoading(false);
+  }
+}, [user?.id]);
+
+// ✅ Carica contatti al mount
+useEffect(() => {
+  if (!user?.id) return;
+  fetchContacts();
+}, [user?.id]);
 
 // Lista prefissi internazionali - mettila FUORI dal componente
 const PHONE_PREFIXES = [
@@ -1769,31 +1864,10 @@ for (const log of logsFromDb) {
 }
 
 useEffect(() => {
-  const loadCampaigns = async () => {
-    try {
-      setLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return; // ✅ Esci silenziosamente al logout
-      
-      const { data, error } = await supabase
-        .from('campaigns')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .order('created_at', { ascending: false });
-  
-      if (error) throw error;
-      setCampaigns(data || []);
-      return { success: true, data };
-    } catch (error) {
-      if (error.message?.includes('Auth session missing')) return;
-      console.error('❌ Errore caricamento campagne:', error);
-      return { success: false, error: error.message };
-    } finally {
-      setLoading(false);
-    }
-  };
+  // ❌ RIMUOVI tutto il blocco loadCampaigns
+  // const loadCampaigns = async () => { ... };
 
-  // ✅ Aggiungi loadEmailLogs
+  // ✅ TIENI solo loadEmailLogs
   const loadEmailLogs = async () => {
     try {
       console.log('📧 Caricamento email_logs...');
@@ -1808,18 +1882,17 @@ useEffect(() => {
       if (error) throw error;
 
       console.log('✅ Email logs caricati:', data?.length);
-      console.log('📋 Email logs data:', data);
-      
       setEmailLogs(data || []);
     } catch (error) {
       console.error('❌ Errore caricamento email_logs:', error);
-      setEmailLogs([]); // Fallback vuoto
+      setEmailLogs([]);
     }
   };
 
   if (user?.id) {
-    loadCampaigns();
-    loadEmailLogs(); // ✅ Carica anche i log
+    // ❌ RIMUOVI questa riga
+    // loadCampaigns();
+    loadEmailLogs(); // ✅ TIENI questa
   }
 }, [user?.id]);
 // E usa emailLogs nel widget
@@ -1849,7 +1922,7 @@ const latestLogsForWidget = useMemo(() => {
   }
   
   // ✅ Fallback su campaigns se emailLogs è vuoto
-  if (campaigns && campaigns.length > 0) {
+  if (campaigns && (campaigns || []).length > 0) {
     console.log('📋 Uso campaigns per il widget');
     const sentCampaigns = campaigns.filter(c => c.status === 'sent' && c.sent_at);
     
@@ -1966,6 +2039,7 @@ if (!accountData) {
         html: campaignToSend.email_content,
         attachments: campaignToSend.attachments || [],
         smtp: accountData.smtp,
+        campaign_id: campaignToSend.id, // ✅ AGGIUNGI
       };
 
       const response = await fetch("/api/send-campaign", {
@@ -1984,6 +2058,8 @@ if (!accountData) {
     // ✅ INVIO RESEND
     if (accountData.provider === "resend") {
       const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
+      // ✅ Prima di inviare, inietta il tracking
+
       
       const payload = {
         apiKey: resendApiKey,
@@ -1995,6 +2071,7 @@ if (!accountData) {
         subject: campaignToSend.subject,
         html: campaignToSend.email_content,
         attachments: campaignToSend.attachments || [],
+        campaign_id: campaignToSend.id, // ✅ AGGIUNGI
       };
 
       const response = await fetch("/api/resend/send", {
@@ -2173,6 +2250,7 @@ const confirmSend = async () => {
         html: content,
         attachments: [],
         smtp: accountObj.smtp,
+        campaign_id: campaignToSend.id, // ✅ AGGIUNGI
       };
 
       const response = await fetch("/api/send-campaign", {
@@ -2190,7 +2268,7 @@ const confirmSend = async () => {
     // ✅ RESEND
     } else if (accountObj.provider === "resend") {
       console.log('📤 Invio via Resend...');
-
+      
       const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
       if (!resendApiKey) throw new Error("API key Resend mancante");
 
@@ -2203,7 +2281,8 @@ const confirmSend = async () => {
         bcc: emailBcc,
         subject: emailSubject,
         html: content,
-        attachments: [],
+         attachments: [],
+        campaign_id: campaignToSend.id, // ✅ AGGIUNGI
       };
 
       const response = await fetch("/api/resend/send", {
@@ -2254,7 +2333,7 @@ const handleDuplicateCampaign = async (campaign) => {
     const recipients = Array.isArray(campaign.recipient_list)
       ? campaign.recipient_list
       : [];
-
+      
     const payload = {
       campaignName: `${campaign.campaign_name || campaign.name} (Copia)`,
       subject: campaign.subject || "",
@@ -2268,6 +2347,8 @@ const handleDuplicateCampaign = async (campaign) => {
       trackingEnabled: campaign.tracking_enabled !== false,
       openTracking: campaign.open_tracking !== false,
       clickTracking: campaign.click_tracking !== false,
+      
+      campaign_id: campaignToSend.id, // ✅ AGGIUNGI
     };
 
     const res = await saveCampaign(payload, true); // true = BOZZA
@@ -2340,7 +2421,7 @@ useEffect(() => {
   const [unreadNotifications, setUnreadNotifications] = useState(3); // esempio
    const [showAllNotificationsModal, setShowAllNotificationsModal] = useState(false);
   const [filter, setFilter] = useState('tutte');  
-  const [contacts, setContacts] = useState([]);
+  // const [contacts, setContacts] = useState([]);
 
 
   const [selected, setSelected] = useState([]); // id delle selezionate
@@ -2417,38 +2498,7 @@ const exportResendLog = (format = "csv", autoDownload = false) => {
     return csv;
   }
 };
-const fetchContacts = async () => {
-  if (!user?.id) return;
-  try {
-    let allData = [];
-    let page = 0;
-    const pageSize = 1000;
-    
-    while (true) {
-      const { data, error } = await supabase
-        .from('contacts_full')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .range(page * pageSize, (page + 1) * pageSize - 1);
 
-      if (error) throw error;
-      if (!data || data.length === 0) break;
-      allData = [...allData, ...data];
-      if (data.length < pageSize) break;
-      page++;
-    }
-
-    const cleaned = allData.map(c => ({
-      ...c,
-      name: c.name?.replace(/\bnan\b/gi, '').trim() || c.name
-    }));
-
-    setContacts(cleaned);
-  } catch (error) {
-    console.error('💥 Errore:', error);
-  }
-};
 
   useEffect(() => {
     if (contacts.length !== lastContactsLength) {
@@ -2756,8 +2806,8 @@ const [contactToDeactivate, setContactToDeactivate] = useState(null);
     
     
     const getUserInitials = (name) => {
-    if (!name) return 'MM';
-    return name.split(' ').map(word => word[0]).join('').toUpperCase().slice(0, 2);
+      if (!name) return '??';
+      return name.split(' ').map(word => word[0]).join('').toUpperCase().slice(0, 2);
     };
     
     
@@ -2813,39 +2863,7 @@ useEffect(() => {
   // Carica dati mock solo lato client per evitare errori hydration
   useEffect(() => {
     setIsClient(true);
-
-    // Carica dati mock delle campagne
-    setCampaigns([
-      {
-        id: 1,
-        name: 'Newsletter Gennaio 2025',
-        subject: 'Le novità del mese',
-        status: 'sent',
-        recipients: 1250,
-        opened: 520,
-        clicked: 89,
-        created: '2025-01-15',
-        sent: '2025-01-16'
-      },
-      {
-        id: 2,
-        name: 'Promozione Primavera',
-        subject: 'Sconti fino al 50%',
-        status: 'draft',
-        recipients: 0,
-        opened: 0,
-        clicked: 0,
-        created: '2025-01-18',
-        sent: null
-      }
-    ]);
-
-    // Carica dati mock dei contatti
-    setContacts([
-      { id: 1, email: 'mario.rossi@email.com', name: 'Mario Rossi', status: 'active', tags: ['cliente', 'premium'] },
-      { id: 2, email: 'giulia.verdi@email.com', name: 'Giulia Verdi', status: 'active', tags: ['prospect'] },
-      { id: 3, email: 'luca.bianchi@email.com', name: 'Luca Bianchi', status: 'unsubscribed', tags: ['ex-cliente'] }
-    ]);
+   
   }, []);
 
 
@@ -2904,593 +2922,670 @@ useEffect(() => {
 // =======================
 // 📊 DASHBOARD AVANZATA
 // =======================
-const Dashboard = ({ setActiveTab }) => {
-  const [campaigns, setCampaigns] = useState([]);
-  const [contacts, setContacts] = useState([]);
-  const [loading, setLoading] = useState(true);
+const Dashboard = ({ setActiveTab, campaigns: campaignsProp, contacts: contactsProp }) => {
 
-  useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-  
-      try {
-        // ✅ Verifica sessione
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-  
-        // Campagne e contatti in parallelo
-        const [campaignsResult] = await Promise.all([
-          supabase
-            .from("campaigns")
-            .select("*")
-            .eq('user_id', session.user.id)
-            .order("sent_at", { ascending: false }),
-        ]);
-  
-        // ✅ Contatti con paginazione
-        let allContacts = [];
-        let page = 0;
-        const pageSize = 1000;
-  
-        while (true) {
-          const { data, error } = await supabase
-            .from("contacts")
-            .select("*")
-            .eq('user_id', session.user.id)
-            .range(page * pageSize, (page + 1) * pageSize - 1);
-  
-          if (error) { console.error("Errore contatti:", error); break; }
-          if (!data || data.length === 0) break;
-          allContacts = [...allContacts, ...data];
-          if (data.length < pageSize) break;
-          page++;
-        }
-  
-        setCampaigns(campaignsResult.data || []);
-        setContacts(allContacts);
-  
-      } catch (err) {
-        // ✅ Ignora errori di sessione al logout
-        if (err.message?.includes('Auth session missing')) return;
-        console.error("Errore loadData dashboard:", err);
-      } finally {
-        setLoading(false); // ✅ Sempre eseguito
-      }
-    };
-  
-    loadData();
-  }, []);
-  // =========================
-  // 🔢 METRICHE PRINCIPALI
-  // =========================
+  const [campaigns, setCampaigns] = useState(campaignsProp || []);
+  const [contacts, setContacts] = useState(contactsProp || []);
+
+  useEffect(() => { if (campaignsProp) setCampaigns(campaignsProp); }, [campaignsProp]);
+  useEffect(() => { if (contactsProp) setContacts(contactsProp); }, [contactsProp]);
+
   const totalCampaigns = campaigns.length;
-  // console.log("📇 contacts:", contacts);
-  const activeContacts = contacts.filter(
-    c => c.status?.trim().toLowerCase() === "active"
-  ).length;
-  
+  const activeContacts = contacts.filter(c => c.status?.trim().toLowerCase() === "active").length;
+  const totalEmailsSent = campaigns.reduce((sum, c) => sum + (c.sent_count || c.total_recipients || 0), 0);
+  const totalOpened = campaigns.reduce((sum, c) => sum + (c.opened_count || 0), 0);
+  const totalClicked = campaigns.reduce((sum, c) => sum + (c.clicked_count || 0), 0);
+  const totalBounced = campaigns.reduce((sum, c) => sum + (c.bounced_count || 0), 0);
+  const avgOpenRate = totalEmailsSent > 0 ? (totalOpened / totalEmailsSent) * 100 : 0;
+  const avgClickRate = totalEmailsSent > 0 ? (totalClicked / totalEmailsSent) * 100 : 0;
+  const bounceRate = totalEmailsSent > 0 ? (totalBounced / totalEmailsSent) * 100 : 0;
 
-  const totalEmailsSent = campaigns.reduce(
-    (sum, c) => sum + (c.sent_count || c.total_recipients || 0),
-    0
-  );
-
-  const totalOpened = campaigns.reduce(
-    (sum, c) => sum + (c.opened_count || 0),
-    0
-  );
-
-  const totalClicked = campaigns.reduce(
-    (sum, c) => sum + (c.clicked_count || 0),
-    0
-  );
-
-  const totalBounced = campaigns.reduce(
-    (sum, c) => sum + (c.bounced_count || 0),
-    0
-  );
-
-  const avgOpenRate =
-    totalEmailsSent > 0 ? (totalOpened / totalEmailsSent) * 100 : 0;
-  const avgClickRate =
-    totalEmailsSent > 0 ? (totalClicked / totalEmailsSent) * 100 : 0;
-  const bounceRate =
-    totalEmailsSent > 0 ? (totalBounced / totalEmailsSent) * 100 : 0;
-
-  // =========================
-  // 📆 AGGREGAZIONI TEMPORALI
-  // =========================
-
-  // Helper formattazione "2025-01" → "Gen 2025"
   const formatMonthLabel = (key) => {
     const [y, m] = key.split("-");
-    const date = new Date(Number(y), Number(m) - 1, 1);
-    return date.toLocaleDateString("it-IT", {
-      month: "short",
-      year: "2-digit",
-    });
+    return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("it-IT", { month: "short", year: "2-digit" });
   };
 
-  // 🔹 Aggregazione per mese
   const monthlyData = useMemo(() => {
     const map = {};
-
     campaigns.forEach((c) => {
       const dateRaw = c.sent_at || c.created_at;
       if (!dateRaw) return;
       const d = new Date(dateRaw);
       if (isNaN(d.getTime())) return;
-
-      const key = `${d.getFullYear()}-${String(
-        d.getMonth() + 1
-      ).padStart(2, "0")}`;
-
-      if (!map[key]) {
-        map[key] = {
-          key,
-          sent: 0,
-          opened: 0,
-          clicked: 0,
-          bounced: 0,
-        };
-      }
-
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      if (!map[key]) map[key] = { key, sent: 0, opened: 0, clicked: 0, bounced: 0 };
       map[key].sent += c.sent_count || c.total_recipients || 0;
       map[key].opened += c.opened_count || 0;
       map[key].clicked += c.clicked_count || 0;
       map[key].bounced += c.bounced_count || 0;
     });
-
-    return Object.values(map)
-      .sort((a, b) => (a.key > b.key ? 1 : -1))
-      .map((m) => ({
-        month: formatMonthLabel(m.key),
-        invii: m.sent,
-        aperture: m.opened,
-        openRate:
-          m.sent > 0 ? Number(((m.opened / m.sent) * 100).toFixed(1)) : 0,
-        ctr:
-          m.sent > 0 ? Number(((m.clicked / m.sent) * 100).toFixed(1)) : 0,
-        bounce:
-          m.sent > 0 ? Number(((m.bounced / m.sent) * 100).toFixed(1)) : 0,
-      }));
-  }, [campaigns]);
-
-  // 🔹 Aggregazione per giorno della settimana
-  const weeklyData = useMemo(() => {
-    const base = [
-      { dow: 0, label: "Lun", sent: 0, opened: 0 },
-      { dow: 1, label: "Mar", sent: 0, opened: 0 },
-      { dow: 2, label: "Mer", sent: 0, opened: 0 },
-      { dow: 3, label: "Gio", sent: 0, opened: 0 },
-      { dow: 4, label: "Ven", sent: 0, opened: 0 },
-      { dow: 5, label: "Sab", sent: 0, opened: 0 },
-      { dow: 6, label: "Dom", sent: 0, opened: 0 },
-    ];
-
-    campaigns.forEach((c) => {
-      const dateRaw = c.sent_at || c.created_at;
-      if (!dateRaw) return;
-      const d = new Date(dateRaw);
-      if (isNaN(d.getTime())) return;
-
-      // JS: 0=Dom...6=Sab → convertiamo a 0=Lun...6=Dom
-      const jsDay = d.getDay(); // 0-6
-      const mappedIndex = (jsDay + 6) % 7; // Dom (0) → 6, Lun (1) → 0
-
-      base[mappedIndex].sent += c.sent_count || c.total_recipients || 0;
-      base[mappedIndex].opened += c.opened_count || 0;
-    });
-
-    return base.map((d) => ({
-      day: d.label,
-      invii: d.sent,
-      openRate:
-        d.sent > 0 ? Number(((d.opened / d.sent) * 100).toFixed(1)) : 0,
+    return Object.values(map).sort((a, b) => a.key > b.key ? 1 : -1).map((m) => ({
+      month: formatMonthLabel(m.key),
+      invii: m.sent,
+      aperture: m.opened,
+      openRate: m.sent > 0 ? Number(((m.opened / m.sent) * 100).toFixed(1)) : 0,
+      ctr: m.sent > 0 ? Number(((m.clicked / m.sent) * 100).toFixed(1)) : 0,
     }));
   }, [campaigns]);
 
-  // 🔹 Open rate per campagna (top/bottom)
-  const campaignsWithRates = useMemo(() => {
-    return campaigns.map((c) => {
+  const weeklyData = useMemo(() => {
+    const base = [
+      { label: "Lun", sent: 0, opened: 0 },
+      { label: "Mar", sent: 0, opened: 0 },
+      { label: "Mer", sent: 0, opened: 0 },
+      { label: "Gio", sent: 0, opened: 0 },
+      { label: "Ven", sent: 0, opened: 0 },
+      { label: "Sab", sent: 0, opened: 0 },
+      { label: "Dom", sent: 0, opened: 0 },
+    ];
+    campaigns.forEach((c) => {
+      const d = new Date(c.sent_at || c.created_at);
+      if (isNaN(d.getTime())) return;
+      const idx = (d.getDay() + 6) % 7;
+      base[idx].sent += c.sent_count || c.total_recipients || 0;
+      base[idx].opened += c.opened_count || 0;
+    });
+    return base.map((d) => ({
+      day: d.label,
+      invii: d.sent,
+      openRate: d.sent > 0 ? Number(((d.opened / d.sent) * 100).toFixed(1)) : 0,
+    }));
+  }, [campaigns]);
+
+  const campaignsWithRates = useMemo(() => campaigns.map((c) => {
+    const sent = c.sent_count || c.total_recipients || 0;
+    const opened = c.opened_count || 0;
+    const clicked = c.clicked_count || 0;
+    return {
+      id: c.id,
+      name: c.campaign_name || c.subject || "Senza nome",
+      status: c.status,
+      sent,
+      opened,
+      openRate: sent > 0 ? Number(((opened / sent) * 100).toFixed(1)) : 0,
+      ctr: sent > 0 ? Number(((clicked / sent) * 100).toFixed(1)) : 0,
+      date: c.sent_at || c.created_at,
+    };
+  }), [campaigns]);
+
+  const topCampaigns = useMemo(() => [...campaignsWithRates].filter(c => c.sent > 0).sort((a, b) => b.openRate - a.openRate).slice(0, 5), [campaignsWithRates]);
+  const worstCampaigns = useMemo(() => [...campaignsWithRates].filter(c => c.sent > 0).sort((a, b) => a.openRate - b.openRate).slice(0, 5), [campaignsWithRates]);
+
+  const sentCampaigns = campaigns.filter(c => c.status === 'sent').length;
+  const draftCampaigns = campaigns.filter(c => c.status === 'draft').length;
+
+  // ✅ Funzione export Excel - aggiungi dentro Dashboard prima del return
+const exportToExcel = () => {
+  const wb = XLSX.utils.book_new();
+
+  // ===== FOGLIO 1: RIEPILOGO =====
+  const summaryData = [
+    ['📊 REPORT CAMPAGNE EMAIL', '', '', ''],
+    ['Generato il:', new Date().toLocaleString('it-IT'), '', ''],
+    ['', '', '', ''],
+    ['METRICHE PRINCIPALI', '', '', ''],
+    ['Campagne Totali', totalCampaigns, '', ''],
+    ['Campagne Inviate', sentCampaigns, '', ''],
+    ['Bozze', draftCampaigns, '', ''],
+    ['Contatti Attivi', activeContacts, '', ''],
+    ['Email Inviate', totalEmailsSent, '', ''],
+    ['Aperture Totali', totalOpened, '', ''],
+    ['Click Totali', totalClicked, '', ''],
+    ['Open Rate Medio', `${avgOpenRate.toFixed(1)}%`, '', ''],
+    ['Click Rate Medio', `${avgClickRate.toFixed(1)}%`, '', ''],
+    ['Bounce Rate', `${bounceRate.toFixed(1)}%`, '', ''],
+  ];
+
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+  wsSummary['!cols'] = [{ wch: 25 }, { wch: 20 }, { wch: 20 }, { wch: 20 }];
+  XLSX.utils.book_append_sheet(wb, wsSummary, '📊 Riepilogo');
+
+  // ===== FOGLIO 2: CAMPAGNE =====
+  const campaignRows = [
+    ['#', 'Nome Campagna', 'Oggetto', 'Stato', 'Destinatari', 'Inviati', 'Aperture', 'Open Rate %', 'Click', 'CTR %', 'Bounce', 'Data Invio'],
+    ...campaigns.map((c, i) => {
       const sent = c.sent_count || c.total_recipients || 0;
       const opened = c.opened_count || 0;
       const clicked = c.clicked_count || 0;
-
-      const openRate = sent > 0 ? (opened / sent) * 100 : 0;
-      const ctr = sent > 0 ? (clicked / sent) * 100 : 0;
-
-      return {
-        id: c.id,
-        name: c.campaign_name || c.subject || "Senza nome",
-        status: c.status,
+      const bounced = c.bounced_count || 0;
+      return [
+        i + 1,
+        c.campaign_name || '—',
+        c.subject || '—',
+        c.status === 'sent' ? 'Inviata' : c.status === 'draft' ? 'Bozza' : 'Programmata',
+        c.total_recipients || 0,
         sent,
         opened,
-        openRate: Number(openRate.toFixed(1)),
-        ctr: Number(ctr.toFixed(1)),
-        date: c.sent_at || c.created_at,
-      };
-    });
-  }, [campaigns]);
+        sent > 0 ? Number(((opened / sent) * 100).toFixed(1)) : 0,
+        clicked,
+        sent > 0 ? Number(((clicked / sent) * 100).toFixed(1)) : 0,
+        bounced,
+        c.sent_at ? new Date(c.sent_at).toLocaleString('it-IT') : '—',
+      ];
+    }),
+  ];
 
-  const topCampaigns = useMemo(
-    () =>
-      [...campaignsWithRates]
-        .filter((c) => c.sent > 0)
-        .sort((a, b) => b.openRate - a.openRate)
-        .slice(0, 5),
-    [campaignsWithRates]
-  );
+  const wsCampaigns = XLSX.utils.aoa_to_sheet(campaignRows);
+  wsCampaigns['!cols'] = [
+    { wch: 5 }, { wch: 30 }, { wch: 30 }, { wch: 12 },
+    { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 14 },
+    { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 20 },
+  ];
+  XLSX.utils.book_append_sheet(wb, wsCampaigns, '📧 Campagne');
 
-  const worstCampaigns = useMemo(
-    () =>
-      [...campaignsWithRates]
-        .filter((c) => c.sent > 0)
-        .sort((a, b) => a.openRate - b.openRate)
-        .slice(0, 5),
-    [campaignsWithRates]
-  );
+  // ===== FOGLIO 3: ANDAMENTO MENSILE =====
+  const monthlyRows = [
+    ['Mese', 'Email Inviate', 'Aperture', 'Open Rate %', 'CTR %'],
+    ...monthlyData.map(m => [m.month, m.invii, m.aperture, m.openRate, m.ctr]),
+  ];
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
-        <div className="relative">
-          <div className="w-16 h-16 border-4 border-blue-100 rounded-full"></div>
-          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin absolute inset-0"></div>
+  const wsMonthly = XLSX.utils.aoa_to_sheet(monthlyRows);
+  wsMonthly['!cols'] = [{ wch: 12 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, wsMonthly, '📅 Andamento Mensile');
+
+  // ===== FOGLIO 4: DISTRIBUZIONE SETTIMANALE =====
+  const weeklyRows = [
+    ['Giorno', 'Email Inviate', 'Open Rate %'],
+    ...weeklyData.map(d => [d.day, d.invii, d.openRate]),
+  ];
+
+  const wsWeekly = XLSX.utils.aoa_to_sheet(weeklyRows);
+  wsWeekly['!cols'] = [{ wch: 12 }, { wch: 16 }, { wch: 14 }];
+  XLSX.utils.book_append_sheet(wb, wsWeekly, '📆 Distribuzione Settimanale');
+
+  // ===== FOGLIO 5: TOP CAMPAGNE =====
+  const topRows = [
+    ['#', 'Campagna', 'Email Inviate', 'Aperture', 'Open Rate %', 'CTR %'],
+    ...topCampaigns.map((c, i) => [i + 1, c.name, c.sent, c.opened, c.openRate, c.ctr]),
+  ];
+  const wsTop = XLSX.utils.aoa_to_sheet(topRows);
+  wsTop['!cols'] = [{ wch: 5 }, { wch: 35 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, wsTop, '🏆 Top Campagne');
+
+  // ===== FOGLIO 6: CAMPAGNE BASSE PERFORMANCE =====
+  const worstRows = [
+    ['#', 'Campagna', 'Email Inviate', 'Aperture', 'Open Rate %', 'CTR %'],
+    ...worstCampaigns.map((c, i) => [i + 1, c.name, c.sent, c.opened, c.openRate, c.ctr]),
+  ];
+  const wsWorst = XLSX.utils.aoa_to_sheet(worstRows);
+  wsWorst['!cols'] = [{ wch: 5 }, { wch: 35 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, wsWorst, '📉 Basse Performance');
+
+  // ===== SALVA FILE =====
+  const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  saveAs(blob, `report_campagne_${new Date().toISOString().split('T')[0]}.xlsx`);
+};
+
+// ✅ Funzione stampa PDF
+const printReport = () => {
+  const printWindow = window.open('', '_blank');
+  const now = new Date().toLocaleString('it-IT');
+
+  printWindow.document.write(`
+    <html>
+    <head>
+      <title>Report Campagne Email - ${now}</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1f2937; font-size: 12px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; padding-bottom: 16px; border-bottom: 3px solid #2563eb; }
+        .header h1 { font-size: 22px; font-weight: 700; color: #1e3a8a; }
+        .header .meta { font-size: 11px; color: #6b7280; text-align: right; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 32px; }
+        .kpi { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; text-align: center; }
+        .kpi .value { font-size: 24px; font-weight: 700; color: #2563eb; }
+        .kpi .label { font-size: 10px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
+        .kpi .sub { font-size: 10px; color: #6b7280; margin-top: 2px; }
+        .section { margin-bottom: 28px; }
+        .section h2 { font-size: 14px; font-weight: 600; color: #1e3a8a; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid #e2e8f0; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        thead tr { background: #1e3a8a; }
+        thead th { color: white; padding: 8px 12px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+        tbody tr { border-bottom: 1px solid #f3f4f6; }
+        tbody tr:nth-child(even) { background: #f8fafc; }
+        tbody td { padding: 8px 12px; font-size: 11px; color: #374151; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 600; }
+        .badge-sent { background: #dcfce7; color: #166534; }
+        .badge-draft { background: #fef9c3; color: #854d0e; }
+        .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+        .metric { background: #f8fafc; border-radius: 6px; padding: 12px; text-align: center; }
+        .metric .mv { font-size: 18px; font-weight: 700; color: #374151; }
+        .metric .ml { font-size: 10px; color: #9ca3af; }
+        .footer { margin-top: 32px; text-align: center; font-size: 10px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 16px; }
+        @media print { body { padding: 20px; } @page { margin: 1.5cm; } }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div>
+          <h1>📧 Report Campagne Email</h1>
+          <p style="margin-top:4px; color:#6b7280;">Report completo delle performance email</p>
         </div>
-        <div className="text-center">
-          <p className="text-gray-700 font-semibold text-lg">Caricamento in corso</p>
-          <p className="text-gray-400 text-sm mt-1">Stiamo preparando la tua dashboard...</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
-
-      {/* ====== STATISTICHE PRINCIPALI ====== */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        {/* Campagne Totali */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center">
-            <div className="p-3 rounded-full bg-blue-100 text-blue-600">
-              <Mail className="w-6 h-6" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm text-gray-600">Campagne Totali</p>
-              <p className="text-2xl font-bold">{totalCampaigns}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Contatti attivi */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center">
-            <div className="p-3 rounded-full bg-green-100 text-green-600">
-              <Users className="w-6 h-6" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm text-gray-600">Contatti Attivi</p>
-              <p className="text-2xl font-bold">{activeContacts}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Email inviate */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center">
-            <div className="p-3 rounded-full bg-orange-100 text-orange-600">
-              <Send className="w-6 h-6" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm text-gray-600">Email Inviate</p>
-              <p className="text-2xl font-bold">
-                {totalEmailsSent.toLocaleString("it-IT")}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Open rate medio */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center">
-            <div className="p-3 rounded-full bg-purple-100 text-purple-600">
-              <BarChart3 className="w-6 h-6" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm text-gray-600">Tasso Apertura Medio</p>
-              <p className="text-2xl font-bold">
-                {avgOpenRate ? avgOpenRate.toFixed(1) + "%" : "-"}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ====== ENGAGEMENT OVERVIEW + GRAFICO MENSILE ====== */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Engagement Overview */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border space-y-4">
-          <h3 className="text-lg font-semibold text-gray-900">
-            Engagement Overview
-          </h3>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-xs text-gray-500">Open Rate Medio</p>
-              <p className="text-xl font-bold text-gray-900">
-                {avgOpenRate.toFixed(1)}%
-              </p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-xs text-gray-500">Click Rate Medio</p>
-              <p className="text-xl font-bold text-gray-900">
-                {avgClickRate.toFixed(1)}%
-              </p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-xs text-gray-500">Bounce Rate</p>
-              <p className="text-xl font-bold text-gray-900">
-                {bounceRate.toFixed(1)}%
-              </p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-xs text-gray-500">Tot. Click</p>
-              <p className="text-xl font-bold text-gray-900">
-                {totalClicked.toLocaleString("it-IT")}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Invii per mese */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border lg:col-span-2">
-          <h3 className="text-lg font-semibold mb-4 text-gray-900">
-            Invii & Open Rate per mese
-          </h3>
-
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={monthlyData}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="month" />
-              <YAxis yAxisId="left" />
-              <YAxis
-                yAxisId="right"
-                orientation="right"
-                tickFormatter={(v) => `${v}%`}
-              />
-              <Tooltip />
-              <Legend />
-              <Bar
-                yAxisId="left"
-                dataKey="invii"
-                name="Invii"
-                radius={[6, 6, 0, 0]}
-              />
-              <Line
-                yAxisId="right"
-                type="monotone"
-                dataKey="openRate"
-                name="Open Rate %"
-                dot={false}
-              />
-            </BarChart>
-          </ResponsiveContainer>
+        <div class="meta">
+          <div><strong>Data:</strong> ${now}</div>
+          <div><strong>Campagne:</strong> ${totalCampaigns}</div>
+          <div><strong>Periodo:</strong> Tutti i dati disponibili</div>
         </div>
       </div>
 
-      {/* ====== INVII PER GIORNO DELLA SETTIMANA ====== */}
-      <div className="bg-white p-6 rounded-lg shadow-sm border">
-        <h3 className="text-lg font-semibold mb-4 text-gray-900">
-          Invii & Open Rate per giorno della settimana
-        </h3>
-
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={weeklyData}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="day" />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            <Bar dataKey="invii" name="Invii" radius={[6, 6, 0, 0]} />
-            <Line
-              type="monotone"
-              dataKey="openRate"
-              name="Open Rate %"
-              dot={false}
-            />
-          </BarChart>
-        </ResponsiveContainer>
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="value">${totalCampaigns}</div>
+          <div class="label">Campagne Totali</div>
+          <div class="sub">${sentCampaigns} inviate · ${draftCampaigns} bozze</div>
+        </div>
+        <div class="kpi">
+          <div class="value">${activeContacts.toLocaleString('it-IT')}</div>
+          <div class="label">Contatti Attivi</div>
+          <div class="sub">su ${contacts.length.toLocaleString('it-IT')} totali</div>
+        </div>
+        <div class="kpi">
+          <div class="value">${totalEmailsSent.toLocaleString('it-IT')}</div>
+          <div class="label">Email Inviate</div>
+          <div class="sub">${totalOpened.toLocaleString('it-IT')} aperte</div>
+        </div>
+        <div class="kpi">
+          <div class="value">${avgOpenRate.toFixed(1)}%</div>
+          <div class="label">Open Rate Medio</div>
+          <div class="sub">CTR: ${avgClickRate.toFixed(1)}%</div>
+        </div>
       </div>
 
-      {/* ====== CAMPAGNE RECENTI (TOP 4) ====== */}
-      <div className="bg-white rounded-lg shadow-sm border">
-        <div className="p-6 border-b flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">
-            Campagne Recenti
-          </h3>
-
-          <button
-            onClick={() => setActiveTab("campaigns-list")}
-            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-          >
-            Vedi tutte →
-          </button>
+      <div class="section">
+        <h2>📊 Engagement Overview</h2>
+        <div class="metrics-grid">
+          <div class="metric"><div class="mv">${avgOpenRate.toFixed(1)}%</div><div class="ml">Open Rate Medio</div></div>
+          <div class="metric"><div class="mv">${avgClickRate.toFixed(1)}%</div><div class="ml">Click Rate Medio</div></div>
+          <div class="metric"><div class="mv">${bounceRate.toFixed(1)}%</div><div class="ml">Bounce Rate</div></div>
+          <div class="metric"><div class="mv">${totalOpened.toLocaleString('it-IT')}</div><div class="ml">Aperture Totali</div></div>
+          <div class="metric"><div class="mv">${totalClicked.toLocaleString('it-IT')}</div><div class="ml">Click Totali</div></div>
+          <div class="metric"><div class="mv">${totalBounced.toLocaleString('it-IT')}</div><div class="ml">Bounce Totali</div></div>
         </div>
+      </div>
 
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+      <div class="section">
+        <h2>📧 Elenco Campagne</h2>
+        <table>
+          <thead>
             <tr>
-              <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase tracking-wider">
-                Campagna
-              </th>
-              <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase tracking-wider">
-                Stato
-              </th>
-              <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase tracking-wider">
-                Destinatari
-              </th>
-              <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase tracking-wider">
-                Aperture
-              </th>
-              <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase tracking-wider">
-                Data
-              </th>
+              <th>#</th><th>Nome Campagna</th><th>Stato</th>
+              <th>Destinatari</th><th>Aperture</th><th>Open Rate</th><th>CTR</th><th>Data Invio</th>
             </tr>
           </thead>
-
-          <tbody className="bg-white divide-y divide-gray-200">
-            {campaigns
-              .slice()
-              .sort(
-                (a, b) =>
-                  new Date(b.sent_at || b.created_at) -
-                  new Date(a.sent_at || a.created_at)
-              )
-              .slice(0, 4)
-              .map((c) => {
-                const date = c.sent_at || c.created_at;
-                const formattedDate = date
-                  ? new Date(date).toLocaleString("it-IT", {
-                      day: "2-digit",
-                      month: "short",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })
-                  : "-";
-
-                const sent = c.sent_count || c.total_recipients || 0;
-                const opened = c.opened_count || 0;
-                const openRate =
-                  sent > 0
-                    ? `${Math.round((opened / sent) * 100)}%`
-                    : "-";
-
-                return (
-                  <tr key={c.id}>
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-900">
-                        {c.campaign_name || c.subject || "Senza nome"}
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        {c.subject}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span
-                        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                          c.status === "sent"
-                            ? "bg-green-100 text-green-800"
-                            : "bg-yellow-100 text-yellow-800"
-                        }`}
-                      >
-                        {c.status === "sent" ? "Inviata" : "Bozza"}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {sent}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {openRate}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">
-                      {formattedDate}
-                    </td>
-                  </tr>
-                );
-              })}
+          <tbody>
+            ${campaigns.slice().sort((a, b) => new Date(b.sent_at || b.created_at) - new Date(a.sent_at || a.created_at)).map((c, i) => {
+              const sent = c.sent_count || c.total_recipients || 0;
+              const opened = c.opened_count || 0;
+              const clicked = c.clicked_count || 0;
+              const openRate = sent > 0 ? Math.round((opened / sent) * 100) : 0;
+              const ctr = sent > 0 ? Math.round((clicked / sent) * 100) : 0;
+              return `
+                <tr>
+                  <td style="color:#9ca3af">${i + 1}</td>
+                  <td><strong>${c.campaign_name || '—'}</strong><br><span style="color:#6b7280;font-size:10px">${c.subject || ''}</span></td>
+                  <td><span class="badge ${c.status === 'sent' ? 'badge-sent' : 'badge-draft'}">${c.status === 'sent' ? 'Inviata' : 'Bozza'}</span></td>
+                  <td>${(c.total_recipients || 0).toLocaleString('it-IT')}</td>
+                  <td>${opened.toLocaleString('it-IT')}</td>
+                  <td><strong>${sent > 0 ? openRate + '%' : '—'}</strong></td>
+                  <td>${sent > 0 ? ctr + '%' : '—'}</td>
+                  <td style="color:#6b7280;font-size:10px">${c.sent_at ? new Date(c.sent_at).toLocaleString('it-IT') : '—'}</td>
+                </tr>
+              `;
+            }).join('')}
           </tbody>
         </table>
       </div>
 
-      {/* ====== TOP / WORST CAMPAGNE ====== */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Top 5 */}
-        <div className="bg-white rounded-lg shadow-sm border">
-          <div className="p-6 border-b">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Top 5 Campagne (per open rate)
-            </h3>
-          </div>
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+      <div class="section">
+        <h2>🏆 Top 5 Campagne per Open Rate</h2>
+        <table>
+          <thead><tr><th>#</th><th>Campagna</th><th>Inviati</th><th>Aperture</th><th>Open Rate</th><th>CTR</th></tr></thead>
+          <tbody>
+            ${topCampaigns.map((c, i) => `
               <tr>
-                <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">
-                  Campagna
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">
-                  Open Rate
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">
-                  CTR
-                </th>
+                <td>${i + 1}</td>
+                <td><strong>${c.name}</strong></td>
+                <td>${c.sent.toLocaleString('it-IT')}</td>
+                <td>${c.opened.toLocaleString('it-IT')}</td>
+                <td><strong style="color:#16a34a">${c.openRate.toFixed(1)}%</strong></td>
+                <td>${c.ctr.toFixed(1)}%</td>
               </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {topCampaigns.map((c) => (
-                <tr key={c.id}>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {c.name}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {c.openRate.toFixed(1)}%
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {c.ctr.toFixed(1)}%
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <h2>📅 Andamento Mensile</h2>
+        <table>
+          <thead><tr><th>Mese</th><th>Email Inviate</th><th>Aperture</th><th>Open Rate %</th><th>CTR %</th></tr></thead>
+          <tbody>
+            ${monthlyData.map(m => `
+              <tr>
+                <td><strong>${m.month}</strong></td>
+                <td>${m.invii.toLocaleString('it-IT')}</td>
+                <td>${m.aperture.toLocaleString('it-IT')}</td>
+                <td>${m.openRate}%</td>
+                <td>${m.ctr}%</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="footer">
+        Report generato da MailMassProm · ${now} · Documento riservato ad uso interno
+      </div>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.focus();
+  setTimeout(() => printWindow.print(), 500);
+};
+
+  return (
+    <div className="space-y-6">
+     {/* ===== HEADER ===== */}
+<div className="flex items-center justify-between flex-wrap gap-3">
+  <div>
+    <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
+    <p className="text-sm text-gray-500 mt-1">
+      Panoramica delle tue campagne email · {new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+    </p>
+  </div>
+  <div className="flex items-center gap-2 flex-wrap">
+    {/* Export Excel */}
+    <button
+      onClick={exportToExcel}
+      className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+    >
+      <Download className="w-4 h-4" />
+      Esporta Excel
+    </button>
+
+    {/* Stampa/PDF */}
+    <button
+      onClick={printReport}
+      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+    >
+      <FileText className="w-4 h-4" />
+      Stampa/PDF
+    </button>
+
+    {/* Nuova Campagna */}
+    <button
+      onClick={() => setActiveTab('campaigns')}
+      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+    >
+      <Mail className="w-4 h-4" />
+      Nuova Campagna
+    </button>
+  </div>
+</div>
+      {/* ===== KPI PRINCIPALI ===== */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          {
+            title: "Campagne Totali",
+            value: totalCampaigns,
+            sub: `${sentCampaigns} inviate · ${draftCampaigns} bozze`,
+            icon: <Mail className="w-5 h-5" />,
+            color: "from-blue-500 to-blue-600",
+            bg: "bg-blue-50",
+            text: "text-blue-600",
+          },
+          {
+            title: "Contatti Attivi",
+            value: activeContacts.toLocaleString('it-IT'),
+            sub: `su ${contacts.length.toLocaleString('it-IT')} totali`,
+            icon: <Users className="w-5 h-5" />,
+            color: "from-emerald-500 to-emerald-600",
+            bg: "bg-emerald-50",
+            text: "text-emerald-600",
+          },
+          {
+            title: "Email Inviate",
+            value: totalEmailsSent.toLocaleString('it-IT'),
+            sub: `${totalOpened.toLocaleString('it-IT')} aperte`,
+            icon: <Send className="w-5 h-5" />,
+            color: "from-orange-500 to-orange-600",
+            bg: "bg-orange-50",
+            text: "text-orange-600",
+          },
+          {
+            title: "Open Rate Medio",
+            value: avgOpenRate > 0 ? `${avgOpenRate.toFixed(1)}%` : "—",
+            sub: `CTR: ${avgClickRate.toFixed(1)}%`,
+            icon: <BarChart3 className="w-5 h-5" />,
+            color: "from-purple-500 to-purple-600",
+            bg: "bg-purple-50",
+            text: "text-purple-600",
+          },
+        ].map((item) => (
+          <div key={item.title} className="bg-white rounded-xl border shadow-sm hover:shadow-md transition p-5">
+            <div className="flex items-start justify-between mb-3">
+              <div className={`p-2 rounded-lg ${item.bg}`}>
+                <span className={item.text}>{item.icon}</span>
+              </div>
+              <span className={`text-xs font-medium px-2 py-1 rounded-full ${item.bg} ${item.text}`}>
+                {item.title}
+              </span>
+            </div>
+            <p className="text-2xl font-bold text-gray-900">{item.value}</p>
+            <p className="text-xs text-gray-400 mt-1">{item.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* ===== ENGAGEMENT + GRAFICO MENSILE ===== */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        {/* Engagement Overview */}
+        <div className="bg-white rounded-xl border shadow-sm p-6">
+          <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-blue-600" />
+            Panoramica di coinvolgimento
+          </h3>
+          <div className="space-y-4">
+            {[
+              { label: "Open Rate Medio", value: avgOpenRate, color: "bg-blue-500", max: 100 },
+              { label: "Click Rate Medio", value: avgClickRate, color: "bg-emerald-500", max: 100 },
+              { label: "Bounce Rate", value: bounceRate, color: "bg-red-400", max: 100 },
+            ].map((item) => (
+              <div key={item.label}>
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <span>{item.label}</span>
+                  <span className="font-semibold text-gray-700">{item.value.toFixed(1)}%</span>
+                </div>
+                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className={`h-2 rounded-full ${item.color} transition-all duration-500`}
+                    style={{ width: `${Math.min(item.value, 100)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <div className="bg-gray-50 rounded-lg p-3 text-center">
+                <p className="text-xs text-gray-500">Tot. Aperture</p>
+                <p className="text-lg font-bold text-gray-900">{totalOpened.toLocaleString('it-IT')}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3 text-center">
+                <p className="text-xs text-gray-500">Tot. Click</p>
+                <p className="text-lg font-bold text-gray-900">{totalClicked.toLocaleString('it-IT')}</p>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Peggiori 5 */}
-        <div className="bg-white rounded-lg shadow-sm border">
-          <div className="p-6 border-b">
-            <h3 className="text-lg font-semibold text-gray-900">
-              5 Campagne con performance più basse
-            </h3>
-          </div>
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">
-                  Campagna
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">
-                  Open Rate
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase">
-                  CTR
-                </th>
+        {/* Grafico Mensile */}
+        <div className="bg-white rounded-xl border shadow-sm p-6 lg:col-span-2">
+          <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-blue-600" />
+            Invii & Open Rate per mese
+          </h3>
+          {monthlyData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={monthlyData} barSize={28}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                <XAxis dataKey="month" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                <YAxis yAxisId="left" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                <YAxis yAxisId="right" orientation="right" tickFormatter={(v) => `${v}%`} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                <Legend wrapperStyle={{ fontSize: '12px' }} />
+                <Bar yAxisId="left" dataKey="invii" name="Invii" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                <Line yAxisId="right" type="monotone" dataKey="openRate" name="Open Rate %" stroke="#10b981" strokeWidth={2} dot={false} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-40 text-gray-400">
+              <BarChart3 className="w-10 h-10 mb-2 opacity-30" />
+              <p className="text-sm">Nessun dato disponibile</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ===== GRAFICO SETTIMANALE ===== */}
+      <div className="bg-white rounded-xl border shadow-sm p-6">
+        <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <CalendarClock className="w-4 h-4 text-blue-600" />
+          Distribuzione invii per giorno della settimana
+        </h3>
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={weeklyData} barSize={32}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+            <XAxis dataKey="day" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+            <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+            <Legend wrapperStyle={{ fontSize: '12px' }} />
+            <Bar dataKey="invii" name="Invii" fill="#6366f1" radius={[4, 4, 0, 0]} />
+            <Line type="monotone" dataKey="openRate" name="Open Rate %" stroke="#f59e0b" strokeWidth={2} dot={false} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* ===== CAMPAGNE RECENTI ===== */}
+      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b flex items-center justify-between bg-gray-50">
+          <h3 className="text-base font-semibold text-gray-900">Campagne Recenti</h3>
+          <button onClick={() => setActiveTab("campaigns")} className="text-sm text-blue-600 hover:text-blue-800 font-medium transition">
+            Vedi tutte →
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-100">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Campagna</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Stato</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Destinatari</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Open Rate</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Data</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {worstCampaigns.map((c) => (
-                <tr key={c.id}>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {c.name}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {c.openRate.toFixed(1)}%
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {c.ctr.toFixed(1)}%
+            <tbody className="divide-y divide-gray-50">
+              {campaigns.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-10 text-center text-gray-400 text-sm">
+                    Nessuna campagna disponibile
                   </td>
                 </tr>
-              ))}
+              ) : (
+                campaigns
+                  .slice().sort((a, b) => new Date(b.sent_at || b.created_at) - new Date(a.sent_at || a.created_at))
+                  .slice(0, 5)
+                  .map((c) => {
+                    const sent = c.sent_count || c.total_recipients || 0;
+                    const opened = c.opened_count || 0;
+                    const openRate = sent > 0 ? Math.round((opened / sent) * 100) : 0;
+                    const date = c.sent_at || c.created_at;
+
+                    return (
+                      <tr key={c.id} className="hover:bg-gray-50 transition">
+                        <td className="px-6 py-4">
+                          <div className="text-sm font-medium text-gray-900 truncate max-w-[200px]">
+                            {c.campaign_name || c.subject || "Senza nome"}
+                          </div>
+                          <div className="text-xs text-gray-400 truncate">{c.subject}</div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full ${
+                            c.status === "sent" ? "bg-green-100 text-green-700" :
+                            c.status === "scheduled" ? "bg-blue-100 text-blue-700" :
+                            "bg-yellow-100 text-yellow-700"
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              c.status === "sent" ? "bg-green-500" :
+                              c.status === "scheduled" ? "bg-blue-500" : "bg-yellow-500"
+                            }`} />
+                            {c.status === "sent" ? "Inviata" : c.status === "scheduled" ? "Programmata" : "Bozza"}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-700">{sent.toLocaleString('it-IT')}</td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className={`h-1.5 rounded-full ${openRate >= 50 ? 'bg-green-500' : openRate >= 20 ? 'bg-yellow-500' : 'bg-red-400'}`}
+                                style={{ width: `${openRate}%` }}
+                              />
+                            </div>
+                            <span className="text-sm font-medium text-gray-700">{sent > 0 ? `${openRate}%` : '—'}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-xs text-gray-500">
+                          {date ? new Date(date).toLocaleString("it-IT", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })
+              )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* ===== TOP / WORST CAMPAGNE ===== */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {[
+          { title: "🏆 Top 5 Campagne", data: topCampaigns, colorClass: "text-green-600 bg-green-50" },
+          { title: "📉 Campagne con performance più basse", data: worstCampaigns, colorClass: "text-red-600 bg-red-50" },
+        ].map(({ title, data, colorClass }) => (
+          <div key={title} className="bg-white rounded-xl border shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b bg-gray-50">
+              <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {data.length === 0 ? (
+                <div className="px-6 py-8 text-center text-gray-400 text-sm">Nessun dato disponibile</div>
+              ) : (
+                data.map((c, i) => (
+                  <div key={c.id} className="px-6 py-3 flex items-center gap-4 hover:bg-gray-50 transition">
+                    <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${colorClass}`}>
+                      {i + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{c.name}</p>
+                      <p className="text-xs text-gray-400">{c.sent.toLocaleString('it-IT')} inviati</p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-sm font-bold text-gray-900">{c.openRate.toFixed(1)}%</p>
+                      <p className="text-xs text-gray-400">CTR {c.ctr.toFixed(1)}%</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
     </div>
   );
 };
-
-
   // ----------------------- MODALE MODIFICA CAMPAGNA -----------------------
   const EditCampaignModal = ({ 
     campaign, 
@@ -4446,6 +4541,7 @@ useEffect(() => {
 
   const handleDuplicateCampaign = async (campaign) => {
     try {
+      
       const recipients = Array.isArray(campaign.recipient_list)
         ? campaign.recipient_list
         : [];
@@ -4463,6 +4559,8 @@ useEffect(() => {
         trackingEnabled: campaign.tracking_enabled !== false,
         openTracking: campaign.open_tracking !== false,
         clickTracking: campaign.click_tracking !== false,
+        
+        campaign_id: campaignToSend.id, // ✅ AGGIUNGI
       };
   
       const res = await saveCampaign(payload, true); // true = BOZZA
@@ -4855,26 +4953,28 @@ useEffect(() => {
 };
 
   // ----------------------- COMPONENTE CAMPAGNE (Supabase) -----------------------
-  const Campaigns = ({ setActiveTab, contacts, tagLabels = [] }) => {
-  const {
-    campaigns,
-    loading,
-    loadCampaigns,
-    deleteCampaign: deleteCampaignDB,
-    saveCampaign,
-    updateCampaignAfterSend,
-    getCampaign,
-  } = useCampaigns();
-
-  
+const Campaigns = ({ 
+  setActiveTab, 
+  contacts, 
+  tagLabels = [],
+  campaigns,           // ✅ DA PROPS
+  loading,             // ✅ DA PROPS
+  loadCampaigns,       // ✅ DA PROPS
+  deleteCampaignProp: deleteCampaignDB,
+  saveCampaignProp: saveCampaign,
+  updateCampaignAfterSendProp: updateCampaignAfterSend,
+  getCampaignProp: getCampaign,
+}) => {
+  const { user } = useAuth(); // ✅ AGGIUNGI QUESTA RIGA
   useEffect(() => {
     console.log('🎯 CAMPAIGNS IN COMPONENT:', campaigns);
-    if (campaigns.length > 0) {
+    if ((campaigns || []).length > 0) {
       console.log('🎯 First campaign:', campaigns[0]);
       console.log('🎯 First campaign status:', campaigns[0]?.status);
       console.log('🎯 Status type:', typeof campaigns[0]?.status);
     }
   }, [campaigns]);
+
   const [isFromBuilder, setIsFromBuilder] = useState(false);
   const [viewMode, setViewMode] = useState("grid"); // grid | list
   const [sortField, setSortField] = useState("sent_at");
@@ -4954,11 +5054,7 @@ const [recipients, setRecipients] = useState([]);
   const [toastMessage, setToastMessage] = useState("");
   
 
-  // 🔄 carica dal DB
-  useEffect(() => {
-    loadCampaigns();
-  }, []);
-
+ 
   // ↔️ Helpers di mapping (DB → UI fallback ai vecchi campi locali se esistessero)
   const getName = (c) => c.campaign_name ?? c.name ?? "Senza nome";
   const getRecipientsArray = (c) => Array.isArray(c.recipient_list) ? c.recipient_list : (c.recipients || []);
@@ -5040,7 +5136,7 @@ const [recipients, setRecipients] = useState([]);
       });
   
       const attachments = Array.isArray(selectedCampaign.attachments) ? selectedCampaign.attachments : [];
-  
+      
       // ✅ Carica account
       setSendingProgress(prev => ({ ...prev, message: 'Verifica account mittente...' }));
   
@@ -5089,6 +5185,7 @@ const [recipients, setRecipients] = useState([]);
           html: selectedCampaign.email_content || "<p></p>",
           attachments,
           smtp: accountObj.smtp,
+          campaign_id: selectedCampaign.id, // ✅ era campaignToSend.id
         };
   
         const response = await fetch("/api/send-campaign", {
@@ -5114,7 +5211,7 @@ const [recipients, setRecipients] = useState([]);
       } else if (accountObj.provider === "resend") {
         console.log('📤 Invio via Resend a:', recipients.length, 'destinatari');
         setSendingProgress(prev => ({ ...prev, message: 'Invio via Resend in corso...' }));
-  
+       
         const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
         if (!resendApiKey) throw new Error("API key Resend mancante");
   
@@ -5127,7 +5224,9 @@ const [recipients, setRecipients] = useState([]);
           bcc: Array.isArray(selectedCampaign.bcc) ? selectedCampaign.bcc : [],
           subject: selectedCampaign.subject || "",
           html: selectedCampaign.email_content || "<p></p>",
+          // html: trackedContent || "<p></p>", // ✅ usa trackedContent invece di emailContent
           attachments,
+          campaign_id: selectedCampaign.id, // ✅ era campaignToSend.id
         };
   
         const response = await fetch("/api/resend/send", {
@@ -5341,6 +5440,7 @@ if (recipients.length === 0) {
       // ✅ 3) SMTP/Brevo
       if (accountObj.provider === "brevo" || accountObj.smtp) {
         console.log('📤 Invio via SMTP a:', recipients.length, 'destinatari');
+       
         
         const payload = {
           user_id: user.id,
@@ -5350,8 +5450,10 @@ if (recipients.length === 0) {
           bcc: Array.isArray(campaignToResend.bcc) ? campaignToResend.bcc : [],
           subject: campaignToResend.subject || "",
           html: campaignToResend.email_content || campaignToResend.content || "<p></p>",
+         
           attachments: attachments,
           smtp: accountObj.smtp,
+          campaign_id: campaignToResend.id,
         };
   
         console.log('📦 Payload SMTP:', {
@@ -5397,7 +5499,7 @@ if (recipients.length === 0) {
         if (!resendApiKey) {
           throw new Error("API key Resend mancante");
         }
-        
+       
         const payload = {
           apiKey: resendApiKey,
           user_id: user.id,
@@ -5407,7 +5509,9 @@ if (recipients.length === 0) {
           bcc: Array.isArray(campaignToResend.bcc) ? campaignToResend.bcc : [],
           subject: campaignToResend.subject || "",
           html: campaignToResend.email_content || campaignToResend.content || "<p></p>",
+         
           attachments: attachments,
+          campaign_id: campaignToResend.id,
         };
   
         console.log('📦 Payload Resend:', {
@@ -5565,7 +5669,7 @@ setTimeout(() => {
       minute: "2-digit",
     });
   };
-  let filtered = campaigns;
+  let filtered = campaigns || [];
 
   // 🔍 ricerca live
   if (searchTerm) {
@@ -5616,6 +5720,8 @@ setTimeout(() => {
   };
   
   const getRecipientsCount = (campaign, contacts) => {
+    // ✅ Aggiungi controllo null
+  if (!campaign) return 0;
     // 🟢 Caso ALL
     if (
       campaign.recipient_list === "all" ||
@@ -5637,7 +5743,7 @@ setTimeout(() => {
   
     return 0;
   };
-  const recipientsCount = getRecipientsCount(campaigns, contacts);
+ 
   // 🔽 ordinamento
   filtered = filtered.sort((a, b) => {
     const x = a[sortField] || "";
@@ -5840,8 +5946,8 @@ setTimeout(() => {
         </div>
         <p className="text-gray-400 text-sm">Caricamento campagne...</p>
       </div>
-    ) : campaigns.length > 0 ? (
-      campaigns.map((campaign) => (
+    ) : (campaigns || []).length > 0 ? (
+      (campaigns || []).map((campaign) => (
         <div key={campaign.id} className="bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-lg transition-all duration-200 overflow-hidden group flex flex-col">
 
           {/* Barra colore status */}
@@ -9351,34 +9457,54 @@ const MultiSelectFilter = ({ label, options, selected, onChange, placeholder = '
   );
 };
 // ---------------- COMPONENTE CONTATTI ----------------
-const Contacts = () => {
+const Contacts = ({ 
+  contactsProp, 
+  contactsLoadingProp, 
+  fetchContactsProp,
+  tagsProp,
+  tagLabelsProp,
+  sectorsProp,
+  channelsProp,
+  rolesProp,
+  areasProp,
+  tipologiaCanaleProp,
+  periodicitaCanaleProp,
+  coperturaCanaleProp,
+  testateProp,
+  contactLabelsProp,
+}) => {
   const { user } = useAuth(); // 👈 importa dal contesto auth
-  const [contacts, setContacts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const hasLoadedRef = useRef(false);
+    // ✅ Usa props invece di stato locale
+
+  // const [contacts, setContacts] = useState([]);
+ 
   const [selectedTags, setSelectedTags] = useState([]);
   const [showTagFilter, setShowTagFilter] = useState(false);
-  const [availableTags, setAvailableTags] = useState([]);
-  const [hasNoTagFilter, setHasNoTagFilter] = useState(false);
+    const [hasNoTagFilter, setHasNoTagFilter] = useState(false);
   const [selectedContacts, setSelectedContacts] = useState([]);
   const [showViewModal, setShowViewModal] = useState(false);
   const [filterContactLabel, setFilterContactLabel] = useState(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [tags, setTags] = useState([]);
-const [tagLabels, setTagLabels] = useState([]);
-const [sectors, setSectors] = useState([]);
-const [channels, setChannels] = useState([]);
-const [roles, setRoles] = useState([]);
-const [areas, setAreas] = useState([]);
-const [tipologiaCanale, setTipologiaCanale] = useState([]);
-const [periodicitaCanale, setPeriodicitaCanale] = useState([]);
-const [coperturaCanale, setCoperturaCanale] = useState([]);
-const [testate, setTestate] = useState([]);
 const [showTagsModal, setShowTagsModal] = useState(false);
 const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
 const [contactToDeactivate, setContactToDeactivate] = useState(null);
-const [contactLabels, setContactLabels] = useState([]);
 const [showContactLabelsModal, setShowContactLabelsModal] = useState(false);
-  
+  // ✅ Inizializza da props
+  const [loading, setLoading] = useState(contactsLoadingProp || false);
+  const [tags, setTags] = useState(tagsProp || []);
+  const [tagLabels, setTagLabels] = useState(tagLabelsProp || []);
+  const [sectors, setSectors] = useState(sectorsProp || []);
+  const [channels, setChannels] = useState(channelsProp || []);
+  const [roles, setRoles] = useState(rolesProp || []);
+  const [areas, setAreas] = useState(areasProp || []);
+  const [tipologiaCanale, setTipologiaCanale] = useState(tipologiaCanaleProp || []);
+  const [periodicitaCanale, setPeriodicitaCanale] = useState(periodicitaCanaleProp || []);
+  const [coperturaCanale, setCoperturaCanale] = useState(coperturaCanaleProp || []);
+  const [testate, setTestate] = useState(testateProp || []);
+  const [contactLabels, setContactLabels] = useState(contactLabelsProp || []);
+  const [availableTags, setAvailableTags] = useState(tagsProp || []);
+
 // Filtri avanzati
 const [filterSectors, setFilterSectors] = useState([]);
 const [filterChannels, setFilterChannels] = useState([]);
@@ -9392,6 +9518,22 @@ const [filterContactLabels, setFilterContactLabels] = useState([]);
 const [filterTagLabels, setFilterTagLabels] = useState([]);
 const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
+  // ✅ Sincronizza quando le props cambiano
+  useEffect(() => { if (contactsProp) setContacts(contactsProp); }, [contactsProp]);
+  useEffect(() => { setLoading(contactsLoadingProp); }, [contactsLoadingProp]);
+  useEffect(() => { if (tagsProp?.length) { setTags(tagsProp); setAvailableTags(tagsProp); } }, [tagsProp]);
+  useEffect(() => { if (tagLabelsProp?.length) setTagLabels(tagLabelsProp); }, [tagLabelsProp]);
+  useEffect(() => { if (sectorsProp?.length) setSectors(sectorsProp); }, [sectorsProp]);
+  useEffect(() => { if (channelsProp?.length) setChannels(channelsProp); }, [channelsProp]);
+  useEffect(() => { if (rolesProp?.length) setRoles(rolesProp); }, [rolesProp]);
+  useEffect(() => { if (areasProp?.length) setAreas(areasProp); }, [areasProp]);
+  useEffect(() => { if (tipologiaCanaleProp?.length) setTipologiaCanale(tipologiaCanaleProp); }, [tipologiaCanaleProp]);
+  useEffect(() => { if (periodicitaCanaleProp?.length) setPeriodicitaCanale(periodicitaCanaleProp); }, [periodicitaCanaleProp]);
+  useEffect(() => { if (coperturaCanaleProp?.length) setCoperturaCanale(coperturaCanaleProp); }, [coperturaCanaleProp]);
+  useEffect(() => { if (testateProp?.length) setTestate(testateProp); }, [testateProp]);
+  useEffect(() => { if (contactLabelsProp?.length) setContactLabels(contactLabelsProp); }, [contactLabelsProp]);
+
+  const fetchContacts = fetchContactsProp || (() => {});
 
   // Aggiungi la funzione di eliminazione
 const handleDeleteSelected = async () => {
@@ -9411,128 +9553,18 @@ const handleDeleteSelected = async () => {
     toast.error('❌ Errore durante l\'eliminazione');
   }
 };
-const fetchContacts = async () => {
-  setLoading(true);
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
 
-    let allData = [];
-    let page = 0;
-    const pageSize = 1000;
-    
-    while (true) {
-      const { data, error } = await supabase
-        .from('contacts_full')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: true })
-        .range(page * pageSize, (page + 1) * pageSize - 1);
+  // ✅ Sincronizza quando le props cambiano
+  useEffect(() => {
+    if (contactsProp) setContacts(contactsProp);
+  }, [contactsProp]);
 
-      if (error) throw error;
-      if (!data || data.length === 0) break;
-      allData = [...allData, ...data];
-      if (data.length < pageSize) break;
-      page++;
-    }
+  useEffect(() => {
+    setLoading(contactsLoadingProp);
+  }, [contactsLoadingProp]);
 
-    const cleaned = allData.map(c => ({
-      ...c,
-      name: c.name?.replace(/\bnan\b/gi, '').trim() || c.name
-    }));
-
-    setContacts(cleaned);
-  } catch (error) {
-    console.error('💥 Errore:', error);
-    toast.error('Errore nel caricamento dei contatti');
-  } finally {
-    setLoading(false);
-  }
-};
-
-
-
-useEffect(() => {
-  const loadLookups = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const [
-        { data: tagsData },
-        { data: tagLabelsData },
-        { data: sectorsData },
-        { data: channelsData },
-        { data: rolesData },
-        { data: areasData },
-        { data: tipologiaData },
-        { data: periodicitaData },
-        { data: coperturaData },
-        { data: testateData },
-        { data: contactLabelsData },
-      ] = await Promise.all([
-        supabase.from('tags').select('*').eq('user_id', user.id).order('label'),
-        supabase.from('tag_labels').select('*, tags(id, label, value)').eq('user_id', user.id).order('label'),
-        supabase.from('sectors').select('*').order('name'),
-        supabase.from('channels').select('*').order('name'),       // ✅ no user_id
-        supabase.from('contact_roles').select('*').order('name'),          // ✅ no user_id
-        supabase.from('areas').select('*').eq('user_id', user.id).order('nome'),
-        supabase.from('tipologia_canale').select('*').eq('user_id', user.id).order('nome'),
-        supabase.from('periodicita_canale').select('*').eq('user_id', user.id).order('nome'),
-        supabase.from('copertura_canale').select('*').eq('user_id', user.id).order('nome'),
-        supabase.from('testate').select('*').eq('user_id', user.id).order('nome'),  // ✅ tabella corretta
-        supabase.from('contact_labels').select('*').eq('user_id', user.id).order('nome'),
-      ]);
-
-      setTags(tagsData || []);
-      setTagLabels(tagLabelsData || []);
-      setSectors(sectorsData || []);
-      setChannels(channelsData || []);
-      setRoles(rolesData || []);
-      setAreas(areasData || []);
-      setTipologiaCanale(tipologiaData || []);
-      setPeriodicitaCanale(periodicitaData || []);
-      setCoperturaCanale(coperturaData || []);
-      setTestate(testateData || []);
-      setContactLabels(contactLabelsData || []);
-    } catch (error) {
-      console.error('❌ Errore caricamento lookup:', error);
-    }
-  };
-
-  loadLookups();
-}, []);
   // Aggiungi questo useEffect per caricare i tag
-  useEffect(() => {
-    const fetchTags = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-  
-        const { data: tags, error } = await supabase
-          .from('tags')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('label', { ascending: true });
-  
-        if (error) {
-          console.error('Errore caricamento tag:', error);
-          return;
-        }
-  
-        console.log('✅ Tag caricati per filtro:', tags);
-        setAvailableTags(tags || []);
-      } catch (error) {
-        console.error('Errore:', error);
-      }
-    };
-  
-    fetchTags();
-  }, []);
-
-  useEffect(() => {
-    fetchContacts();
-  }, []);
+ 
   // 🖨️ Stampa lista contatti
 const printContactsList = () => {
   try {
@@ -14690,6 +14722,7 @@ const handleGoBack = () => {
         if (!resendApiKey) {
           throw new Error("API key Resend mancante");
         }
+        const trackedContent = injectTracking(emailContent, campaignId, recipients[i]);
   
         for (let i = 0; i < recipients.length; i++) {
           const payload = {
@@ -14697,9 +14730,11 @@ const handleGoBack = () => {
             to: [recipients[i]],
             subject,
             html: emailHTML,
+           
             cc: cc ? cc.split(",").map((e) => e.trim()).filter(Boolean) : [],
             bcc: bcc ? bcc.split(",").map((e) => e.trim()).filter(Boolean) : [],
             attachments: attachmentsData,
+            campaign_id: campaignToSend.id, // ✅ AGGIUNGI
           };
   
           try {
@@ -14752,6 +14787,7 @@ const payload = {
   html: emailContent || emailHTML || "", // ✅ Prova entrambi
   attachments: attachmentsData,
   smtp: selectedAccount?.smtp || {}, // ✅ Aggiungi fallback
+  campaign_id: campaignToSend.id, // ✅ AGGIUNGI
 };
   
           try {
@@ -15055,7 +15091,8 @@ const resolveRecipientEmails = (recipientList, contacts, tagLabels = []) => {
       }
   
       console.log('📧 Account completo:', accountObj);
-  
+   // ✅ CHECK DUPLICATO - DENTRO il try
+   const isDuplicate = await checkDuplicateCampaign(subject, emailContent, recipientList);
      
     if (isDuplicate) {
       setIsSending(false);
@@ -15151,6 +15188,7 @@ const proceedWithSend = async (accountObj) => {
     if (accountObj.provider === "resend") {
       const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
       if (!resendApiKey) throw new Error("API key Resend mancante");
+      
 
       for (let i = 0; i < recipients.length; i++) {
         const payload = {
@@ -15162,6 +15200,7 @@ const proceedWithSend = async (accountObj) => {
           cc: cc ? cc.split(",").map((e) => e.trim()).filter(Boolean) : [],
           bcc: bcc ? bcc.split(",").map((e) => e.trim()).filter(Boolean) : [],
           attachments: attachmentsData,
+          campaign_id: campaignId,
         };
 
         try {
@@ -15189,9 +15228,11 @@ const proceedWithSend = async (accountObj) => {
         cc: cc ? cc.split(",").map((e) => e.trim()).filter(Boolean) : [],
         bcc: bcc ? bcc.split(",").map((e) => e.trim()).filter(Boolean) : [],
         subject,
-        html: emailContent,
+        // html: emailContent,
+        html: trackedContent, // ✅ usa trackedContent invece di emailContent
         attachments: attachmentsData,
         smtp: accountObj.smtp,
+        campaign_id: campaignToSend.id, // ✅ AGGIUNGI
       };
 
       const response = await fetch("/api/resend/send", {
@@ -15588,6 +15629,7 @@ const handleSendTestEmail = async () => {
       to: [testEmailAddress],
       subject: campaignName || "Anteprima Template Email",
       html: finalHtml,
+      campaign_id: campaignToSend.id, // ✅ AGGIUNGI
     };
 
     const response = await fetch("https://api.resend.com/emails", {
@@ -23711,7 +23753,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
                   {/* Nome utente */}
                   <div className="hidden sm:block text-left">
                     <div className="text-sm font-medium text-gray-900">
-                      {currentUser?.full_name || 'Massimo'}
+                      {currentUser?.full_name}
                     </div>
                     <div className="text-xs text-gray-500">
                       {currentUser?.email}
@@ -24537,24 +24579,62 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
 <div className="flex-1">
 
   {activeTab === "dashboard" && (
-    <Dashboard setActiveTab={setActiveTab} />
-  )}
-
-  {activeTab === "campaigns" && (
-    <Campaigns
-      setActiveTab={setActiveTab}
-      contacts={contacts}
-      tagLabels={tagLabels}        // ✅ AGGIUNGI
+    <Dashboard 
+    key="dashboard" 
+    setActiveTab={setActiveTab} 
+    campaigns={campaigns}
+    loadCampaigns={loadCampaigns}
+    contacts={contacts}          // ✅ AGGIUNGI
     />
   )}
 
-  {activeTab === "campaigns-list" && (
-    <CampaignsList setActiveTab={setActiveTab} />
+  {activeTab === "campaigns" && (
+   <Campaigns
+   key="campaigns"
+   setActiveTab={setActiveTab}
+   contacts={contacts}
+   tagLabels={tagLabels}
+   campaigns={campaigns}
+   loading={campaignsLoading}
+   loadCampaigns={loadCampaigns}
+   deleteCampaignProp={deleteCampaign}
+   saveCampaignProp={saveCampaignHook}
+   updateCampaignAfterSendProp={updateCampaignAfterSend}
+   getCampaignProp={getCampaign}
+ />
   )}
 
-  {activeTab === "contacts" && <Contacts />}
-  {activeTab === "logs" && <EmailLogs />}
-  {activeTab === "settings" && <EmailSettings />}
+{activeTab === "campaigns-list" && (
+  <CampaignsList key="campaigns-list" setActiveTab={setActiveTab} />
+)}
+
+{activeTab === "contacts" && (
+  <Contacts
+    key="contacts"
+    contactsProp={contacts}
+    contactsLoadingProp={contactsLoading}
+    fetchContactsProp={fetchContacts}
+    tagsProp={tags}
+    tagLabelsProp={tagLabels}
+    sectorsProp={sectors}
+    channelsProp={channels}
+    rolesProp={roles}
+    areasProp={areas}
+    tipologiaCanaleProp={tipologiaCanale}
+    periodicitaCanaleProp={periodicitaCanale}
+    coperturaCanaleProp={coperturaCanale}
+    testateProp={testate}
+    contactLabelsProp={contactLabels}
+  />
+)}
+{activeTab === "logs" && (
+  <EmailLogs
+    key="logs"
+    logsProp={emailLogs}
+    logsLoadingProp={emailLogsLoading}
+  />
+)}
+{activeTab === "settings" && <EmailSettings key="settings" />}
 
 </div>
 
