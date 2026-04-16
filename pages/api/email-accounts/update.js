@@ -61,7 +61,13 @@ export default async function handler(req, res) {
       if (account.provider) {
         newAccountData.provider = account.provider;
       }
-
+// ✅ AGGIUNGI
+if (account.api_key !== undefined) {
+  newAccountData.api_key = account.api_key;
+} else if (account.smtp?.pass) {
+  // ✅ Fallback - se non c'è api_key usa smtp.pass
+  newAccountData.api_key = account.smtp.pass;
+}
       const { data: newAccount, error: insertError } = await supabase
         .from("email_accounts")
         .insert(newAccountData)
@@ -97,6 +103,14 @@ export default async function handler(req, res) {
       updateData.provider = account.provider;
     }
 
+    if (account.api_key !== undefined) {
+      updateData.api_key = account.api_key;
+    } else if (account.smtp?.pass) {
+      // ✅ Fallback - se non c'è api_key usa smtp.pass
+      updateData.api_key = account.smtp.pass;
+    }
+    console.log('🔑 api_key ricevuta:', account.api_key);
+    console.log('📦 account completo:', account);
     console.log("📤 Dati da aggiornare:", updateData);
 
     const { data, error } = await supabase

@@ -5,7 +5,7 @@ import { useAuth } from "../../contexts/AuthContext";
 
 
 const EmailSettings = () => {
-  const [apiKey, setApiKey] = useState("");
+  // const [apiKey, setApiKey] = useState("");
   const [accounts, setAccounts] = useState([]);
   const [newAccount, setNewAccount] = useState({ name: "", email: "" });
   const [defaultSender, setDefaultSender] = useState(null);
@@ -21,36 +21,25 @@ const EmailSettings = () => {
   const [showConnectionToast, setShowConnectionToast] = useState(null);
   const [isTesting, setIsTesting] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState("");
-  const [apiKeyTypeWarning, setApiKeyTypeWarning] = useState(null);
-  const [isTestKey, setIsTestKey] = useState(false);
+  // const [apiKeyTypeWarning, setApiKeyTypeWarning] = useState(null);
+  // const [isTestKey, setIsTestKey] = useState(false);
   const [verifyingEmail, setVerifyingEmail] = useState(null);
   const { user, loading } = useAuth();
   const [updatingEmail, setUpdatingEmail] = useState(null);
   const [editingSmtp, setEditingSmtp] = useState(null); // email dell'account in modifica
   const [smtpUsername, setSmtpUsername] = useState(""); // ✅ AGGIUNGI QUESTO
 const [smtpPassword, setSmtpPassword] = useState("");
+const [editingApiKey, setEditingApiKey] = useState(null); // email account in modifica API key
+const [newApiKey, setNewApiKey] = useState("")
 
   // Carica configurazione da localStorage
   useEffect(() => {
-    const savedApiKey = localStorage.getItem("resendApiKey") || "";
     const savedAccounts = JSON.parse(localStorage.getItem("emailAccounts") || "[]");
     const savedDefault = localStorage.getItem("defaultSender");
   
-    setApiKey(savedApiKey);
     setAccounts(savedAccounts);
     setDefaultSender(savedDefault);
-  
-    if (savedApiKey.startsWith("test_")) {
-      setIsTestKey(true);
-      toast("⚠️ Chiave di test rilevata: alcune funzioni sono disabilitate.", {
-        icon: "🔒",
-        duration: 4000,
-      });
-    } else {
-      setIsTestKey(false);
-    }
   }, []);
-
 
   useEffect(() => {
     if (loading) return; // aspetta che AuthContext finisca di caricare
@@ -63,10 +52,10 @@ const [smtpPassword, setSmtpPassword] = useState("");
   
     const loadAccountsFromDB = async () => {
       try {
-        console.log('📡 Fetching from:', '/api/email-accounts'); // ← Aggiungi questo log
+        console.log('📡 Fetching from:', '/api/email-accounts');
         const res = await fetch(`/api/email-accounts/get?user_id=${user.id}`);
         const text = await res.text();
-  
+    
         let result;
         try {
           result = JSON.parse(text);
@@ -74,15 +63,18 @@ const [smtpPassword, setSmtpPassword] = useState("");
           console.error("❌ Risposta non JSON:", text);
           throw new Error("La risposta dell'API non è JSON valida (verifica percorso /api).");
         }
-  
+    
         if (!res.ok || !result.success) {
           throw new Error(result.message || "Errore durante il caricamento dei mittenti.");
         }
-  
+    
+        // ✅ AGGIUNGI QUESTI LOG
+        console.log('📋 Account dal DB:', result.data);
+        console.log('🔑 api_key primo account:', result.data?.[0]?.api_key);
+    
         setAccounts(result.data);
         localStorage.setItem("emailAccounts", JSON.stringify(result.data));
-  
-        toast.success("✅ Mittenti caricati dal database.");
+    
       } catch (err) {
         console.error("💥 Errore caricamento mittenti:", err);
         toast.error(`❌ ${err.message}`);
@@ -100,21 +92,26 @@ const [smtpPassword, setSmtpPassword] = useState("");
       toast.error("⚠️ Devi essere loggato per salvare la configurazione.");
       return;
     }
-    if (!apiKey || apiKey.trim().length < 10) {
-      toast.error("⚠️ Inserisci una chiave API valida prima di salvare.");
-      return;
-    }
+    // if (!apiKey || apiKey.trim().length < 10) {
+    //   toast.error("⚠️ Inserisci una chiave API valida prima di salvare.");
+    //   return;
+    // }
   
-    if (apiKey.startsWith("test_")) {
-      toast.error("🚫 Non puoi usare una chiave di test. Inserisci una chiave 'live_' per procedere.");
-      return;
-    }
+    // if (apiKey.startsWith("test_")) {
+    //   toast.error("🚫 Non puoi usare una chiave di test. Inserisci una chiave 'live_' per procedere.");
+    //   return;
+    // }
   
     if (accounts.length === 0) {
       toast.error("⚠️ Aggiungi almeno un mittente prima di salvare.");
       return;
     }
-  
+  // ✅ Verifica che ogni account abbia una API key
+  const missingApiKey = accounts.filter(a => !a.api_key);
+if (missingApiKey.length > 0) {
+  toast.error(`⚠️ Configura la API key per: ${missingApiKey.map(a => a.email).join(', ')}`);
+  return;
+}
     try {
       const res = await fetch("/api/email-accounts/save", {
         method: "POST",
@@ -131,7 +128,7 @@ const [smtpPassword, setSmtpPassword] = useState("");
         throw new Error(result.message || "Errore nel salvataggio.");
       }
   
-      localStorage.setItem("resendApiKey", apiKey);
+      // localStorage.setItem("resendApiKey", apiKey);
       localStorage.setItem("emailAccounts", JSON.stringify(accounts));
       localStorage.setItem("defaultSender", defaultSender || "");
   
@@ -145,26 +142,33 @@ const [smtpPassword, setSmtpPassword] = useState("");
 
   // 🔄 Verifica singolo mittente - versione finale con gestione toast uniforme
 const verifySingleSender = async (email) => {
-  if (!apiKey) {
-    toast.error("⚠️ Inserisci una chiave API prima di verificare.");
+
+  const account = accounts.find(a => a.email === email);
+  const accountApiKey = account?.api_key; // ✅ era resend_api_key
+
+  if (!accountApiKey) {
+    toast.error("⚠️ Configura prima la API key per questo mittente.");
     return;
   }
 
-  if (isTestKey) {
-    toast.error("🚫 Non puoi verificare mittenti con una chiave di test.");
-    return;
-  }
+  // if (!apiKey) {
+  //   toast.error("⚠️ Inserisci una chiave API prima di verificare.");
+  //   return;
+  // }
+
+  // if (isTestKey) {
+  //   toast.error("🚫 Non puoi verificare mittenti con una chiave di test.");
+  //   return;
+  // }
 
   setVerifyingEmail(email);
-  console.groupCollapsed(`🔍 Verifica dominio per ${email}`);
-  console.log("🔑 API key:", apiKey.substring(0, 8) + "********");
-  console.log("📤 Invio richiesta a /api/resend/verify...");
+console.log(`🔍 Verifica dominio per ${email}`);
 
   try {
     const res = await fetch("/api/resend/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey }),
+      body: JSON.stringify({ apiKey: accountApiKey }), // ✅ API key del singolo account
     });
 
     console.log("📡 Stato risposta:", res.status);
@@ -243,7 +247,7 @@ const verifySingleSender = async (email) => {
     console.error("💥 Errore completo:", err);
     toast.error(`❌ ${err.message || "Errore imprevisto durante la verifica."}`);
   } finally {
-    console.groupEnd();
+    
     setVerifyingEmail(null);
   }
 };
@@ -345,32 +349,26 @@ const updateSingleAccount = async (email, updatedAccount = null) => {
 };
 // 🔄 Aggiorna lo stato DKIM/SPF dal dominio su Resend
 const refreshSenderStatus = async (email) => {
-  if (!apiKey) {
-    toast.error("⚠️ Inserisci una chiave API valida prima di aggiornare lo stato.");
-    return;
-  }
+  const account = accounts.find(a => a.email === email);
+  const accountApiKey = account?.api_key; // ✅ era resend_api_key
 
-  if (apiKey.startsWith("test_")) {
-    toast.error("🚫 Le chiavi di test non possono verificare domini.");
+  if (!accountApiKey) {
+    toast.error("⚠️ Configura prima la API key per questo mittente.");
     return;
   }
 
   const senderDomain = email.split("@")[1];
   setVerifyingEmail(email);
-  console.log(`🌍 Aggiornamento stato dominio: ${senderDomain}`);
 
   try {
     const res = await fetch("/api/resend/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey }),
+      body: JSON.stringify({ apiKey: accountApiKey }), // ✅ API key del singolo account
     });
 
     const result = await res.json();
-
-    if (!res.ok || !result.success) {
-      throw new Error(result.message || "Errore durante la verifica.");
-    }
+    if (!res.ok || !result.success) throw new Error(result.message || "Errore durante la verifica.");
 
     const domains = result.data || [];
     const domainInfo = domains.find((d) => d.name === senderDomain);
@@ -381,124 +379,81 @@ const refreshSenderStatus = async (email) => {
     }
 
     const records = domainInfo.records || [];
-
     const dkimRecord = records.find((r) => r.record === "DKIM");
     const spfRecord = records.find((r) => r.record === "SPF");
-    
-    // Se il dominio è verified ma non ha records → segna DKIM/SPF come valid
-    const dkimStatus =
-      dkimRecord?.status || (domainInfo.status === "verified" ? "valid" : "unknown");
-    const spfStatus =
-      spfRecord?.status || (domainInfo.status === "verified" ? "valid" : "unknown");
-    
-    // ✅ Crea l’oggetto aggiornato
-    const updatedAccount = {
-      ...accounts.find((a) => a.email === email),
-      verified: domainInfo.status === "verified",
-      dkimStatus,
-      spfStatus,
-    };
-    
-    // ✅ Aggiorna in memoria
-    const updatedAccounts = accounts.map((a) =>
-      a.email === email ? updatedAccount : a
-    );
+    const dkimStatus = dkimRecord?.status || (domainInfo.status === "verified" ? "valid" : "unknown");
+    const spfStatus = spfRecord?.status || (domainInfo.status === "verified" ? "valid" : "unknown");
+
+    const updatedAccount = { ...account, verified: domainInfo.status === "verified", dkimStatus, spfStatus };
+    const updatedAccounts = accounts.map((a) => a.email === email ? updatedAccount : a);
     setAccounts(updatedAccounts);
     localStorage.setItem("emailAccounts", JSON.stringify(updatedAccounts));
-    
-    // ✅ Salva nel DB con i dati aggiornati
     await updateSingleAccount(email, updatedAccount);
 
     if (domainInfo.status === "verified") {
-      toast.success(`✅ Dominio ${senderDomain} verificato con successo!`);
+      toast.success(`✅ Dominio ${senderDomain} verificato!`);
     } else {
       toast(`⚠️ Dominio ${senderDomain} non ancora verificato.`, { icon: "🕓" });
     }
   } catch (err) {
-    console.error("💥 Errore refreshSenderStatus:", err);
     toast.error(`❌ ${err.message}`);
   } finally {
     setVerifyingEmail(null);
   }
 };
 
-
-
   // 🔄 Verifica manuale di tutti i mittenti
   const handleManualVerification = async () => {
-    if (!apiKey || accounts.length === 0) {
-      toast.error("⚠️ Inserisci una chiave API e almeno un mittente prima di verificare.");
+    if (accounts.length === 0) {
+      toast.error("⚠️ Aggiungi almeno un mittente prima di verificare.");
       return;
     }
-
-    if (isTestKey) {
-      toast.error("🚫 Non puoi verificare con una chiave di test.");
+  
+    const missingApiKey = accounts.filter(a => !a.api_key);
+    if (missingApiKey.length > 0) {
+      toast.error(`⚠️ API key mancante per: ${missingApiKey.map(a => a.email).join(', ')}`);
       return;
     }
   
     setIsVerifying(true);
     setVerifyStatus(null);
-    console.log("🔄 Verifica tutti i mittenti...");
   
     try {
-      const res = await fetch("/api/resend/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey }),
-      });
+      // ✅ Verifica ogni account con la sua API key
+      const updatedAccounts = await Promise.all(accounts.map(async (acc) => {
+        try {
+          const res = await fetch("/api/resend/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ apiKey: acc.api_key }),// ✅ API key del singolo
+          });
   
-      console.log("📡 Status risposta (verifica tutti):", res.status);
-
-      const textResponse = await res.text();
-      console.log("📦 Risposta raw (verifica tutti):", textResponse);
-
-      let result;
-      try {
-        result = JSON.parse(textResponse);
-      } catch (parseError) {
-        console.error("❌ Errore parsing JSON:", parseError);
-        throw new Error("Risposta API non valida");
-      }
-
-      if (!result.success) {
-        console.error("❌ Verifica fallita:", result);
-        toast.error(`❌ ${result.message || "Errore durante la verifica del dominio."}`);
-        return; // ❗️Blocca qui la funzione
-      }
-      const domains = result.data || [];
-      console.log("🌐 Domini ricevuti:", domains);
+          const result = await res.json();
+          if (!result.success) return acc;
   
-      const updatedAccounts = accounts.map((acc) => {
-        const senderDomain = acc.email.split("@")[1];
-        const domainInfo = domains.find((d) => d.name === senderDomain);
+          const senderDomain = acc.email.split("@")[1];
+          const domainInfo = result.data?.find((d) => d.name === senderDomain);
+          const records = domainInfo?.records || [];
+          const dkimRecord = records.find(r => r.record === "DKIM");
+          const spfRecord = records.find(r => r.record === "SPF");
   
-        const records = domainInfo?.records || [];
-        const dkimRecord = records.find(r => r.record === "DKIM");
-        const spfRecord = records.find(r => r.record === "SPF");
-  
-        return {
-          ...acc,
-          verified: domainInfo?.status === "verified",
-          dkimStatus: dkimRecord?.status || "unknown",
-          spfStatus: spfRecord?.status || "unknown",
-        };
-      });
+          return {
+            ...acc,
+            verified: domainInfo?.status === "verified",
+            dkimStatus: dkimRecord?.status || "unknown",
+            spfStatus: spfRecord?.status || "unknown",
+          };
+        } catch {
+          return acc; // ✅ Se fallisce uno, mantieni i dati esistenti
+        }
+      }));
   
       setAccounts(updatedAccounts);
       localStorage.setItem("emailAccounts", JSON.stringify(updatedAccounts));
-  
-      setVerifyStatus({
-        type: "success",
-        message: "✅ Tutti i domini sono stati verificati correttamente!",
-      });
-  
+      setVerifyStatus({ type: "success", message: "✅ Tutti i domini verificati!" });
       setTimeout(() => setVerifyStatus(null), 3000);
     } catch (err) {
-      console.error("💥 Errore verifica tutti:", err);
-      setVerifyStatus({
-        type: "error",
-        message: `❌ Errore: ${err.message}`,
-      });
+      setVerifyStatus({ type: "error", message: `❌ Errore: ${err.message}` });
     } finally {
       setIsVerifying(false);
     }
@@ -528,6 +483,7 @@ const addAccount = () => {
   const accountWithSmtp = {
     ...newAccount,
     provider: "resend", // Cambiato da "brevo" a "resend"
+    resend_api_key: "", // ✅ API key per questo mittente
     smtp: {
       host: "smtp.resend.com",  // Host SMTP per Resend
       port: 587,               // Porta SMTP per Resend
@@ -582,13 +538,10 @@ const addAccount = () => {
   };
 
   // ✅ Verifica automatica domini al caricamento - DISABILITATA PER DEBUG
-  useEffect(() => {
-    // Commentiamo temporaneamente per debug
-    // const verifyAllDomains = async () => { ... };
-    // verifyAllDomains();
-    
-    console.log("ℹ️ Verifica automatica disabilitata per debug");
-  }, [apiKey, accounts.length, isTestKey]);
+ // ✅ SOSTITUISCI CON
+useEffect(() => {
+  // Verifica automatica disabilitata - ogni account ha la sua API key
+}, [accounts.length]);
 
   if (loading) {
     return (
@@ -639,16 +592,16 @@ const getStatusBadge = (type, status) => {
         ⚙️ Configurazione Email (Resend)
       </h2>
       
-      {isTestKey && (
+      {/* {isTestKey && (
         <div className="mb-4 px-4 py-3 bg-yellow-50 text-yellow-800 border border-yellow-300 rounded-lg flex items-center gap-2 shadow-sm">
           ⚠️ <strong>Chiave di test attiva:</strong> alcune funzioni (verifica domini, invii reali) non saranno disponibili.
         </div>
-      )}
+      )} */}
 
       {/* Debug Info */}
-      <div className="mb-4 px-4 py-3 bg-blue-50 text-blue-800 border border-blue-200 rounded-lg text-sm">
+      {/* <div className="mb-4 px-4 py-3 bg-blue-50 text-blue-800 border border-blue-200 rounded-lg text-sm">
         <strong>🔍 Debug Mode:</strong> Controlla la console del browser (F12) per log dettagliati
-      </div>
+      </div> */}
 
       {/* 🔄 Stato Verifica Domini */}
       {isVerifying && (
@@ -689,46 +642,6 @@ const getStatusBadge = (type, status) => {
         </div>
       )}
 
-      {/* 🔑 API KEY */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          🔑 Chiave API Resend
-        </label>
-        <div className="relative">
-          <Key className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => {
-              const value = e.target.value.trim();
-              setApiKey(value);
-              console.log("🔑 Chiave API aggiornata:", value.substring(0, 10) + "...");
-            
-              if (value.startsWith("test_")) {
-                setIsTestKey(true);
-                setApiKeyTypeWarning("⚠️ Stai usando una chiave di test. Usa una chiave 'live_' per verificare i domini.");
-              } else if (value && !value.startsWith("re_") && !value.startsWith("live_")) {
-                setIsTestKey(false);
-                setApiKeyTypeWarning("⚠️ Il formato della chiave non sembra corretto. Deve iniziare con 'live_' o 're_'.");
-              } else {
-                setIsTestKey(false);
-                setApiKeyTypeWarning(null);
-              }
-            }}
-            placeholder="Inserisci la tua API key..."
-            className={`w-full pl-10 p-3 border rounded-lg focus:ring-2 outline-none ${
-              apiKeyTypeWarning
-                ? "border-yellow-400 focus:ring-yellow-300"
-                : "border-gray-300 focus:ring-blue-500"
-            }`}
-          />
-          {apiKeyTypeWarning && (
-            <p className="mt-2 text-yellow-700 bg-yellow-50 border border-yellow-200 px-3 py-2 rounded-lg text-sm flex items-center gap-2">
-              ⚠️ {apiKeyTypeWarning}
-            </p>
-          )}
-        </div>
-      </div>
 
       {/* 📧 GESTIONE ACCOUNT */}
       <div>
@@ -739,163 +652,112 @@ const getStatusBadge = (type, status) => {
         {accounts.length > 0 ? (
   <ul className="space-y-3">
     {accounts.map((a) => (
-      <li
-        key={a.email}
-        className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg p-4 hover:bg-gray-100 transition"
-      >
-        <div className="flex-1">
-          <p className="font-medium text-gray-900 flex items-center gap-2">
-            {a.name}
-            {a.verified ? (
-              <span className="text-green-600 text-xs flex items-center gap-1">
-                <CheckCircle className="w-4 h-4" /> Verificato
-              </span>
-            ) : (
-              <span className="text-yellow-600 text-xs flex items-center gap-1">
-                ⚠️ Non verificato
-              </span>
-            )}
-            {/* Badge SMTP configurato */}
-            {a.smtp?.pass ? (
-              <span className="text-blue-600 text-xs flex items-center gap-1 bg-blue-50 px-2 py-1 rounded">
-                🔐 SMTP OK
-              </span>
-            ) : (
-              <span className="text-orange-600 text-xs flex items-center gap-1 bg-orange-50 px-2 py-1 rounded">
-                🔑 SMTP da configurare
-              </span>
-            )}
-          </p>
-          <p className="text-sm text-gray-600">{a.email}</p>
-          
-          {/* Stato DKIM e SPF */}
-          <div className="mt-2 flex items-center gap-3">
-            <span className={`text-sm ${a.dkimStatus === "valid"
-                ? "text-green-600"
-                : a.dkimStatus === "invalid"
-                  ? "text-red-600"
-                  : "text-gray-500"
-              }`}>
-              <span className="font-semibold">🔵 DKIM:</span> {
-                a.dkimStatus === "valid"
-                  ? "Valido"
-                  : a.dkimStatus === "invalid"
-                    ? "Non valido"
-                    : "In attesa"
-              }
-            </span>
-            <span className={`text-sm ${a.spfStatus === "valid"
-                ? "text-green-600"
-                : a.spfStatus === "invalid"
-                  ? "text-red-600"
-                  : "text-gray-500"
-              }`}>
-              <span className="font-semibold">🔵 SPF:</span> {
-                a.spfStatus === "valid"
-                  ? "Valido"
-                  : a.spfStatus === "invalid"
-                    ? "Non valido"
-                    : "In attesa"
-              }
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* ✅ NUOVO: Bottone Configura SMTP */}
-          <button
-            onClick={() => {
-              setEditingSmtp(a.email);
-              setSmtpUsername(a.smtp?.user || "9de7f6001@smtp-brevo.com"); // ✅ Precarica username
-              setSmtpPassword(a.smtp?.pass || "");
-            }}
-            className="p-2 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 transition flex items-center gap-1 text-sm"
-            title="Configura credenziali SMTP"
-          >
-            <Key className="w-4 h-4" />
-            <span className="hidden sm:inline">SMTP</span>
-          </button>
-
-          {/* Resto dei bottoni come prima */}
-          <button
-            onClick={() => refreshSenderStatus(a.email)}
-            disabled={verifyingEmail === a.email || isTestKey}
-            className={`p-2 rounded-lg text-sm flex items-center gap-1 transition ${verifyingEmail === a.email
-                ? "bg-blue-100 text-blue-600 cursor-wait"
-                : "bg-blue-50 hover:bg-blue-100 text-blue-600"
-              }`}
-          >
-            {verifyingEmail === a.email ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span className="hidden sm:inline">Aggiorna...</span>
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-4 h-4" />
-                <span className="hidden sm:inline">Aggiorna stato</span>
-              </>
-            )}
-          </button>
-
-          <button
-            onClick={() => verifySingleSender(a.email)}
-            disabled={verifyingEmail === a.email || isTestKey}
-            className={`p-2 rounded-lg transition flex items-center gap-1 text-sm ${
-              verifyingEmail === a.email
-                ? "bg-blue-100 text-blue-600 cursor-wait"
-                : isTestKey
-                ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                : "bg-blue-50 hover:bg-blue-100 text-blue-600"
-            }`}
-          >
-            {verifyingEmail === a.email ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span className="hidden sm:inline">Verifica...</span>
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-4 h-4" />
-                <span className="hidden sm:inline">Verifica</span>
-              </>
-            )}
-          </button>
-
-          {defaultSender === a.email ? (
-            <span className="text-green-600 flex items-center gap-1 text-sm px-2 py-1">
-              <CheckCircle className="w-4 h-4" />
-              <span className="hidden sm:inline">Predefinito</span>
-            </span>
-          ) : (
-            <button
-              onClick={() => {
-                const updated = accounts.map((acc) => ({
-                  ...acc,
-                  is_default: acc.email === a.email,
-                }));
-                setAccounts(updated);
-                localStorage.setItem("emailAccounts", JSON.stringify(updated));
-                setDefaultSender(a.email);
-                localStorage.setItem("defaultSender", a.email);
-                updateSingleAccount(a.email, { ...a, is_default: true });
-                toast.success("✅ Mittente predefinito aggiornato!");
-              }}
-              className="text-blue-600 hover:text-blue-800 text-sm px-2 py-1"
-            >
-              Imposta
-            </button>
-          )}
-
-          <button
-            onClick={() => removeAccount(a.email)}
-            className="text-red-500 hover:text-red-700 p-2"
-            title="Elimina mittente"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-      </li>
+     <li
+     key={a.email}
+     className="bg-gray-50 border border-gray-200 rounded-lg p-4 hover:bg-gray-100 transition"
+   >
+     {/* ✅ Riga superiore - info */}
+     <div className="flex items-start justify-between gap-2 mb-3">
+       <div className="flex-1 min-w-0">
+         <p className="font-medium text-gray-900 flex items-center flex-wrap gap-2">
+           {a.name}
+           {a.verified ? (
+             <span className="text-green-600 text-xs flex items-center gap-1">
+               <CheckCircle className="w-4 h-4" /> Verificato
+             </span>
+           ) : (
+             <span className="text-yellow-600 text-xs flex items-center gap-1">
+               ⚠️ Non verificato
+             </span>
+           )}
+           {a.api_key ? (
+             <span className="text-green-600 text-xs flex items-center gap-1 bg-green-50 px-2 py-1 rounded">
+               🔑 API Key OK
+             </span>
+           ) : (
+             <span className="text-red-600 text-xs flex items-center gap-1 bg-red-50 px-2 py-1 rounded">
+               🔑 API Key mancante
+             </span>
+           )}
+           {a.smtp?.pass ? (
+             <span className="text-blue-600 text-xs flex items-center gap-1 bg-blue-50 px-2 py-1 rounded">
+               🔐 SMTP OK
+             </span>
+           ) : (
+             <span className="text-orange-600 text-xs flex items-center gap-1 bg-orange-50 px-2 py-1 rounded">
+               🔐 SMTP da configurare
+             </span>
+           )}
+         </p>
+         <p className="text-sm text-gray-600 mt-1">{a.email}</p>
+   
+         {/* Stato DKIM e SPF */}
+         <div className="mt-2 flex items-center gap-3 flex-wrap">
+           <span className={`text-sm ${a.dkimStatus === "valid" ? "text-green-600" : a.dkimStatus === "invalid" ? "text-red-600" : "text-gray-500"}`}>
+             <span className="font-semibold">🔵 DKIM:</span> {a.dkimStatus === "valid" ? "Valido" : a.dkimStatus === "invalid" ? "Non valido" : "In attesa"}
+           </span>
+           <span className={`text-sm ${a.spfStatus === "valid" ? "text-green-600" : a.spfStatus === "invalid" ? "text-red-600" : "text-gray-500"}`}>
+             <span className="font-semibold">🔵 SPF:</span> {a.spfStatus === "valid" ? "Valido" : a.spfStatus === "invalid" ? "Non valido" : "In attesa"}
+           </span>
+         </div>
+       </div>
+     </div>
+   
+     {/* ✅ Riga inferiore - bottoni */}
+     <div className="flex items-center gap-2 flex-wrap border-t border-gray-200 pt-3">
+       <button
+         onClick={() => { setEditingSmtp(a.email); setNewApiKey(a.api_key || ""); setSmtpPassword(a.smtp?.pass || ""); }}
+         className="p-2 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 transition flex items-center gap-1 text-sm"
+       >
+         <Key className="w-4 h-4" />
+         <span>Configura</span>
+       </button>
+   
+       <button
+         onClick={() => refreshSenderStatus(a.email)}
+         disabled={verifyingEmail === a.email}
+         className={`p-2 rounded-lg text-sm flex items-center gap-1 transition ${verifyingEmail === a.email ? "bg-blue-100 text-blue-600 cursor-wait" : "bg-blue-50 hover:bg-blue-100 text-blue-600"}`}
+       >
+         {verifyingEmail === a.email ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Aggiorna...</span></> : <><RefreshCw className="w-4 h-4" /><span>Aggiorna stato</span></>}
+       </button>
+   
+       <button
+         onClick={() => verifySingleSender(a.email)}
+         disabled={verifyingEmail === a.email}
+         className={`p-2 rounded-lg text-sm flex items-center gap-1 transition ${verifyingEmail === a.email ? "bg-blue-100 text-blue-600 cursor-wait" : "bg-blue-50 hover:bg-blue-100 text-blue-600"}`}
+       >
+         {verifyingEmail === a.email ? <><Loader2 className="w-4 h-4 animate-spin" /><span>Verifica...</span></> : <><RefreshCw className="w-4 h-4" /><span>Verifica</span></>}
+       </button>
+   
+       {defaultSender === a.email ? (
+         <span className="text-green-600 flex items-center gap-1 text-sm px-2 py-1">
+           <CheckCircle className="w-4 h-4" /> Predefinito
+         </span>
+       ) : (
+         <button
+           onClick={() => {
+             const updated = accounts.map((acc) => ({ ...acc, is_default: acc.email === a.email }));
+             setAccounts(updated);
+             localStorage.setItem("emailAccounts", JSON.stringify(updated));
+             setDefaultSender(a.email);
+             localStorage.setItem("defaultSender", a.email);
+             updateSingleAccount(a.email, { ...a, is_default: true });
+             toast.success("✅ Mittente predefinito aggiornato!");
+           }}
+           className="text-blue-600 hover:text-blue-800 text-sm px-2 py-1"
+         >
+           Imposta
+         </button>
+       )}
+   
+       <button
+         onClick={() => removeAccount(a.email)}
+         className="text-red-500 hover:text-red-700 p-2 ml-auto"
+       >
+         <Trash2 className="w-4 h-4" />
+       </button>
+     </div>
+   </li>
     ))}
   </ul>
 ) : (
@@ -978,123 +840,109 @@ const getStatusBadge = (type, status) => {
 
       {/* 💾 Azioni Configurazione */}
       <div className="pt-6 border-t border-gray-200 flex flex-col sm:flex-row justify-end gap-3">
-        <button
-          onClick={saveSettings}
-          disabled={isTestKey}
-          className={`flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-medium shadow-sm hover:shadow-md transition-all duration-200 ${
-            isTestKey
-              ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-              : "bg-green-600 hover:bg-green-700 text-white"
-          }`}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={2}
-            stroke="currentColor"
-            className="w-5 h-5"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-          </svg>
-          {isTestKey ? "Chiave di test (bloccato)" : "Salva Configurazione"}
-        </button>
-{/* 🔐 Modal Configurazione SMTP */}
+      <button
+  onClick={saveSettings}
+  className="flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-medium shadow-sm hover:shadow-md transition-all duration-200 bg-green-600 hover:bg-green-700 text-white"
+>
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={2}
+    stroke="currentColor"
+    className="w-5 h-5"
+  >
+    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+  </svg>
+  Salva Configurazione
+</button>
 {/* 🔐 Modal Configurazione SMTP */}
 {editingSmtp && (
   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
     <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 space-y-4">
       <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
         <Key className="w-5 h-5 text-purple-600" />
-        Configura SMTP per {editingSmtp}
+        Configura {editingSmtp}
       </h3>
 
       <div className="space-y-3">
-  <div>
-    <label className="block text-sm font-medium text-gray-700 mb-1">
-      Host SMTP
-    </label>
-    <input
-      type="text"
-      defaultValue="smtp.resend.com" // Cambiato da "smtp-relay.brevo.com" a "smtp.resend.com"
-      readOnly
-      className="w-full p-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-600 cursor-not-allowed"
-    />
-  </div>
+        {/* ✅ API Key Resend */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            🔑 API Key Resend *
+          </label>
+          <input
+            type="password"
+            value={newApiKey}
+            onChange={(e) => setNewApiKey(e.target.value)}
+            placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxx"
+            className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            💡 Ottieni la tua API key da <strong>resend.com → API Keys</strong>
+          </p>
+        </div>
 
-  <div>
-    <label className="block text-sm font-medium text-gray-700 mb-1">
-      Porta
-    </label>
-    <input
-      type="number"
-      defaultValue="465" // Porta per Resend (587 è comune per TLS)
-      readOnly
-      className="w-full p-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-600 cursor-not-allowed"
-    />
-  </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Host SMTP</label>
+          <input type="text" defaultValue="smtp.resend.com" readOnly
+            className="w-full p-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-600 cursor-not-allowed" />
+        </div>
 
-  <div>
-    <label className="block text-sm font-medium text-gray-700 mb-1">
-      Username SMTP (Login Resend)
-    </label>
-    <input
-      type="text"
-      defaultValue="resend" // Cambiato per Resend
-      readOnly
-      className="w-full p-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-600 cursor-not-allowed"
-    />
-    <p className="text-xs text-gray-500 mt-1">
-      💡 Questo è il tuo login SMTP di Resend (diverso dall'email mittente)
-    </p>
-  </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Porta</label>
+          <input type="number" defaultValue="465" readOnly
+            className="w-full p-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-600 cursor-not-allowed" />
+        </div>
 
-  <div>
-    <label className="block text-sm font-medium text-gray-700 mb-1">
-      Password SMTP *
-    </label>
-    <input
-      type="password"
-      value={smtpPassword}
-      onChange={(e) => setSmtpPassword(e.target.value)}
-      placeholder="Inserisci la chiave SMTP da Resend"
-      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
-    />
-    <p className="text-xs text-gray-500 mt-1">
-      💡 Copia la chiave SMTP completa da Resend → Impostazioni → SMTP & API
-    </p>
-  </div>
-</div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Username SMTP</label>
+          <input type="text" defaultValue="resend" readOnly
+            className="w-full p-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-600 cursor-not-allowed" />
+        </div>
 
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Password SMTP * <span className="text-xs text-gray-500">(uguale alla API key)</span>
+          </label>
+          <input
+            type="password"
+            value={smtpPassword}
+            onChange={(e) => setSmtpPassword(e.target.value)}
+            placeholder="Stessa API key qui sopra"
+            className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            💡 Per Resend la password SMTP è uguale alla API key
+          </p>
+        </div>
+      </div>
 
       <div className="flex justify-end gap-3 pt-4 border-t">
         <button
-          onClick={() => {
-            setEditingSmtp(null);
-            setSmtpPassword("");
-          }}
+          onClick={() => { setEditingSmtp(null); setSmtpPassword(""); setNewApiKey(""); }}
           className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
         >
           Annulla
         </button>
         <button
           onClick={async () => {
-            if (!smtpPassword.trim()) {
-              toast.error("⚠️ Inserisci la password SMTP");
+            if (!newApiKey.trim()) {
+              toast.error("⚠️ Inserisci la API key Resend");
               return;
             }
 
-            // Aggiorna account con password SMTP
             const updatedAccounts = accounts.map(acc => {
               if (acc.email === editingSmtp) {
                 return {
                   ...acc,
                   provider: "resend",
+                  api_key: newApiKey.trim(), // ✅ Salva api_key
                   smtp: {
                     host: "smtp.resend.com",
                     port: 465,
                     user: "resend",
-                    pass: smtpPassword,
+                    pass: newApiKey.trim(), // ✅ smtp.pass = api_key
                     secure: false
                   }
                 };
@@ -1105,13 +953,14 @@ const getStatusBadge = (type, status) => {
             setAccounts(updatedAccounts);
             localStorage.setItem("emailAccounts", JSON.stringify(updatedAccounts));
 
-            // Salva nel database
             const accountToUpdate = updatedAccounts.find(a => a.email === editingSmtp);
+            console.log('💾 Salvo account:', accountToUpdate); // ✅ Debug
             await updateSingleAccount(editingSmtp, accountToUpdate);
 
-            toast.success("✅ Password SMTP salvata!");
+            toast.success("✅ API key e SMTP salvati!");
             setEditingSmtp(null);
             setSmtpPassword("");
+            setNewApiKey("");
           }}
           className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition flex items-center gap-2"
         >
@@ -1122,35 +971,31 @@ const getStatusBadge = (type, status) => {
     </div>
   </div>
 )}
-        <button
-          onClick={handleManualVerification}
-          disabled={isVerifying || isTestKey}
-          className={`flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-medium shadow-sm hover:shadow-md transition-all duration-200 ${
-            isVerifying || isTestKey
-              ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-              : "bg-blue-600 hover:bg-blue-700 text-white"
-          }`}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className={`w-5 h-5 ${isVerifying ? "animate-spin" : ""}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 4v5h.582M20 20v-5h-.581M5 19a9 9 0 0014 0M19 5a9 9 0 00-14 0"
-            />
-          </svg>
-          {isTestKey
-            ? "Verifica disabilitata (test key)"
-            : isVerifying
-            ? "Verifica in corso..."
-            : "Verifica tutti ora"}
-        </button>
+       <button
+  onClick={handleManualVerification}
+  disabled={isVerifying}
+  className={`flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-medium shadow-sm hover:shadow-md transition-all duration-200 ${
+    isVerifying
+      ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+      : "bg-blue-600 hover:bg-blue-700 text-white"
+  }`}
+>
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    className={`w-5 h-5 ${isVerifying ? "animate-spin" : ""}`}
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M4 4v5h.582M20 20v-5h-.581M5 19a9 9 0 0014 0M19 5a9 9 0 00-14 0"
+    />
+  </svg>
+  {isVerifying ? "Verifica in corso..." : "Verifica tutti ora"}
+</button>
       </div>
 
       <p className="text-xs text-gray-500 mt-2">

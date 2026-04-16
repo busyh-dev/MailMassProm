@@ -3,6 +3,7 @@
 import { useEditorState } from '../../contexts/EditorContext';
 import React, { useState, useEffect, useRef, useMemo, memo, useCallback  } from 'react';
 import { createPortal } from 'react-dom';
+import { usePushNotifications } from '../../hooks/usePushNotifications';
 import Select from 'react-select';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter } from 'next/router'; // ✅ Cambiato qui
@@ -825,7 +826,7 @@ const useAnimatedUnmount = (isMounted, delay = 250) => {
 
   return { shouldRender, animationClass };
 };
-
+const _usersLoaded = { current: false };
 const EmailPlatform = () => {
   // ✅ useCampaigns QUI - con nomi diversi per evitare conflitti
   const {
@@ -876,6 +877,16 @@ const EmailPlatform = () => {
   const [registerMessage, setRegisterMessage] = useState(null);
   const [emailLogs, setEmailLogs] = useState([]);
 const [emailLogsLoading, setEmailLogsLoading] = useState(false);
+const [currentUserProfile, setCurrentUserProfile] = useState(null);
+const profileLoadedRef = useRef(false);
+// ✅ Aggiungi questa riga dopo gli stati
+// ✅ SOSTITUISCI displayUser con questo
+const displayUser = user || {
+  full_name: authUser?.user_metadata?.full_name || authUser?.email?.split('@')[0] || 'Utente',
+  email: authUser?.email || '',
+  role: null,
+  created_at: authUser?.created_at || null
+};
 
 const loadEmailLogs = useCallback(async () => {
   if (!user?.id) return;
@@ -905,6 +916,47 @@ const loadEmailLogs = useCallback(async () => {
   } finally {
     setEmailLogsLoading(false);
   }
+}, [user?.id]);
+
+useEffect(() => {
+  if (!user?.id) return;
+  if (profileLoadedRef.current) return;
+
+  const loadProfile = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+
+      const { data: profileData, error } = await supabase
+        .from('profiles')
+        .select(`*, role:roles(name)`)
+        .eq('id', session.user.id)
+        .single();
+
+      if (profileData && !error) {
+        const formatEmailAsName = (email) => {
+          if (!email) return 'Utente';
+          return email.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        };
+
+        const displayName = profileData.full_name && profileData.full_name !== session.user.email
+          ? profileData.full_name
+          : formatEmailAsName(session.user.email);
+
+        setCurrentUserProfile({
+          ...profileData,
+          display_name: displayName,
+        });
+        profileLoadedRef.current = true;
+      }
+    } catch (error) {
+      if (!error.message?.includes('Auth session missing')) {
+        console.error('Errore caricamento profilo:', error);
+      }
+    }
+  };
+
+  loadProfile();
 }, [user?.id]);
 
 useEffect(() => {
@@ -1053,6 +1105,13 @@ useEffect(() => {
   if (!user?.id) return;
   fetchContacts();
 }, [user?.id]);
+// ✅ AGGIUNGI in EmailPlatform
+useEffect(() => {
+  if (!user?.id) return;
+  fetchPendingUsers();
+  fetchApprovedUsers();
+  fetchRejectedUsers();
+}, [user?.id]);
 
 // Lista prefissi internazionali - mettila FUORI dal componente
 const PHONE_PREFIXES = [
@@ -1096,10 +1155,18 @@ const PHONE_PREFIXES = [
 
 // Aggiungi queste funzioni per gestire utenti e ruoli
 const fetchPendingUsers = async () => {
-  console.log('🔄 Caricamento utenti in attesa...');
+  console.log('🔄 fetchPendingUsers chiamata, user?.id:', user?.id);
   setLoadingUsers(true);
     
   try {
+
+   // ✅ Usa getSession invece di user direttamente
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) {
+      console.log('⚠️ Sessione non disponibile');
+      setLoadingUsers(false);
+      return;
+    }
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
@@ -1110,8 +1177,12 @@ const fetchPendingUsers = async () => {
 
     console.log('✅ Dati ricevuti:', data);
     console.log('📊 Status degli utenti:', data?.map(u => ({ name: u.full_name, status: u.status })));
+    console.log('✅ Utenti caricati:', data?.length);
+    setPendingUsers(data?.filter(u => u.status === 'pending' || u.status === 'approved') || []);
+    setRejectedUsers(data?.filter(u => u.status === 'rejected') || []);
+    setApprovedUsers(data?.filter(u => u.status === 'approved') || []);
     
-    setPendingUsers(data || []);
+    // setPendingUsers(data || []);
   } catch (error) {
     console.error('❌ Errore:', error);
     toast.error('Errore nel caricamento');
@@ -1194,6 +1265,7 @@ const resolveRecipientEmails = (recipientList, contacts, tagLabels = []) => {
 
   return [...emailSet];
 };
+
 useEffect(() => {
   const fetchLabels = async () => {
     try {
@@ -1316,6 +1388,12 @@ const fetchRejectedUsers = async () => {
   setLoadingUsers(true);
   
   try {
+    // ✅ Usa getSession invece di user?.id
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) {
+      setLoadingUsers(false);
+      return;
+    }
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
@@ -1587,6 +1665,14 @@ useEffect(() => {
 const fetchApprovedUsers = async () => {
   setLoadingUsers(true);
   try {
+
+     // ✅ Usa getSession invece di user?.id
+     const { data: { session } } = await supabase.auth.getSession();
+     if (!session?.user) {
+       setLoadingUsers(false);
+       return;
+     }
+     
     const { data, error } = await supabase
       .from('profiles')
       .select(`
@@ -1757,20 +1843,7 @@ useEffect(() => {
   });
 }, [isAdmin, isSuperAdmin, role, profile, permissionsLoading]);
 // Carica i dati quando si apre il tab impostazioni
-useEffect(() => {
-  if (activeProfileTab === 'gestione-utenti') {
-    fetchPendingUsers();
-  }
-  
-  if (activeProfileTab === 'gestione-permessi') {
-    fetchApprovedUsers();
-    fetchRoles();
-  }
-  
-  if (activeProfileTab === 'utenti-rifiutati') {
-    fetchRejectedUsers();
-  }
-}, [activeProfileTab]);
+// ✅ In ProfileModal - ricarica quando cambia tab
 
 useEffect(() => {
   const loadLatestLogs = async () => {
@@ -1863,38 +1936,38 @@ for (const log of logsFromDb) {
   }
 }
 
-useEffect(() => {
-  // ❌ RIMUOVI tutto il blocco loadCampaigns
-  // const loadCampaigns = async () => { ... };
+// useEffect(() => {
+//   // ❌ RIMUOVI tutto il blocco loadCampaigns
+//   // const loadCampaigns = async () => { ... };
 
-  // ✅ TIENI solo loadEmailLogs
-  const loadEmailLogs = async () => {
-    try {
-      console.log('📧 Caricamento email_logs...');
+//   // ✅ TIENI solo loadEmailLogs
+//   const loadEmailLogs = async () => {
+//     try {
+//       console.log('📧 Caricamento email_logs...');
       
-      const { data, error } = await supabase
-        .from('email_logs')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('sent_at', { ascending: false })
-        .limit(10);
+//       const { data, error } = await supabase
+//         .from('email_logs')
+//         .select('*')
+//         .eq('user_id', user.id)
+//         .order('sent_at', { ascending: false })
+//         .limit(10);
 
-      if (error) throw error;
+//       if (error) throw error;
 
-      console.log('✅ Email logs caricati:', data?.length);
-      setEmailLogs(data || []);
-    } catch (error) {
-      console.error('❌ Errore caricamento email_logs:', error);
-      setEmailLogs([]);
-    }
-  };
+//       console.log('✅ Email logs caricati:', data?.length);
+//       setEmailLogs(data || []);
+//     } catch (error) {
+//       console.error('❌ Errore caricamento email_logs:', error);
+//       setEmailLogs([]);
+//     }
+//   };
 
-  if (user?.id) {
-    // ❌ RIMUOVI questa riga
-    // loadCampaigns();
-    loadEmailLogs(); // ✅ TIENI questa
-  }
-}, [user?.id]);
+//   if (user?.id) {
+//     // ❌ RIMUOVI questa riga
+//     // loadCampaigns();
+//     loadEmailLogs(); // ✅ TIENI questa
+//   }
+// }, [user?.id]);
 // E usa emailLogs nel widget
 const latestLogsForWidget = useMemo(() => {
   console.log('🔄 Ricalcolo widget');
@@ -2057,7 +2130,9 @@ if (!accountData) {
 
     // ✅ INVIO RESEND
     if (accountData.provider === "resend") {
-      const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
+      // const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
+      // const resendApiKey = accountData.resend_api_key;
+      const resendApiKey = accountData.api_key;
       // ✅ Prima di inviare, inietta il tracking
 
       
@@ -2269,7 +2344,7 @@ const confirmSend = async () => {
     } else if (accountObj.provider === "resend") {
       console.log('📤 Invio via Resend...');
       
-      const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
+      const resendApiKey = accountObj.api_key;
       if (!resendApiKey) throw new Error("API key Resend mancante");
 
       const payload = {
@@ -2569,32 +2644,32 @@ const exportResendLog = (format = "csv", autoDownload = false) => {
       return filtered;
     };
   // Mantieni connessione Supabase attiva
-useEffect(() => {
-  const handleVisibilityChange = async () => {
-    if (document.visibilityState === 'visible') {
-      console.log('👁️ Finestra tornata attiva');
+// useEffect(() => {
+//   const handleVisibilityChange = async () => {
+//     if (document.visibilityState === 'visible') {
+//       console.log('👁️ Finestra tornata attiva');
       
-      // Verifica sessione
-      const { data: { session } } = await supabase.auth.getSession();
+//       // Verifica sessione
+//       const { data: { session } } = await supabase.auth.getSession();
       
-      if (!session) {
-        console.warn('⚠️ Sessione persa');
-        router.push('/login');
-        return;
-      }
+//       if (!session) {
+//         console.warn('⚠️ Sessione persa');
+//         router.push('/login');
+//         return;
+//       }
       
-      // Ricarica dati se modale profilo aperto
-      if (showProfileModal && user?.id) {
-        console.log('🔄 Ricarico dati profilo...');
-        await fetchPendingUsers();
-        await fetchRejectedUsers();
-      }
-    }
-  };
+//       // Ricarica dati se modale profilo aperto
+//       if (showProfileModal && user?.id) {
+//         console.log('🔄 Ricarico dati profilo...');
+//         await fetchPendingUsers();
+//         await fetchRejectedUsers();
+//       }
+//     }
+//   };
 
-  document.addEventListener('visibilitychange', handleVisibilityChange);
-  return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-}, [showProfileModal, user?.id]);
+//   document.addEventListener('visibilitychange', handleVisibilityChange);
+//   return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+// }, [showProfileModal, user?.id]);
 
     const filteredCampaigns = applyFilters();
   
@@ -3848,6 +3923,17 @@ const [attachments, setAttachments] = useState(campaign.attachments || []);
 
 const confirmExit = () => {
   setShowConfirmExit(false);
+  setCampaignMode(null);
+  setCampaignName("");
+  setSubject("");
+  setEmailContent("<p></p>");
+  setRecipientList([]);
+  setAttachments([]);
+  setCc("");
+  setBcc("");
+  setCcError("");
+  setBccError("");
+  setIsBuilderTemplate(false);
   onClose();
 };
     /* ------------------------- RENDER ------------------------- */
@@ -5212,7 +5298,7 @@ const [recipients, setRecipients] = useState([]);
         console.log('📤 Invio via Resend a:', recipients.length, 'destinatari');
         setSendingProgress(prev => ({ ...prev, message: 'Invio via Resend in corso...' }));
        
-        const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
+        const resendApiKey = accountObj.api_key;
         if (!resendApiKey) throw new Error("API key Resend mancante");
   
         const payload = {
@@ -5494,7 +5580,7 @@ if (recipients.length === 0) {
           message: 'Invio via Resend in corso...'
         }));
         
-        const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
+        const resendApiKey = accountObj.api_key;
   
         if (!resendApiKey) {
           throw new Error("API key Resend mancante");
@@ -12054,6 +12140,131 @@ function parseButtonBlock(html) {
     radius: a?.style.borderRadius || "5px",
   };
 }
+const handleGoBack = () => {
+  console.log('🔍 emailContent:', JSON.stringify(emailContent?.substring(0, 50)));
+  console.log('🔍 campaignName:', campaignName);
+  console.log('🔍 canvasBlocks:', canvasBlocks.length);
+  console.log('🚀🚀🚀 handleGoBack CHIAMATO!');
+  console.log('🔍 onCloseBuilder disponibile?', !!onCloseBuilder);
+  const editingId = sessionStorage.getItem('editingCampaignId');
+  console.log('🔙 handleGoBack - editingId:', editingId);
+  // ✅ CASO 1: Stiamo modificando una campagna esistente
+  if (editingId) {
+    toast((t) => (
+      <div className="p-3">
+        <p className="font-medium text-gray-800">
+          Vuoi davvero uscire dal builder?
+        </p>
+        <p className="text-sm text-gray-500 mb-3">
+          Tornerai alla modifica della campagna.
+        </p>
+
+        <div className="flex gap-2 justify-end">
+          <button
+            onClick={() => toast.dismiss(t.id)}
+            className="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm"
+          >
+            Annulla
+          </button>
+
+          <button
+            onClick={() => {
+              toast.dismiss(t.id);
+              console.log('✅ Chiamando onCloseBuilder');
+              // ✅ Pulisci sessionStorage (opzionale)
+              sessionStorage.removeItem('builderTemplate');
+              sessionStorage.removeItem('builderBlocks');
+              sessionStorage.removeItem('currentEmailContent');
+              sessionStorage.removeItem('isBuilderTemplate');
+              // sessionStorage.removeItem('editingCampaignId');
+              // sessionStorage.removeItem('editingCampaignData');
+              
+              // ✅ Chiudi il builder e riapri EditCampaignModal
+              if (onCloseBuilder) {
+                onCloseBuilder();
+              } else {
+                console.log('❌ onCloseBuilder non disponibile!');
+                setCampaignMode(null);
+                setShowCampaignModal(false);
+              }
+              
+              toast.success("✔ Tornando alla modifica campagna");
+            }}
+            className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm"
+          >
+            Torna Indietro
+          </button>
+        </div>
+      </div>
+    ), { duration: 6000 });
+    
+    return;
+  }
+
+  // ✅ CASO 2: Nuova campagna - comportamento normale
+  if (campaignName || subject || emailContent !== "<p></p>" || attachments.length > 0) {
+    toast((t) => (
+      <div className="p-3">
+        <p className="font-medium text-gray-800">
+          Vuoi davvero tornare indietro?
+        </p>
+        <p className="text-sm text-gray-500 mb-3">
+          Le modifiche non salvate andranno perse.
+        </p>
+
+        <div className="flex gap-2 justify-end">
+          <button
+            onClick={() => toast.dismiss(t.id)}
+            className="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm"
+          >
+            Annulla
+          </button>
+
+          <button
+            onClick={() => {
+              toast.dismiss(t.id);
+              sessionStorage.removeItem('builderTemplate');
+        sessionStorage.removeItem('builderBlocks');
+        sessionStorage.removeItem('currentEmailContent');
+        sessionStorage.removeItem('isBuilderTemplate');
+        sessionStorage.removeItem('editingBuilderBlocks');
+        sessionStorage.removeItem('editingBuilderTemplate');
+              // 🔥 reset campagna
+              setCampaignMode(null);
+        setCampaignName("");
+        setSubject("");
+        setEmailContent("<p></p>");
+        setRecipientList([]);
+        setAttachments([]);
+        setCanvasBlocks([]);  // ✅ AGGIUNGI
+        setCc("");
+        setBcc("");
+        setCcError("");
+        setBccError("");
+
+              toast.success("✔ Uscito senza salvare");
+            }}
+            className="px-3 py-1 rounded bg-red-600 hover:bg-red-700 text-white text-sm"
+          >
+            Continua
+          </button>
+        </div>
+      </div>
+    ), { duration: 6000 });
+
+    return;
+  }
+// Nessuna modifica → esce direttamente
+sessionStorage.removeItem('builderTemplate');
+sessionStorage.removeItem('builderBlocks');
+sessionStorage.removeItem('currentEmailContent');
+sessionStorage.removeItem('isBuilderTemplate');
+sessionStorage.removeItem('editingBuilderBlocks');
+sessionStorage.removeItem('editingBuilderTemplate');
+setCanvasBlocks([]);
+setCampaignMode(null);
+};
+
 function parseDividerBlock(html) {
   const div = document.createElement("div");
   div.innerHTML = html;
@@ -14442,114 +14653,7 @@ useEffect(() => {
   return () => el.removeEventListener("blur", handleBlur);
 }, [inlineEditing, canvasBlocks]);
 
-const handleGoBack = () => {
-  console.log('🚀🚀🚀 handleGoBack CHIAMATO!');
-  console.log('🔍 onCloseBuilder disponibile?', !!onCloseBuilder);
-  const editingId = sessionStorage.getItem('editingCampaignId');
-  console.log('🔙 handleGoBack - editingId:', editingId);
-  // ✅ CASO 1: Stiamo modificando una campagna esistente
-  if (editingId) {
-    toast((t) => (
-      <div className="p-3">
-        <p className="font-medium text-gray-800">
-          Vuoi davvero uscire dal builder?
-        </p>
-        <p className="text-sm text-gray-500 mb-3">
-          Tornerai alla modifica della campagna.
-        </p>
 
-        <div className="flex gap-2 justify-end">
-          <button
-            onClick={() => toast.dismiss(t.id)}
-            className="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm"
-          >
-            Annulla
-          </button>
-
-          <button
-            onClick={() => {
-              toast.dismiss(t.id);
-              console.log('✅ Chiamando onCloseBuilder');
-              // ✅ Pulisci sessionStorage (opzionale)
-              sessionStorage.removeItem('builderTemplate');
-              sessionStorage.removeItem('builderBlocks');
-              sessionStorage.removeItem('currentEmailContent');
-              sessionStorage.removeItem('isBuilderTemplate');
-              // sessionStorage.removeItem('editingCampaignId');
-              // sessionStorage.removeItem('editingCampaignData');
-              
-              // ✅ Chiudi il builder e riapri EditCampaignModal
-              if (onCloseBuilder) {
-                onCloseBuilder();
-              } else {
-                console.log('❌ onCloseBuilder non disponibile!');
-                setCampaignMode(null);
-                setShowCampaignModal(false);
-              }
-              
-              toast.success("✔ Tornando alla modifica campagna");
-            }}
-            className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm"
-          >
-            Torna Indietro
-          </button>
-        </div>
-      </div>
-    ), { duration: 6000 });
-    
-    return;
-  }
-
-  // ✅ CASO 2: Nuova campagna - comportamento normale
-  if (campaignName || subject || emailContent !== "<p></p>" || attachments.length > 0) {
-    toast((t) => (
-      <div className="p-3">
-        <p className="font-medium text-gray-800">
-          Vuoi davvero tornare indietro?
-        </p>
-        <p className="text-sm text-gray-500 mb-3">
-          Le modifiche non salvate andranno perse.
-        </p>
-
-        <div className="flex gap-2 justify-end">
-          <button
-            onClick={() => toast.dismiss(t.id)}
-            className="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm"
-          >
-            Annulla
-          </button>
-
-          <button
-            onClick={() => {
-              toast.dismiss(t.id);
-              // 🔥 reset campagna
-              setCampaignMode(null);
-              setCampaignName("");
-              setSubject("");
-              setEmailContent("<p></p>");
-              setRecipientList([]);
-              setAttachments([]);
-              setCc("");
-              setBcc("");
-              setCcError("");
-              setBccError("");
-
-              toast.success("✔ Uscito senza salvare");
-            }}
-            className="px-3 py-1 rounded bg-red-600 hover:bg-red-700 text-white text-sm"
-          >
-            Continua
-          </button>
-        </div>
-      </div>
-    ), { duration: 6000 });
-
-    return;
-  }
-
-  // Nessuna modifica → esce direttamente
-  setCampaignMode(null);
-};
 
   const hasChanges = campaignName || subject || emailContent !== "<p></p>" || attachments.length > 0;
 
@@ -14717,7 +14821,7 @@ const handleGoBack = () => {
       // 🔀 BRANCHING: Resend vs SMTP
       if (selectedAccount.provider === "resend") {
         // ========== RESEND API ==========
-        const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
+        const resendApiKey = accountData.resend_api_key;
   
         if (!resendApiKey) {
           throw new Error("API key Resend mancante");
@@ -15186,7 +15290,7 @@ const proceedWithSend = async (accountObj) => {
 
     // 🔀 SMTP vs RESEND
     if (accountObj.provider === "resend") {
-      const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
+      const resendApiKey = accountObj.api_key;
       if (!resendApiKey) throw new Error("API key Resend mancante");
       
 
@@ -15282,6 +15386,62 @@ const proceedWithSend = async (accountObj) => {
       };
     });
     await supabase.from('campaign_recipients').insert(recipientsPayload);
+// ✅ Notifica email se abilitata
+try {
+  const { data: userSettings } = await supabase
+    .from('user_settings')
+    .select('notify_new_campaigns, email')
+    .eq('user_id', user.id)
+    .single();
+
+  if (userSettings?.notify_new_campaigns) {
+    await fetch('/api/notifications/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        apiKey: accountObj.api_key,
+        to: userSettings.email,
+        subject: `✅ Campagna "${subject}" inviata con successo`,
+        html: `
+          <div style="font-family:Arial;max-width:600px;margin:auto;padding:20px;">
+            <h2 style="color:#16a34a;">✅ Campagna Inviata</h2>
+            <p>La tua campagna <strong>${subject}</strong> è stata inviata.</p>
+            <div style="background:#f0fdf4;border-radius:8px;padding:16px;margin:20px 0;">
+              <p>📤 <strong>Inviata a:</strong> ${successCount} destinatari</p>
+              ${failedRecipients.length > 0 ? `<p>❌ <strong>Fallite:</strong> ${failedRecipients.length}</p>` : ''}
+              <p>📅 <strong>Data:</strong> ${new Date().toLocaleString('it-IT')}</p>
+            </div>
+          </div>
+        `,
+      }),
+    });
+  }
+} catch (notifyError) {
+  console.warn('⚠️ Notifica email fallita:', notifyError.message);
+}
+
+try {
+  const { data: userSettings } = await supabase
+    .from('user_settings')
+    .select('notify_push_new_tasks')
+    .eq('user_id', user.id)
+    .single();
+
+  if (userSettings?.notify_push_new_tasks) {
+    await fetch('/api/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: user.id,
+        title: '✅ Campagna Inviata',
+        body: `"${subject}" inviata a ${successCount} destinatari`,
+        icon: '/icon.png',
+      }),
+    });
+  }
+} catch (pushError) {
+  console.warn('⚠️ Push notification fallita:', pushError.message);
+}
 
     toast.dismiss();
 
@@ -15308,6 +15468,18 @@ const proceedWithSend = async (accountObj) => {
   const confirmExit = () => {
     setShowConfirmExit(false);
     setShowCampaignModal(false);
+    setShowConfirmExit(false);
+  setCampaignMode(null);
+  setCampaignName("");
+  setSubject("");
+  setEmailContent("<p></p>");
+  setRecipientList([]);
+  setAttachments([]);
+  setCc("");
+  setBcc("");
+  setCcError("");
+  setBccError("");
+  setIsBuilderTemplate(false);
   };
 
   const fileToBase64 = (file) => {
@@ -15600,7 +15772,7 @@ const handleSendTestEmail = async () => {
   }
 
   const resendApiKey =
-    localStorage.getItem("resend_api_key") || process.env.NEXT_PUBLIC_RESEND_API_KEY;
+    localStorage.getItem("resend_api_key") || accountData.resend_api_key;
   const senderEmail = localStorage.getItem("resend_sender_email");
 
   if (!resendApiKey || !senderEmail) {
@@ -16013,9 +16185,6 @@ if (campaignMode === 'template') {
 if (campaignMode === 'builder') {
   // 🔥 useEffect per caricare template da modificare
  // Nel builder
-
-
-  
 
   return (
     <>
@@ -19548,11 +19717,7 @@ onClick={() => {
         ))}
     </ul>
   </div>
-)}
-
-
-
-        </div>
+)}        </div>
 
         {/* 📩 Layout Email */}
         <div
@@ -19618,9 +19783,6 @@ onClick={() => {
     </motion.div>
   </div>
 )}
-
-
-
     </>
   );
 }
@@ -19659,9 +19821,21 @@ onClick={() => {
    <div className="bg-white rounded-lg w-full max-w-6xl mx-4 max-h-[90vh] shadow-lg relative flex flex-col">
         {/* Header con Badge e pulsante Indietro */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
-        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3">
             <button
-              onClick={handleGoBack}
+              onClick={() => {
+                if (campaignName || subject || (emailContent && emailContent.trim() !== "" && emailContent.trim() !== "<p></p>") || attachments.length > 0) {
+                  setShowConfirmExit(true);
+                } else {
+                  // ✅ SOSTITUISCI il semplice setCampaignMode(null) con questo
+                  setCampaignMode(null);
+                  setCampaignName("");
+                  setSubject("");
+                  setEmailContent("<p></p>");
+                  setRecipientList([]);
+                  setAttachments([]);
+                }
+              }}
               className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors group"
               title="Torna alla selezione modalità"
             >
@@ -20295,8 +20469,7 @@ onClick={() => {
 </div>
       </div>
 
-      {/* Modali di conferma (invariati) */}
-      {/* Modali di conferma */}
+     {/* Modali di conferma */}
 {showConfirmSend && (
   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
     <div className="bg-white rounded-lg shadow-lg p-6 max-w-sm w-full text-center">
@@ -21021,18 +21194,30 @@ console.log('🔍 tagLabels length:', tagLabels.length);
 
 
   // Modal per profilo utente
-  const ProfileModal = () => {
-    
-    
-    const [user, setUser] = useState(null);
-    const [loadingProfile, setLoadingProfile] = useState(true);
+  const ProfileModal = ({ 
+    currentUserProfile, 
+    setCurrentUserProfile,
+    pendingUsers = [],        // ✅ AGGIUNGI
+    approvedUsers = [],       // ✅ AGGIUNGI
+    rejectedUsers = [],       // ✅ AGGIUNGI
+    availableRoles = [],      // ✅ AGGIUNGI
+    loadingUsers = false,     // ✅ AGGIUNGI
+    fetchPendingUsers,        // ✅ AGGIUNGI
+    fetchApprovedUsers,       // ✅ AGGIUNGI
+    fetchRejectedUsers,       // ✅ AGGIUNGI
+  }) => {    
+    const { permission, subscribe } = usePushNotifications();
+    const usersLoadedRef = useRef(false);
     const [isEditing, setIsEditing] = useState(false);
+    const { user: authUser } = useAuth();
+    const [user, setUser] = useState(currentUserProfile || null);
+    const [loadingProfile, setLoadingProfile] = useState(!currentUserProfile);
     // const [name, setName] = useState('Massimo');
     // const [surname, setSurname] = useState('Mole');
     // const [email, setEmail] = useState('giovannimole@yopmail.com');
     // const [photo, setPhoto] = useState(null);
      // ✅ Inizializza con valori vuoti
-     
+     const hasLoadedRef = useRef(false);
   const [name, setName] = useState('');
   const [surname, setSurname] = useState('');
   const [email, setEmail] = useState('');
@@ -21051,6 +21236,7 @@ const [registerData, setRegisterData] = useState({
   password: '',
   confirmPassword: ''  // <-- AGGIUNGI QUESTO
 });
+
     // ... stati esistenti
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [editProfileData, setEditProfileData] = useState({
@@ -21085,41 +21271,103 @@ const [registerData, setRegisterData] = useState({
     const [systemSettings, setSystemSettings] = useState({});
     const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 const [saving, setSaving] = useState(false);
-// ✅ Carica i dati dell'utente
+// ✅ Aggiungi questo useEffect PRIMA degli altri
 useEffect(() => {
-  const loadUserProfile = async () => {
-    try {
-      setLoadingProfile(true);
-      
-      // Ottieni l'utente corrente da Supabase
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      
-      if (authUser) {
-        // Carica il profilo completo dal database
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', authUser.id)
-          .single();
-        
-        if (profile) {
-          setUser(profile);
-          setName(profile.full_name || '');
-          setSurname(profile.surname || '');
-          setEmail(profile.email || authUser.email || '');
-          setPhoto(profile.avatar_url || null);
-        }
-      }
-    } catch (error) {
-      console.error('Errore caricamento profilo:', error);
-      toast.error('Errore nel caricamento del profilo');
-    } finally {
-      setLoadingProfile(false);
-    }
-  };
+  // ✅ Resetta il ref quando il componente si monta/rimonta
+  hasLoadedRef.current = false;
+}, []); // ✅ [] = solo al mount
+
+// ✅ Dentro EmailPlatform - sostituisci il vecchio useEffect
+useEffect(() => {
+  if (!user?.id) return;
+  if (_usersLoaded.current) return;
+  _usersLoaded.current = true;
   
-  loadUserProfile();
-}, []); // ✅ Esegui al mount del componente
+  fetchPendingUsers();
+  fetchApprovedUsers();
+  fetchRejectedUsers();
+}, []); // ✅ NESSUNA dipendenza - esegue solo al mount
+// ✅ Carica i dati dell'utente
+// ✅ SOSTITUISCI il useEffect principale con questo
+// useEffect(() => {
+//   if (!showProfileModal) return;
+  
+//   // ✅ Se abbiamo già i dati non ricaricare
+//   if (user !== null && hasLoadedRef.current) return;
+
+//   // ✅ Mostra subito i dati da authUser mentre carica il profilo completo
+//   if (!user && authUser) {
+//     setUser({
+//       id: authUser.id,
+//       email: authUser.email,
+//       full_name: authUser.email?.split('@')[0] || 'Utente',
+//       display_name: authUser.email?.split('@')[0] || 'Utente',
+//       role: null,
+//       created_at: authUser.created_at,
+//       avatar_url: null,
+//     });
+//     // ✅ Non mostrare loading - abbiamo già dati parziali
+//     setLoadingProfile(false);
+//   }
+  
+//   const loadUserProfile = async () => {
+//     try {
+//       if (!user) setLoadingProfile(true);
+
+//       const { data: { session } } = await supabase.auth.getSession();
+//       if (!session?.user) { setLoadingProfile(false); return; }
+
+//       const { data: profileData, error } = await supabase
+//         .from('profiles')
+//         .select(`*, role:roles(name)`)
+//         .eq('id', session.user.id)
+//         .single();
+      
+//       if (profileData && !error) {
+//         const formatEmailAsName = (email) => {
+//           if (!email) return 'Utente';
+//           return email.split('@')[0].replace(/[._-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+//         };
+
+//         const displayName = profileData.full_name && profileData.full_name !== session.user.email
+//           ? profileData.full_name
+//           : formatEmailAsName(session.user.email);
+
+//         // ✅ Aggiorna con dati completi dal DB
+//         setUser(prev => ({
+//           ...prev,
+//           ...profileData,
+//           display_name: displayName,
+//         }));
+//         setName(displayName);
+//         setSurname(profileData.surname || '');
+//         setEmail(profileData.email || session.user.email || '');
+//         setPhoto(profileData.avatar_url || null);
+//         hasLoadedRef.current = true;
+//       }
+//     } catch (error) {
+//       if (!error.message?.includes('Auth session missing')) {
+//         console.error('Errore caricamento profilo:', error);
+//       }
+//     } finally {
+//       setLoadingProfile(false);
+//     }
+//   };
+  
+//   loadUserProfile();
+// }, [showProfileModal]); // ✅ Solo showProfileModal
+
+useEffect(() => {
+  if (currentUserProfile) {
+    setUser(currentUserProfile);
+    setName(currentUserProfile.display_name || currentUserProfile.full_name || '');
+    setEmail(currentUserProfile.email || '');
+    setPhoto(currentUserProfile.avatar_url || null);
+    setLoadingProfile(false);
+  } 
+}, [currentUserProfile]);
+
+
 const handleClose = () => {
   if (saving) {
     setShake(true);
@@ -21133,6 +21381,7 @@ const handleClose = () => {
 const confirmClose = () => {
   setShowCloseConfirm(false);
   setShowProfileModal(false); // chiude il modale principale
+  hasLoadedRef.current = false; // ✅ AGGIUNGI
 };
 const handleMoveToApproval = (userId, userName, userEmail) => {
   setUserToMoveToApproval({ id: userId, name: userName, email: userEmail });
@@ -21340,44 +21589,54 @@ const cancelClose = () => {
       try {
         setSaving(true);
     
-        let avatarUrl = currentUser?.avatar_url; // ✅ Usa currentUser invece di profile
+        const userId = user?.id || authUser?.id;
+        if (!userId) throw new Error('Utente non trovato');
     
-        // Upload avatar se presente
+        let avatarUrl = user?.avatar_url || null;
+    
+        // ✅ Upload avatar se presente
         if (editProfileData.avatar) {
           const newAvatarUrl = await handleUploadAvatar(editProfileData.avatar);
-          if (newAvatarUrl) avatarUrl = newAvatarUrl;
+          if (newAvatarUrl) {
+            avatarUrl = newAvatarUrl;
+            console.log('✅ Avatar URL:', avatarUrl);
+          }
         }
-
-         // ✅ Debug: vedi cosa stai per inviare
-    console.log('📤 Dati da salvare:', {
-      full_name: editProfileData.name,
-      email: editProfileData.email,
-      bio: editProfileData.bio,
-      avatar_url: avatarUrl,
-    });
-
     
-        // ✅ Salva nella tabella profiles, non user_settings
+        // ✅ Salva in profiles
         const { data, error } = await supabase
-          .from('profiles') // ✅ Cambiato da user_settings a profiles
+          .from('profiles')
           .update({
-            full_name: editProfileData.name, // ✅ Usa full_name invece di name
-            email: editProfileData.email,
+            full_name: editProfileData.name,
             bio: editProfileData.bio,
-            avatar_url: avatarUrl,
+            avatar_url: avatarUrl, // ✅ Salva avatar_url
           })
-          .eq('id', currentUser.id) // ✅ Usa currentUser.id invece di user.id
+          .eq('id', userId)
           .select()
           .single();
     
         if (error) throw error;
     
-        // ✅ Aggiorna currentUser invece di profile
-        setCurrentUser({
-          ...currentUser,
-          ...data
-        });
-        
+        // ✅ Aggiorna stato locale con tutti i campi
+        setUser(prev => ({
+          ...prev,
+          ...data,
+          avatar_url: avatarUrl,        // ✅ Aggiorna avatar_url
+          display_name: editProfileData.name,
+        }));
+
+        setCurrentUserProfile(prev => ({
+  ...prev,
+  ...data,
+  avatar_url: avatarUrl,
+  display_name: editProfileData.name,
+}));
+    
+        // ✅ Aggiorna anche la foto locale per la sidebar
+        if (avatarUrl) {
+          setPhoto(avatarUrl);
+        }
+    
         setShowEditProfile(false);
         toast.success('✅ Profilo aggiornato con successo!', {
           icon: '🎉',
@@ -21392,19 +21651,23 @@ const cancelClose = () => {
     };
 
     useEffect(() => {
-      if (showEditProfile && profile) {
+      if (showEditProfile && user) {
         setEditProfileData({
-          name: profile.name || '',
-          email: profile.email || '',
-          bio: profile.bio || '',
+          name: user.full_name && user.full_name !== user.email 
+            ? user.full_name 
+            : (user.display_name || ''),
+          email: user.email || '',
+          bio: user.bio || '',
           avatar: null,
         });
       }
-    }, [showEditProfile, profile]);
+    }, [showEditProfile, user]); // ✅ usa user invece di profile
 
     // 🆕 Carica i dati del profilo quando disponibile
     useEffect(() => {
       if (profile) {
+        console.log('📦 Profile da useProfile:', profile);        // ← AGGIUNGI
+    console.log('📦 notify_new_campaigns:', profile.notify_new_campaigns); // ← AGGIUNGI
         setNotificationsData({
           notify_new_campaigns: profile.notify_new_campaigns ?? true,
           notify_campaign_results: profile.notify_campaign_results ?? true,
@@ -21679,63 +21942,48 @@ const cancelClose = () => {
         }
       };
     };
-    if (!showProfileModal) return null;
-// useEffect per caricare i dati del profilo
-useEffect(() => {
-  const fetchUserProfile = async () => {
-    if (!showProfileModal) return;
-    if (profileLoaded) return; // <-- AGGIUNGI QUESTO: Non ricaricare se già caricato
-    
-    setLoadingProfile(true);
-    try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      
-      if (authUser) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select(`
-            *,
-            role:roles (
-              name
-            )
-          `)
-          .eq('id', authUser.id)
-          .single();
-        
-        setUser(profile);
-        setProfileLoaded(true); // <-- AGGIUNGI QUESTO
-      }
-    } catch (error) {
-      console.error('Errore caricamento profilo:', error);
-    } finally {
-      setLoadingProfile(false);
-    }
-  };
-
-  fetchUserProfile();
-}, [showProfileModal, profileLoaded]); // <-- AGGIUNGI profileLoaded alle dipendenze
-
-// Quando chiudi il modale, resetta la flag
+    // Quando chiudi il modale, resetta la flag
 const handleCloseModal = () => {
   setShowProfileModal(false);
   setProfileLoaded(false); // <-- AGGIUNGI QUESTO per ricaricare alla prossima apertura
+  hasLoadedRef.current = false; // ✅ AGGIUNGI
 };
 
 // Nel JSX del modale, aggiungi il loading state
 if (!showProfileModal) return null;
+// ✅ Mostra skeleton mentre carica invece di dati vuoti
+if (loadingProfile) {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg w-full max-w-6xl mx-4 h-[90vh] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-100 rounded-full relative mx-auto mb-4">
+            <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin absolute inset-0"></div>
+          </div>
+          <p className="text-gray-600 font-medium">Caricamento profilo...</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 // Calcola il numero di utenti pending
 const pendingCount = pendingUsers.filter(u => u.status === 'pending').length;
 const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
-// if (loadingProfile && !user) {  // <-- AGGIUNGI "&& !user"
-//   return (
-//     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-//       <div className="bg-white rounded-lg p-8">
-//         <Loader2 className="w-8 h-8 text-blue-600 animate-spin mx-auto" />
-//         <p className="mt-4 text-gray-600">Caricamento profilo...</p>
-//       </div>
-//     </div>
-//   );
-// }
+// ✅ Mostra spinner solo se non abbiamo nessun dato
+if (loadingProfile && !user && !authUser) {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg w-full max-w-6xl mx-4 h-[90vh] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-100 rounded-full relative mx-auto mb-4">
+            <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin absolute inset-0"></div>
+          </div>
+          <p className="text-gray-600 font-medium">Caricamento profilo...</p>
+        </div>
+      </div>
+    </div>
+  );
+}
     return (
                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="bg-white rounded-lg w-full max-w-6xl mx-4 h-[90vh] flex overflow-hidden">
@@ -21744,11 +21992,19 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
                 <div className="p-6 flex-shrink-0"> {/* 🔥 flex-shrink-0 */}
                 <div className="text-center">
                     {/* Avatar grande */}
-                    <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center text-white text-2xl font-medium mx-auto mb-4">
-                    {getUserInitials(user?.full_name || user?.full_name || 'U')}
-                    </div>
+                    <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center text-white text-2xl font-medium mx-auto mb-4 overflow-hidden">
+  {photo || user?.avatar_url ? (
+    <img 
+      src={photo || user?.avatar_url} 
+      alt="Avatar" 
+      className="w-full h-full object-cover"
+    />
+  ) : (
+    getUserInitials(displayUser?.full_name || 'U')
+  )}
+</div>
                     <h2 className="text-xl font-bold text-gray-900 mb-1">
-                    {user?.full_name || user?.full_name || 'Utente'}
+                    {user?.display_name || user?.full_name || displayUser?.full_name || 'Utente'}
                     </h2>
               <button
                 onClick={() => setShowEditProfile(true)}
@@ -21762,7 +22018,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
                   {/* Tabs del profilo */}
                   <nav className="flex-1 overflow-y-auto px-6 pb-6 space-y-1"> {/* 🔥 flex-1 overflow-y-auto */}
                     {/* Solo per admin e super_admin */}
-{(user?.role?.name === 'admin' || user?.role?.name === 'super_admin') && (
+{isAdmin && (
                     <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
                       Generale
                     </div>
@@ -21770,7 +22026,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
 {/* Nella sidebar del profilo, aggiungi questi bottoni dopo gli altri */}
 
 {/* Solo per admin e super_admin */}
-{(user?.role?.name === 'admin' || user?.role?.name === 'super_admin') && (
+{isAdmin && (
   <>
 <button
   onClick={() => setActiveProfileTab('gestione-utenti')}
@@ -21851,7 +22107,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
 )}
 
                 {/* Solo per admin e super_admin */}
-{(user?.role?.name === 'admin' || user?.role?.name === 'super_admin') && (
+{isAdmin && (
   <>
     <button
       onClick={() => setActiveProfileTab('notifiche')}
@@ -21876,6 +22132,58 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
     </button>
   </>
 )}
+{activeProfileTab === 'info-profilo' && (
+  <div className="space-y-6">
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+      <h3 className="font-medium text-gray-900">Benvenuto nel tuo profilo</h3>
+      <p className="text-sm text-gray-600">
+        Gestisci le tue informazioni e preferenze dalla sidebar
+      </p>
+    </div>
+
+    <div className="bg-white border border-gray-200 rounded-lg p-6">
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
+          {/* ✅ Prova tutti i campi possibili */}
+          <p className="text-gray-900">
+            {user?.full_name || user?.name || user?.display_name || displayUser?.full_name || 'N/A'}
+          </p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+          <p className="text-gray-900">{user?.email || displayUser?.email || 'N/A'}</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Ruolo</label>
+          <p className="text-gray-900">{user?.role?.name || 'user'}</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Registrato il</label>
+          <p className="text-gray-900">
+            {user?.created_at ? new Date(user.created_at).toLocaleDateString('it-IT') : 'N/A'}
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+
+{/* ✅ AGGIUNGI - bottone Info Profilo visibile a tutti */}
+<button
+  onClick={() => setActiveProfileTab('info-profilo')}
+  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+    activeProfileTab === 'info-profilo'
+      ? 'bg-blue-600 text-white'
+      : 'text-gray-700 hover:bg-gray-100'
+  }`}
+>
+  <User className="w-5 h-5" />
+  <div className="flex-1 text-left">
+    <div className="font-medium">Info Profilo</div>
+    <div className="text-xs opacity-75">Le tue informazioni</div>
+  </div>
+</button>
                     <div className="pt-6">
                       <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
                         Account
@@ -22267,7 +22575,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
       </p>
     </div>
 
-    {loadingUsers ? (
+    {loadingUsers && rejectedUsers.length === 0 ? (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
       </div>
@@ -22302,7 +22610,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
                     </div>
                     <div className="ml-4">
                       <div className="text-sm font-medium text-gray-900">
-                        {user.full_name || 'N/A'}
+                      {user?.display_name || user?.full_name || 'N/A'}
                       </div>
                       <div className="text-sm text-gray-500">{user.email}</div>
                     </div>
@@ -22368,16 +22676,38 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
                             />
                             <span className="ml-2">Email</span>
                           </label>
-                          <label htmlFor="notify_push" className="flex items-center gap-2">
-                            <input
-                              id="notify_push"
-                              name="notify_push"
-                              type="checkbox"
-                              checked={notificationsData.notify_push_new_tasks || false}
-                              onChange={(e) => setNotificationsData({ ...notificationsData, notify_push_new_tasks: e.target.checked })}
-                            />
-                            <span className="ml-2">Push</span>
-                          </label>
+                          <div className="flex items-center gap-3">
+  <label htmlFor="notify_push" className="flex items-center gap-2">
+    <input
+      id="notify_push"
+      name="notify_push"
+      type="checkbox"
+      checked={notificationsData.notify_push_new_tasks || false}
+      onChange={(e) => setNotificationsData({ ...notificationsData, notify_push_new_tasks: e.target.checked })}
+    />
+    <span className="ml-2">Push</span>
+  </label>
+
+  {/* Bottone attiva push */}
+  <button
+    onClick={async () => {
+      const { subscribe } = usePushNotifications();
+      const result = await subscribe();
+      if (result.success) {
+        toast.success('🔔 Notifiche Push attivate!');
+      } else {
+        toast.error('❌ ' + (result.message || result.error));
+      }
+    }}
+    className={`px-3 py-1 text-xs rounded-lg font-medium transition ${
+      permission === 'granted'
+        ? 'bg-green-100 text-green-700'
+        : 'bg-blue-600 text-white hover:bg-blue-700'
+    }`}
+  >
+    {permission === 'granted' ? '✅ Attive' : '🔔 Attiva Push'}
+  </button>
+</div>
                         </div>
 
                         <div className="mt-4">
@@ -22811,11 +23141,14 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
-          <p className="text-gray-900">{user?.full_name || 'N/A'}</p>
+          {/* ✅ Prova tutti i campi possibili */}
+          <p className="text-gray-900">
+            {user?.full_name || user?.name || user?.display_name || displayUser?.full_name || 'N/A'}
+          </p>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-          <p className="text-gray-900">{user?.email || 'N/A'}</p>
+          <p className="text-gray-900">{user?.email || displayUser?.email || 'N/A'}</p>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Ruolo</label>
@@ -22823,7 +23156,9 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Registrato il</label>
-          <p className="text-gray-900">{new Date(user?.created_at).toLocaleDateString('it-IT')}</p>
+          <p className="text-gray-900">
+            {user?.created_at ? new Date(user.created_at).toLocaleDateString('it-IT') : 'N/A'}
+          </p>
         </div>
       </div>
     </div>
@@ -22854,7 +23189,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
             <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
             <input
               type="text"
-              value={profileData.name || user?.full_name || ''}
+              value={profileData.name || displayUser?.full_name || ''}
               onChange={(e) => setProfileData((prev) => ({ ...prev, name: e.target.value }))}
               className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
@@ -22864,7 +23199,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
             <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input
               type="email"
-              value={profileData.email || user?.email || ''}
+              value={profileData.email || displayUser?.email || ''}
               disabled
               className="w-full p-2 border border-gray-300 rounded bg-gray-50 text-gray-500"
             />
@@ -22920,7 +23255,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
       </div>
 
       {/* 🔐 Impostazioni SMTP - SOLO ADMIN */}
-      {(user?.role?.name === 'admin' || user?.role?.name === 'super_admin') && (
+      {isAdmin && (
         <>
           {/* Configurazione Email */}
           <div className="bg-white border border-gray-200 rounded-lg p-6">
@@ -23016,7 +23351,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
         Annulla
       </button>
       <button
-        onClick={(user?.role?.name === 'admin' || user?.role?.name === 'super_admin') ? handleSaveSystemSettings : handleSaveProfile}
+        onClick={isAdmin ? handleSaveSystemSettings : handleSaveProfile}
         className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition-colors disabled:opacity-50"
         disabled={saving}
       >
@@ -23039,7 +23374,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
       </p>
     </div>
 
-    {loadingUsers ? (
+    {loadingUsers && pendingUsers.length === 0 ? (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
       </div>
@@ -23089,7 +23424,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
                     </div>
                     <div className="ml-4">
                       <div className="text-sm font-medium text-gray-900">
-                        {user.full_name || 'N/A'}
+                      {user?.display_name || user?.full_name || 'N/A'}
                       </div>
                       <div className="text-sm text-gray-500">{user.email}</div>
                     </div>
@@ -23187,7 +23522,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
       </p>
     </div>
 
-    {loadingUsers ? (
+    {loadingUsers && approvedUsers.length === 0 ? (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
       </div>
@@ -23225,7 +23560,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
                     </div>
                     <div className="ml-4">
                       <div className="text-sm font-medium text-gray-900">
-                        {user.full_name || 'N/A'}
+                      {user?.display_name || user?.full_name || 'N/A'}
                       </div>
                       <div className="text-sm text-gray-500">{user.email}</div>
                     </div>
@@ -23394,23 +23729,26 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
         {/* Avatar */}
         <div className="flex flex-col items-center mb-6">
           <div className="relative">
-            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-3xl font-bold overflow-hidden">
-              {editProfileData.avatar ? (
-                <img 
-                  src={URL.createObjectURL(editProfileData.avatar)} 
-                  alt="Avatar" 
-                  className="w-full h-full object-cover"
-                />
-              ) : profile?.avatar_url ? (
-                <img 
-                  src={profile.avatar_url} 
-                  alt="Avatar" 
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                getUserInitials(editProfileData.name || user?.email)
-              )}
-            </div>
+          <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-3xl font-bold overflow-hidden">
+  {editProfileData.avatar ? (
+    // ✅ Anteprima del nuovo avatar selezionato
+    <img 
+      src={URL.createObjectURL(editProfileData.avatar)} 
+      alt="Avatar" 
+      className="w-full h-full object-cover"
+    />
+  ) : photo || user?.avatar_url ? (
+    // ✅ Avatar esistente dal DB
+    <img 
+      src={photo || user?.avatar_url} 
+      alt="Avatar" 
+      className="w-full h-full object-cover"
+    />
+  ) : (
+    // ✅ Iniziali come fallback
+    getUserInitials(editProfileData.name || displayUser?.full_name || 'U')
+  )}
+</div>
             
             <label className="absolute bottom-0 right-0 bg-blue-600 text-white p-2 rounded-full cursor-pointer hover:bg-blue-700 transition shadow-lg">
               <Camera className="w-4 h-4" />
@@ -23746,9 +24084,17 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
                   className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 transition-colors"
                 >
                   {/* Avatar */}
-                  <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                    {getUserInitials(currentUser?.full_name)}
-                  </div>
+<div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium overflow-hidden">
+  {currentUser?.avatar_url ? (
+    <img 
+      src={currentUser.avatar_url} 
+      alt="Avatar" 
+      className="w-full h-full object-cover"
+    />
+  ) : (
+    getUserInitials(currentUser?.full_name)
+  )}
+</div>
 
                   {/* Nome utente */}
                   <div className="hidden sm:block text-left">
@@ -23772,10 +24118,13 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
     {/* Header utente nel dropdown */}
     <div className="px-4 py-3 border-b border-gray-100">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium flex-shrink-0">
-          {/* ✅ Aggiunto flex-shrink-0 */}
-          {getUserInitials(currentUser?.full_name)}
-        </div>
+      <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium flex-shrink-0 overflow-hidden">
+  {currentUser?.avatar_url ? (
+    <img src={currentUser.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+  ) : (
+    getUserInitials(currentUser?.full_name)
+  )}
+</div>
         <div className="flex-1 min-w-0"> {/* ✅ AGGIUNTO QUI */}
           <div className="font-medium text-gray-900 truncate">
             {currentUser?.full_name || 'Utente'}
@@ -24537,7 +24886,7 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
         </div>
 
         {/* User info */}
-        {user?.email && (
+        {displayUser?.email && (
           <div className="flex items-center gap-3 mb-6 p-3 bg-gray-50 rounded-lg">
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold text-sm">
               {user.email.charAt(0).toUpperCase()}
@@ -24642,7 +24991,20 @@ const rejectedCount = rejectedUsers.length; // <-- AGGIUNGI QUESTA
   </div>
 </div>
 
-     {/* Modals */} <ContactModal /> <ProfileModal />
+    {/* Modals */}
+<ContactModal />
+<ProfileModal 
+  currentUserProfile={currentUserProfile}
+  setCurrentUserProfile={setCurrentUserProfile}
+  pendingUsers={pendingUsers}
+  approvedUsers={approvedUsers}
+  rejectedUsers={rejectedUsers}
+  availableRoles={availableRoles}
+  loadingUsers={loadingUsers}
+  fetchPendingUsers={fetchPendingUsers}
+  fetchApprovedUsers={fetchApprovedUsers}
+  fetchRejectedUsers={fetchRejectedUsers}
+/>
     </div>
   );
 };

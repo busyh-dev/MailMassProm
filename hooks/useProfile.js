@@ -73,7 +73,10 @@ export const useProfile = () => {
         if (createError) throw createError;
         setProfile(createdProfile);
       } else {
-        setProfile(profileData);
+        // ✅ Evita di aggiornare se i dati sono identici
+        if (JSON.stringify(profileData) !== JSON.stringify(profile)) {
+          setProfile(profileData);
+        }
       }
     } catch (error) {
       console.error('❌ Errore nel caricamento del profilo:', error);

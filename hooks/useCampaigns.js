@@ -6,6 +6,40 @@ export const useCampaigns = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const loadingTimeout = useRef(null); // ✅ timeout di sicurezza
+  useEffect(() => {
+    const tryLoad = async () => {
+      // ✅ Aspetta che la sessione sia pronta
+      let session = null;
+      for (let i = 0; i < 5; i++) {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.user) {
+          session = data.session;
+          break;
+        }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+  
+      if (session?.user) {
+        loadCampaigns();
+      } else {
+        console.warn('⚠️ Sessione non disponibile');
+        setLoading(false);
+      }
+    };
+  
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        loadCampaigns();
+      }
+      if (event === 'SIGNED_OUT') {
+        setCampaigns([]);
+        setLoading(false);
+      }
+    });
+  
+    tryLoad();
+    return () => subscription.unsubscribe();
+  }, []);
 
   // ✅ Carica tutte le campagne dell'utente
   const loadCampaigns = async () => {
@@ -14,32 +48,26 @@ export const useCampaigns = () => {
   
       if (loadingTimeout.current) clearTimeout(loadingTimeout.current);
       loadingTimeout.current = setTimeout(() => {
-        console.warn('⚠️ loadCampaigns timeout - forzato stop loading');
+        console.warn('⚠️ loadCampaigns timeout');
         setLoading(false);
       }, 10000);
   
-      // ✅ Usa getSession invece di getUser
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       
-      if (sessionError || !session?.user) {
-        console.log('⚠️ Sessione non disponibile, riprovo tra 2s...');
+      if (!session?.user) {
+        // ❌ RIMUOVI il setTimeout ricorsivo
         clearTimeout(loadingTimeout.current);
         setLoading(false);
-        setTimeout(() => loadCampaigns(), 2000);
         return;
       }
   
       const { data, error } = await supabase
         .from('campaigns')
         .select('*')
-        .eq('user_id', session.user.id) // ✅ session.user.id
+        .eq('user_id', session.user.id)
         .order('created_at', { ascending: false });
   
       if (error) throw error;
-  
-      console.log('📦 RAW DATA FROM DATABASE:', data);
-      console.log('📋 First campaign raw:', data?.[0]);
-      console.log('📋 Status from DB:', data?.[0]?.status);
   
       setCampaigns(data || []);
       return { success: true, data };
@@ -51,10 +79,43 @@ export const useCampaigns = () => {
       setLoading(false);
     }
   };
-
   // ✅ Carica campagne al mount
   useEffect(() => {
-    loadCampaigns();
+    let retryCount = 0;
+    const maxRetries = 3;
+  
+    const tryLoad = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.user) {
+        loadCampaigns();
+        return;
+      }
+  
+      if (retryCount < maxRetries) {
+        retryCount++;
+        console.log(`⏳ Sessione non pronta, retry ${retryCount}/${maxRetries}...`);
+        setTimeout(tryLoad, 1500 * retryCount);
+      } else {
+        console.warn('⚠️ Sessione non disponibile dopo 3 tentativi');
+        setLoading(false);
+      }
+    };
+  
+    // ✅ Ascolta anche il SIGNED_IN per ricaricare
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        loadCampaigns();
+      }
+      if (event === 'SIGNED_OUT') {
+        setCampaigns([]);
+        setLoading(false);
+      }
+    });
+  
+    tryLoad();
+  
+    return () => subscription.unsubscribe();
   }, []);
 
 

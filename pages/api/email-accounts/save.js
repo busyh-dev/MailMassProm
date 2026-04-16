@@ -62,24 +62,13 @@ export default async function handler(req, res) {
       }
 
       // Aggiungi created_at solo per nuovi record
-      if (!acc.id) {
-        accountData.created_at = new Date().toISOString();
-      }
-
-      // ✅ Aggiungi campi opzionali solo se presenti
-      if (acc.dkimStatus || acc.dkim_status) {
-        accountData.dkim_status = acc.dkimStatus || acc.dkim_status;
-      }
-
-      // ✅ Aggiungi smtp SOLO se presente e non vuoto
-      if (acc.smtp && typeof acc.smtp === 'object') {
-        accountData.smtp = acc.smtp;
-      }
-
-      // ✅ Aggiungi provider SOLO se presente
-      if (acc.provider) {
-        accountData.provider = acc.provider;
-      }
+      if (acc.id) accountData.id = acc.id;
+  if (!acc.id) accountData.created_at = new Date().toISOString();
+  if (acc.smtp && typeof acc.smtp === 'object') accountData.smtp = acc.smtp;
+  if (acc.provider) accountData.provider = acc.provider;
+  
+  // ✅ AGGIUNGI - salva api_key
+  if (acc.api_key) accountData.api_key = acc.api_key;
 
       return accountData;
     });
