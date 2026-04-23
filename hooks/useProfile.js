@@ -8,7 +8,6 @@ export const useProfile = () => {
   const [saving, setSaving] = useState(false);
   const [user, setUser] = useState(null);
 
-  // Carica il profilo dell'utente loggato
   useEffect(() => {
     loadProfile();
   }, []);
@@ -16,27 +15,22 @@ export const useProfile = () => {
   const loadProfile = async () => {
     try {
       setLoading(true);
-      
+
       const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
-      
       if (userError) throw userError;
       if (!currentUser) throw new Error('Utente non autenticato');
 
       setUser(currentUser);
 
-      // ✅ Carica da user_settings invece di profiles
       const { data: profileData, error: profileError } = await supabase
         .from('user_settings')
         .select('*')
         .eq('user_id', currentUser.id)
         .single();
 
-      if (profileError && profileError.code !== 'PGRST116') {
-        throw profileError;
-      }
+      if (profileError && profileError.code !== 'PGRST116') throw profileError;
 
       if (!profileData) {
-        // ✅ Crea record default in user_settings
         const newProfile = {
           user_id: currentUser.id,
           email: currentUser.email,
@@ -73,7 +67,6 @@ export const useProfile = () => {
         if (createError) throw createError;
         setProfile(createdProfile);
       } else {
-        // ✅ Evita di aggiornare se i dati sono identici
         if (JSON.stringify(profileData) !== JSON.stringify(profile)) {
           setProfile(profileData);
         }
@@ -85,116 +78,18 @@ export const useProfile = () => {
     }
   };
 
-  // ✅ Salvataggio combinato e ottimizzato
-  const saveNotificationsPrimary = async (formData) => {
-    try {
-      setSaving(true);
-
-      const { data: { user: currentUser } } = await supabase.auth.getUser();
-      if (!currentUser) throw new Error("Utente non autenticato");
-
-      // 🧠 Ottieni il profilo attuale per confronto
-      const { data: currentProfile, error: fetchError } = await supabase
-        .from("user_settings")
-        .select("*")
-        .eq("user_id", currentUser.id)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      // ✅ Validazioni di base
-      const errors = [];
-
-      // 🔹 Nome obbligatorio
-      if (formData.name && formData.name.trim().length < 2) {
-        errors.push("Il nome deve contenere almeno 2 caratteri.");
-      }
-
-      // 🔹 Email valida
-      if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-        errors.push("Inserisci un indirizzo email valido.");
-      }
-
-      // 🔹 Lingua supportata
-      const supportedLanguages = ["it", "en", "es", "fr"];
-      if (formData.language && !supportedLanguages.includes(formData.language)) {
-        errors.push(`Lingua non supportata (${formData.language}).`);
-      }
-
-      // 🔹 Timezone supportata
-      const supportedTimezones = [
-        "Europe/Rome",
-        "Europe/London",
-        "America/New_York"
-      ];
-      if (formData.timezone && !supportedTimezones.includes(formData.timezone)) {
-        errors.push(`Fuso orario non valido (${formData.timezone}).`);
-      }
-
-      // 🚫 Se ci sono errori, blocca il salvataggio
-      if (errors.length > 0) {
-        return { success: false, error: "❌ " + errors.join(" ") };
-      }
-
-      // 🧩 Campi potenzialmente aggiornabili
-      const fields = [
-        "notify_new_campaigns",
-        "notify_campaign_results",
-        "notify_report_weekly",
-        "notify_new_contacts",
-        "name",
-        "email",
-        "language",
-        "timezone",
-      ];
-
-      // 🔍 Costruisci un oggetto solo con i campi modificati
-      const updateData = {};
-      fields.forEach((key) => {
-        const newValue = formData[key];
-        const oldValue = currentProfile[key];
-        if (newValue !== undefined && newValue !== oldValue) {
-          updateData[key] = newValue;
-        }
-      });
-
-      // 💤 Se nessun campo è cambiato, interrompi
-      if (Object.keys(updateData).length === 0) {
-        return { success: true, message: "ℹ️ Nessuna modifica da salvare" };
-      }
-
-      console.log("🟢 Campi aggiornati:", updateData);
-
-      // 🧾 Esegui aggiornamento su Supabase solo per i campi cambiati
-      const { data, error } = await supabase
-        .from("user_settings")
-        .update(updateData)
-        .eq("user_id", currentUser.id)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // 🔄 Aggiorna stato locale
-      setProfile(data);
-
-      return { success: true, message: "✅ Profilo aggiornato con successo!" };
-    } catch (error) {
-      console.error("❌ Errore nel salvataggio profilo:", error);
-      return { success: false, error: "❌ " + (error.message || "Errore generico nel salvataggio") };
-    } finally {
-      setSaving(false);
-    }
+  // ✅ Helper per ottenere sempre l'utente corrente
+  const getCurrentUser = async () => {
+    const { data: { user: currentUser }, error } = await supabase.auth.getUser();
+    if (error || !currentUser) throw new Error('Utente non autenticato');
+    return currentUser;
   };
 
   // ✅ Salva Notifiche
   const saveNotifications = async (notificationData) => {
     try {
       setSaving(true);
-
-      if (!user || !user.id) {
-        throw new Error('Utente non autenticato');
-      }
+      const currentUser = await getCurrentUser();
 
       const { data, error } = await supabase
         .from('user_settings')
@@ -208,12 +103,11 @@ export const useProfile = () => {
           reminder_weekly_review: notificationData.reminder_weekly_review,
           reminder_clock_in: notificationData.reminder_clock_in,
         })
-        .eq('user_id', user.id)
+        .eq('user_id', currentUser.id)
         .select()
         .single();
 
       if (error) throw error;
-
       setProfile(data);
       return { success: true, message: '✅ Notifiche salvate con successo!' };
     } catch (error) {
@@ -224,24 +118,71 @@ export const useProfile = () => {
     }
   };
 
-  // ✅ Salva Lingua
-  const saveLanguage = async (language) => {
+  // ✅ Salvataggio combinato notifiche + profilo
+  const saveNotificationsPrimary = async (formData) => {
     try {
       setSaving(true);
+      const currentUser = await getCurrentUser();
 
-      if (!user || !user.id) {
-        throw new Error('Utente non autenticato');
-      }
+      const { data: currentProfile, error: fetchError } = await supabase
+        .from('user_settings')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      const errors = [];
+      if (formData.name && formData.name.trim().length < 2) errors.push('Il nome deve contenere almeno 2 caratteri.');
+      if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.push('Inserisci un indirizzo email valido.');
+      const supportedLanguages = ['it', 'en', 'es', 'fr'];
+      if (formData.language && !supportedLanguages.includes(formData.language)) errors.push(`Lingua non supportata (${formData.language}).`);
+      const supportedTimezones = ['Europe/Rome', 'Europe/London', 'America/New_York'];
+      if (formData.timezone && !supportedTimezones.includes(formData.timezone)) errors.push(`Fuso orario non valido (${formData.timezone}).`);
+      if (errors.length > 0) return { success: false, error: '❌ ' + errors.join(' ') };
+
+      const fields = ['notify_new_campaigns', 'notify_campaign_results', 'notify_report_weekly', 'notify_new_contacts', 'name', 'email', 'language', 'timezone'];
+      const updateData = {};
+      fields.forEach((key) => {
+        const newValue = formData[key];
+        const oldValue = currentProfile[key];
+        if (newValue !== undefined && newValue !== oldValue) updateData[key] = newValue;
+      });
+
+      if (Object.keys(updateData).length === 0) return { success: true, message: 'ℹ️ Nessuna modifica da salvare' };
 
       const { data, error } = await supabase
         .from('user_settings')
-        .update({ language })
-        .eq('user_id', user.id)
+        .update(updateData)
+        .eq('user_id', currentUser.id)
         .select()
         .single();
 
       if (error) throw error;
+      setProfile(data);
+      return { success: true, message: '✅ Profilo aggiornato con successo!' };
+    } catch (error) {
+      console.error('❌ Errore nel salvataggio profilo:', error);
+      return { success: false, error: '❌ ' + (error.message || 'Errore generico nel salvataggio') };
+    } finally {
+      setSaving(false);
+    }
+  };
 
+  // ✅ Salva Lingua
+  const saveLanguage = async (language) => {
+    try {
+      setSaving(true);
+      const currentUser = await getCurrentUser();
+
+      const { data, error } = await supabase
+        .from('user_settings')
+        .update({ language })
+        .eq('user_id', currentUser.id)
+        .select()
+        .single();
+
+      if (error) throw error;
       setProfile(data);
       return { success: true, message: '✅ Lingua salvata con successo!' };
     } catch (error) {
@@ -256,10 +197,7 @@ export const useProfile = () => {
   const saveDateTimeFormat = async (formatData) => {
     try {
       setSaving(true);
-
-      if (!user || !user.id) {
-        throw new Error('Utente non autenticato');
-      }
+      const currentUser = await getCurrentUser();
 
       const { data, error } = await supabase
         .from('user_settings')
@@ -267,12 +205,11 @@ export const useProfile = () => {
           date_format: formatData.date_format,
           time_format: formatData.time_format,
         })
-        .eq('user_id', user.id)
+        .eq('user_id', currentUser.id)
         .select()
         .single();
 
       if (error) throw error;
-
       setProfile(data);
       return { success: true, message: '✅ Formato data/ora salvato con successo!' };
     } catch (error) {
@@ -287,20 +224,16 @@ export const useProfile = () => {
   const savePrivacy = async (acceptOffers) => {
     try {
       setSaving(true);
-
-      if (!user || !user.id) {
-        throw new Error('Utente non autenticato');
-      }
+      const currentUser = await getCurrentUser();
 
       const { data, error } = await supabase
         .from('user_settings')
         .update({ accept_offers: acceptOffers })
-        .eq('user_id', user.id)
+        .eq('user_id', currentUser.id)
         .select()
         .single();
 
       if (error) throw error;
-
       setProfile(data);
       return { success: true, message: '✅ Preferenze privacy salvate!' };
     } catch (error) {
@@ -315,26 +248,16 @@ export const useProfile = () => {
   const changePassword = async (currentPassword, newPassword) => {
     try {
       setSaving(true);
+      const currentUser = await getCurrentUser();
 
-      if (!user || !user.email) {
-        throw new Error('Utente non autenticato');
-      }
-
-      // Verifica la password attuale
       const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: user.email,
+        email: currentUser.email,
         password: currentPassword,
       });
 
-      if (signInError) {
-        return { success: false, error: '❌ Password attuale non corretta' };
-      }
+      if (signInError) return { success: false, error: '❌ Password attuale non corretta' };
 
-      // Aggiorna la password
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
-
+      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
       if (updateError) throw updateError;
 
       return { success: true, message: '✅ Password aggiornata con successo!' };
@@ -350,10 +273,7 @@ export const useProfile = () => {
   const saveSystemSettings = async (settingsData) => {
     try {
       setSaving(true);
-
-      if (!user || !user.id) {
-        throw new Error('Utente non autenticato');
-      }
+      const currentUser = await getCurrentUser();
 
       const { data, error } = await supabase
         .from('user_settings')
@@ -364,12 +284,11 @@ export const useProfile = () => {
           two_factor_enabled: settingsData.two_factor_enabled,
           auto_login: settingsData.auto_login,
         })
-        .eq('user_id', user.id)
+        .eq('user_id', currentUser.id)
         .select()
         .single();
 
       if (error) throw error;
-
       setProfile(data);
       return { success: true, message: '✅ Impostazioni sistema salvate!' };
     } catch (error) {

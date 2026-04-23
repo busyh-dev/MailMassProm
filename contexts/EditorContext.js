@@ -14,13 +14,7 @@ export const EditorProvider = ({ children }) => {
 
   // 💾 Salva in sessionStorage
   useEffect(() => {
-    console.log('💾 EditorContext Save:', { showSectionEditor, hasData: !!editingSectionData, isRestoring });
-    
-    if (isRestoring) {
-      console.log('⏸️ Skipping save during restore');
-      return;
-    }
-    
+    if (isRestoring) return;
     if (showSectionEditor && editingSectionData) {
       const stateToSave = {
         showSectionEditor: true,
@@ -29,108 +23,60 @@ export const EditorProvider = ({ children }) => {
         timestamp: Date.now()
       };
       sessionStorage.setItem('emailEditorState', JSON.stringify(stateToSave));
-      console.log('✅ EditorContext: State saved to sessionStorage');
     }
   }, [showSectionEditor, editingSectionData, columnStyles, isRestoring]);
 
-// 🔄 Ripristina da sessionStorage
-useEffect(() => {
-    console.log('🔄 EditorContext: Initializing...');
-    
+  // 🔄 Ripristina da sessionStorage — SOLO al mount
+  useEffect(() => {
     const restoreState = () => {
-      // ⚠️ Non ripristinare se è già stato fatto
-      if (hasRestoredRef.current) {
-        console.log('⏸️ Already restored in this session');
-        return;
-      }
-      
-      // ⚠️ Non ripristinare se l'editor è già aperto
-      if (showSectionEditor) {
-        console.log('⏸️ Editor already open');
-        return;
-      }
-      
-      console.log('🔍 Checking for saved state...');
+      if (hasRestoredRef.current) return;
+      if (showSectionEditor) return;
+
       const savedState = sessionStorage.getItem('emailEditorState');
-      
-      if (savedState) {
-        try {
-          const parsed = JSON.parse(savedState);
-          console.log('📦 Found saved state:', parsed);
-          
-          const oneHour = 60 * 60 * 1000;
-          if (Date.now() - parsed.timestamp < oneHour) {
-            console.log('✅ Restoring editor state...');
-            
-            setIsRestoring(true);
-            
+      if (!savedState) return;
+
+      try {
+        const parsed = JSON.parse(savedState);
+        const oneHour = 60 * 60 * 1000;
+
+        if (Date.now() - parsed.timestamp < oneHour) {
+          setIsRestoring(true);
+
+          setTimeout(() => {
+            setShowSectionEditor(true);
+            setEditingSectionData(parsed.editingSectionData);
+            setColumnStyles(parsed.columnStyles || {});
+            hasRestoredRef.current = true;
+
+            // ✅ Sblocca solo isRestoring, NON chiudere nulla
             setTimeout(() => {
-              setShowSectionEditor(true);
-              setEditingSectionData(parsed.editingSectionData);
-              setColumnStyles(parsed.columnStyles || {});
-              hasRestoredRef.current = true;
-              
-              setTimeout(() => {
-                setIsRestoring(false);
-                console.log('🔓 Restore complete');
-              }, 2000);
-              
-              if (!isPageLoadRef.current) {
-                toast.success('📝 Editor ripristinato', { duration: 2000 });
-              }
-            }, 300);
-            
-          } else {
-            console.log('⏰ Saved state expired');
-            sessionStorage.removeItem('emailEditorState');
-          }
-        } catch (e) {
-          console.error('❌ Error restoring state:', e);
+              setIsRestoring(false);
+            }, 500);
+
+            if (!isPageLoadRef.current) {
+              toast.success('📝 Editor ripristinato', { duration: 2000 });
+            }
+          }, 300);
+
+        } else {
           sessionStorage.removeItem('emailEditorState');
         }
-      } else {
-        console.log('❌ No saved state found');
+      } catch (e) {
+        console.error('❌ Error restoring state:', e);
+        sessionStorage.removeItem('emailEditorState');
       }
     };
-  
-    // Ripristina al mount
+
     restoreState();
-    
-    // Segna che non è più il primo caricamento
+
     setTimeout(() => {
       isPageLoadRef.current = false;
     }, 1500);
-    
-    // ✅ AGGIUNGI GLI EVENT LISTENER
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        console.log('👁️ Tab became visible');
-        // Reset del flag per permettere il restore
-        if (!showSectionEditor) {
-          console.log('🔄 Editor closed, attempting restore...');
-          hasRestoredRef.current = false;
-          restoreState();
-        }
-      }
-    };
-  
-    const handleFocus = () => {
-      console.log('👁️ Window focused');
-      if (!showSectionEditor) {
-        console.log('🔄 Editor closed, attempting restore...');
-        hasRestoredRef.current = false;
-        restoreState();
-      }
-    };
-  
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
-  
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, [showSectionEditor]); // ⚠️ IMPORTANTE: aggiungi showSectionEditor come dipendenza
+
+    // ✅ NESSUN handleFocus / handleVisibilityChange
+    // erano la causa del reset di campaignMode ad ogni click su contentEditable
+
+  }, []); // ✅ solo al mount
 
   const closeEditor = () => {
     setShowSectionEditor(false);
@@ -138,7 +84,6 @@ useEffect(() => {
     setColumnStyles({});
     setIsRestoring(false);
     sessionStorage.removeItem('emailEditorState');
-    console.log('🗑️ Editor closed and state cleared');
   };
 
   return (

@@ -24,7 +24,7 @@ const useAnimatedUnmount = (isMounted, delay = 250) => {
 };
 
 /* ----------------------- MODALE MODIFICA CAMPAGNA ----------------------- */
-export const EditCampaignModal = ({ campaign, onClose, onSave, contacts = [] }) => {
+export const EditCampaignModal = ({ campaign, onClose, onSave, loadNotifications, contacts = [] }) => {
   const [campaignName, setCampaignName] = useState(campaign.name || "");
   const [showLoadMessage, setShowLoadMessage] = useState(false);
   const [subject, setSubject] = useState(campaign.subject || "");

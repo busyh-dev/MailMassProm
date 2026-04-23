@@ -871,7 +871,7 @@ const EmailPlatform = () => {
     profile, 
     loading: permissionsLoading  // 👈 Rinominato
   } = usePermissions();
-
+  const [notifications, setNotifications] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [contactsLoading, setContactsLoading] = useState(false);
   const [registerMessage, setRegisterMessage] = useState(null);
@@ -879,6 +879,28 @@ const EmailPlatform = () => {
 const [emailLogsLoading, setEmailLogsLoading] = useState(false);
 const [currentUserProfile, setCurrentUserProfile] = useState(null);
 const profileLoadedRef = useRef(false);
+const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+const [showTermsModal, setShowTermsModal] = useState(false);
+const [showCookieModal, setShowCookieModal] = useState(false);
+const heroTitleRef = useRef(null);
+const heroSubtitleRef = useRef(null);
+const isEditingHeroTitleRef = useRef(false);
+const isEditingHeroSubtitleRef = useRef(false);
+const [heroTitleFormats, setHeroTitleFormats] = useState({});
+const [heroSubtitleFormats, setHeroSubtitleFormats] = useState({});
+const imgTextTitleRef = useRef(null);
+const imgTextParaRef = useRef(null);
+const isEditingImgTextTitleRef = useRef(false);
+const isEditingImgTextParaRef = useRef(false);
+const [imgTextTitleFormats, setImgTextTitleFormats] = useState({});
+const [imgTextParaFormats, setImgTextParaFormats] = useState({});
+// In cima al componente
+const [cookiePrefs, setCookiePrefs] = useState(() => {
+  try {
+    const saved = localStorage.getItem('cookie_preferences');
+    return saved ? JSON.parse(saved) : { analytics: true, marketing: false };
+  } catch { return { analytics: true, marketing: false }; }
+});
 // ✅ Aggiungi questa riga dopo gli stati
 // ✅ SOSTITUISCI displayUser con questo
 const displayUser = user || {
@@ -958,6 +980,58 @@ useEffect(() => {
 
   loadProfile();
 }, [user?.id]);
+
+const loadNotifications = useCallback(async () => {
+  if (!user?.id) return;
+
+  // Controlla se è admin
+  const { data: profileData } = await supabase
+    .from('profiles')
+    .select('role:roles(name)')
+    .eq('id', user.id)
+    .single();
+
+  const isAdminUser = ['admin', 'super_admin'].includes(profileData?.role?.name);
+
+  let query = supabase
+    .from('notifications')
+    .select('*')  // ← rimuovi il join profiles
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (!isAdminUser) {
+    query = query.eq('user_id', user.id);
+  }
+
+  const { data, error } = await query;
+  
+  if (error) {
+    console.warn('⚠️ Errore loadNotifications:', error.message);
+    return;
+  }
+
+  // Se admin, carica i profili separatamente
+  if (isAdminUser && data?.length > 0) {
+    const userIds = [...new Set(data.map(n => n.user_id))];
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, full_name, email')
+      .in('id', userIds);
+
+    const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p]));
+    const enriched = data.map(n => ({
+      ...n,
+      profiles: profileMap[n.user_id] || null,
+    }));
+    setNotifications(enriched);
+  } else {
+    setNotifications(data || []);
+  }
+}, [user?.id]);
+
+useEffect(() => {
+  loadNotifications();
+}, [loadNotifications]);
 
 useEffect(() => {
   if (!user?.id) return;
@@ -1324,8 +1398,6 @@ useEffect(() => {
   loadData();
 }, []);
 
-
-
 // Fetch Tipologia Canale
 const fetchTipologiaCanale = async () => {
   try {
@@ -1665,14 +1737,12 @@ useEffect(() => {
 const fetchApprovedUsers = async () => {
   setLoadingUsers(true);
   try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) {
+      setLoadingUsers(false);
+      return;
+    }
 
-     // ✅ Usa getSession invece di user?.id
-     const { data: { session } } = await supabase.auth.getSession();
-     if (!session?.user) {
-       setLoadingUsers(false);
-       return;
-     }
-     
     const { data, error } = await supabase
       .from('profiles')
       .select(`
@@ -1687,7 +1757,27 @@ const fetchApprovedUsers = async () => {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    setApprovedUsers(data || []);
+
+    // ✅ Carica user_settings per ogni utente
+    const userIds = (data || []).map(u => u.id);
+    const { data: settings } = await supabase
+      .from('user_settings')
+      .select('user_id, notify_campaign_created, notify_campaign_updated, notify_campaign_deleted, notify_contact_created, notify_contact_updated, notify_contact_deleted')
+      .in('user_id', userIds);
+
+    // ✅ Merge profili con settings
+    const settingsMap = Object.fromEntries(
+      (settings || []).map(s => [s.user_id, s])
+    );
+
+    const merged = (data || []).map(u => ({
+      ...u,
+      ...settingsMap[u.id],
+    }));
+    console.log('🔍 settings:', settings);
+    console.log('🔍 settingsMap:', settingsMap);
+    console.log('🔍 merged[0]:', merged[0]);
+    setApprovedUsers(merged);
   } catch (error) {
     console.error('❌ Errore caricamento utenti approvati:', error);
     toast.error('Errore nel caricamento degli utenti approvati');
@@ -1695,7 +1785,6 @@ const fetchApprovedUsers = async () => {
     setLoadingUsers(false);
   }
 };
-
 
 // const fetchRoles = async () => {
 //   try {
@@ -2493,7 +2582,7 @@ useEffect(() => {
   const [showNotificationDropdown, setShowNotificationDropdown] = useState(false);
   
   // Stato nel componente principale (se non c'è già)
-  const [unreadNotifications, setUnreadNotifications] = useState(3); // esempio
+  const unreadNotifications = notifications.filter(n => !n.read).length;
    const [showAllNotificationsModal, setShowAllNotificationsModal] = useState(false);
   const [filter, setFilter] = useState('tutte');  
   // const [contacts, setContacts] = useState([]);
@@ -2517,20 +2606,7 @@ const toggleSelect = (id) => {
     throw error;
     },
     };
-  const notifications = [
-    {
-      id: 1,
-      title: "Nuova campagna creata",
-      date: "25/09/2025",
-      description: "La campagna 'Promo Autunno' è stata avviata con successo.", read: false
-    },
-    {
-      id: 2,
-      title: "Risposta ricevuta",
-      date: "24/09/2025",
-      description: "Un contatto ha risposto alla tua ultima email.", read: false
-    },
-  ];
+
 
 // Aggiungi questa funzione nel componente EmailPlatform
 const exportResendLog = (format = "csv", autoDownload = false) => {
@@ -5050,6 +5126,7 @@ const Campaigns = ({
   saveCampaignProp: saveCampaign,
   updateCampaignAfterSendProp: updateCampaignAfterSend,
   getCampaignProp: getCampaign,
+  loadNotifications,
 }) => {
   const { user } = useAuth(); // ✅ AGGIUNGI QUESTA RIGA
   useEffect(() => {
@@ -5711,6 +5788,24 @@ setTimeout(() => {
       const { success, error } = await deleteCampaignDB(campaignId);
       if (success) {
         setDeleteStatus("success");
+  
+        // ✅ Notifica cancellazione campagna
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          const campaignName = campaigns.find(c => c.id === campaignId)?.campaign_name || 'Sconosciuta';
+          await supabase.from('notifications').insert({
+            user_id: user.id,
+            title: `🗑️ Campagna "${campaignName}" eliminata`,
+            description: `La campagna è stata eliminata definitivamente`,
+            type: 'warning',
+            read: false,
+            visible_to: 'all',
+          });
+          if (loadNotifications) loadNotifications();
+        } catch (notifError) {
+          console.warn('⚠️ Notifica fallita:', notifError.message);
+        }
+  
         setShowDeleteToast(true);
         await loadCampaigns();
         setTimeout(() => {
@@ -5727,7 +5822,7 @@ setTimeout(() => {
     } catch (err) {
       console.error(err);
       setDeleteStatus("idle");
-      setToastMessage("❌ Errore imprevisto durante l’eliminazione");
+      setToastMessage("❌ Errore imprevisto durante l'eliminazione");
       setShowToast(true);
       setTimeout(() => setShowToast(false), 3000);
     }
@@ -6764,6 +6859,7 @@ setTimeout(() => {
   <div style={{ position: 'fixed', zIndex: 9999 }}> {/* ✅ z-index altissimo */}
   <EditCampaignModal
     campaign={selectedCampaign}
+    loadNotifications={loadNotifications}
     contacts={contacts}
     onClose={() => {
       console.log('🔴 Closing EditCampaignModal');
@@ -6837,6 +6933,7 @@ setTimeout(() => {
   setShowCampaignModal={setShowCampaignModal}
   campaignMode={campaignMode}
   setCampaignMode={setCampaignMode}
+  loadNotifications={loadNotifications}  // ← AGGIUNGI
   contacts={contacts}
   onSaveDraft={() => {}}
   setActiveTab={setActiveTab}
@@ -9558,6 +9655,7 @@ const Contacts = ({
   coperturaCanaleProp,
   testateProp,
   contactLabelsProp,
+  loadNotifications,
 }) => {
   const { user } = useAuth(); // 👈 importa dal contesto auth
   const hasLoadedRef = useRef(false);
@@ -10074,14 +10172,44 @@ const cancelDeactivate = () => {
 // ➕ Aggiunta contatto
 const handleAddContact = (newContact) => {
   setContacts((prev) => [...prev, newContact]);
+
+  // ✅ Notifica
+  try {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      supabase.from('notifications').insert({
+        user_id: user.id,
+        title: `👤 Nuovo contatto aggiunto`,
+        description: `${newContact.name} (${newContact.email})`,
+        type: 'info',
+        read: false,
+        visible_to: 'all',
+      }).then(() => { if (loadNotifications) loadNotifications(); });
+    });
+  } catch (notifError) {
+    console.warn('⚠️ Notifica fallita:', notifError.message);
+  }
 };
 
 
 const handleEditContact = (updatedContact) => {
-  // ✅ Il salvataggio è già fatto da handleSave in EditContactModal
-  // Aggiorna solo la lista locale
   if (updatedContact) {
     setContacts(prev => prev.map(c => c.id === updatedContact.id ? updatedContact : c));
+
+    // ✅ Notifica
+    try {
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        supabase.from('notifications').insert({
+          user_id: user.id,
+          title: `✏️ Contatto "${updatedContact.name}" modificato`,
+          description: `Email: ${updatedContact.email}`,
+          type: 'info',
+          read: false,
+          visible_to: 'all',
+        }).then(() => { if (loadNotifications) loadNotifications(); });
+      });
+    } catch (notifError) {
+      console.warn('⚠️ Notifica fallita:', notifError.message);
+    }
   }
   setShowEditModal(false);
   setSelectedContact(null);
@@ -10100,6 +10228,23 @@ const handleConfirmDelete = async () => {
 
     setContacts(prev => prev.filter(c => c.id !== selectedContact.id));
     toast.success("🗑️ Contatto eliminato definitivamente!");
+
+    // ✅ Notifica
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      await supabase.from('notifications').insert({
+        user_id: user.id,
+        title: `🗑️ Contatto "${selectedContact.name}" eliminato`,
+        description: `Email: ${selectedContact.email}`,
+        type: 'warning',
+        read: false,
+        visible_to: 'all',
+      });
+      if (loadNotifications) loadNotifications();
+    } catch (notifError) {
+      console.warn('⚠️ Notifica fallita:', notifError.message);
+    }
+
   } catch (error) {
     toast.error('Errore durante l\'eliminazione');
   } finally {
@@ -11160,65 +11305,46 @@ useEffect(() => {
   }
 }, [showSectionEditor, editingSectionData, columnStyles, isRestoring]);
 
-// Modifica l'useEffect di ripristino
 useEffect(() => {
   console.log('🔄 Restore effect: Component mounted');
   
   const restoreState = () => {
-    if (hasRestoredRef.current) {
-      console.log('⏸️ Già ripristinato in questa sessione');
-      return;
-    }
+    if (hasRestoredRef.current) return;
+    if (showSectionEditor) return;
     
-    if (showSectionEditor) {
-      console.log('⏸️ Editor già aperto, skip restore');
-      return;
-    }
-    
-    console.log('🔍 Checking for saved state...');
     const savedState = sessionStorage.getItem('emailEditorState');
+    if (!savedState) return;
     
-    if (savedState) {
-      try {
-        const parsed = JSON.parse(savedState);
-        console.log('📦 Parsed state:', parsed);
+    try {
+      const parsed = JSON.parse(savedState);
+      const oneHour = 60 * 60 * 1000;
+      
+      if (Date.now() - parsed.timestamp < oneHour) {
+        setIsRestoring(true);
         
-        const oneHour = 60 * 60 * 1000;
-        if (Date.now() - parsed.timestamp < oneHour) {
-          console.log('✅ Restoring state...');
+        setTimeout(() => {
+          setShowSectionEditor(true);
+          setEditingSectionData(parsed.editingSectionData);
+          setColumnStyles(parsed.columnStyles || {});
+          hasRestoredRef.current = true;
           
-          // 🔥 BLOCCA TUTTO per 3 secondi
-          setIsRestoring(true);
-          
-          // 🔥 Usa setTimeout per dare tempo al componente di stabilizzarsi
+          // ✅ Sblocca solo isRestoring, NON chiudere l'editor
           setTimeout(() => {
-            setShowSectionEditor(true);
-            setEditingSectionData(parsed.editingSectionData);
-            setColumnStyles(parsed.columnStyles || {});
-            
-            hasRestoredRef.current = true;
-            
-            // 🔥 Sblocca dopo 3 secondi
-            setTimeout(() => {
-              // setIsRestoring(false);
-              closeEditor();
-              console.log('🔓 Restore complete - unlocking after 3 seconds');
-            }, 3000); // ← 3 secondi di blocco
-            
-            if (!isPageLoadRef.current) {
-              toast.success('📝 Editor ripristinato', { duration: 2000 });
-            }
-          }, 500); // ← Delay iniziale di 500ms
+            setIsRestoring(false);
+          }, 500);
           
-        } else {
-          // sessionStorage.removeItem('emailEditorState');
-          closeEditor();
-        }
-      } catch (e) {
-        console.error('❌ Error parsing state:', e);
-        // sessionStorage.removeItem('emailEditorState');
-        closeEditor();
+          if (!isPageLoadRef.current) {
+            toast.success('📝 Editor ripristinato', { duration: 2000 });
+          }
+        }, 500);
+        
+      } else {
+        // Stato scaduto: pulisci solo il sessionStorage
+        sessionStorage.removeItem('emailEditorState');
       }
+    } catch (e) {
+      console.error('❌ Error parsing state:', e);
+      sessionStorage.removeItem('emailEditorState');
     }
   };
 
@@ -11715,7 +11841,8 @@ const CampaignModal = ({
   editingCampaign, // ✅ Nuova prop
   skipModeSelection, // ✅ Ricevi la prop
   onCloseBuilder, // ✅ Assicurati che sia qui
-  setActiveTab
+  setActiveTab,
+  loadNotifications  // ← AGGIUNGI
 }) => {
 
  // 🔥 EARLY RETURN PRIMA DI QUALSIASI HOOK
@@ -11741,8 +11868,68 @@ const CampaignModal = ({
     isRestoring,
     closeEditor
   } = useEditorState();
-
-
+  const titleEditorRef = useRef(null);
+  const subtitleEditorRef = useRef(null);
+  const isEditingTitleRef = useRef(false);
+  const isEditingSubtitleRef = useRef(false);
+  const [titleActiveFormats, setTitleActiveFormats] = useState({});
+  const [subtitleActiveFormats, setSubtitleActiveFormats] = useState({});
+  const savedSelectionRef = useRef(null);
+  const genericTitleRef = useRef(null);
+const genericParaRef = useRef(null);
+const [genericTitleFormats, setGenericTitleFormats] = useState({});
+const [genericParaFormats, setGenericParaFormats] = useState({});
+const col1TitleRef = useRef(null);
+const col1ParaRef = useRef(null);
+const col2TitleRef = useRef(null);
+const col2ParaRef = useRef(null);
+const [col1TitleFormats, setCol1TitleFormats] = useState({});
+const [col1ParaFormats, setCol1ParaFormats] = useState({});
+const [col2TitleFormats, setCol2TitleFormats] = useState({});
+const [col2ParaFormats, setCol2ParaFormats] = useState({});
+const col3TitleRef = useRef(null);
+const col3ParaRef = useRef(null);
+const [gradientColor1, setGradientColor1] = useState('#f093fb');
+const [gradientColor2, setGradientColor2] = useState('#f5576c');
+const [col3TitleFormats, setCol3TitleFormats] = useState({});
+const testimonialQuoteRef = useRef(null);
+const testimonialAuthorRef = useRef(null);
+const isEditingTestimonialQuoteRef = useRef(false);
+const isEditingTestimonialAuthorRef = useRef(false);
+const [testimonialQuoteFormats, setTestimonialQuoteFormats] = useState({});
+const [testimonialAuthorFormats, setTestimonialAuthorFormats] = useState({});
+const textTitleRef = useRef(null);
+const textParaRef = useRef(null);
+const isEditingTextTitleRef = useRef(false);
+const isEditingTextParaRef = useRef(false);
+const [textTitleFormats, setTextTitleFormats] = useState({});
+const [textParaFormats, setTextParaFormats] = useState({});
+const [col3ParaFormats, setCol3ParaFormats] = useState({});
+  const saveSelection = () => {
+    const sel = window.getSelection();
+    if (sel.rangeCount > 0) {
+      savedSelectionRef.current = sel.getRangeAt(0).cloneRange();
+    }
+  };
+  
+  const restoreSelection = () => {
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    if (savedSelectionRef.current) {
+      sel.addRange(savedSelectionRef.current);
+    }
+  };
+  
+  const updateActiveFormats = (editorId, setter) => {
+    const el = document.getElementById(editorId);
+    if (!el) return;
+    setter({
+      bold: document.queryCommandState('bold'),
+      italic: document.queryCommandState('italic'),
+      underline: document.queryCommandState('underline'),
+      strikeThrough: document.queryCommandState('strikeThrough'),
+    });
+  };
   // ✅ AGGIUNGI QUI - Helper functions per sessionStorage
 const compressBlocksForStorage = (blocks) => {
   return blocks.map(block => ({
@@ -11779,6 +11966,8 @@ const safeSessionSet = (key, value) => {
     }
   }
 };
+
+
 
   useEffect(() => {
     // CASO 1: Se stiamo modificando una campagna tramite editingCampaign prop
@@ -11889,6 +12078,100 @@ const parseHeroContent = () => {
     buttonLink: wrapper.querySelector("a")?.getAttribute("href") || "",
   };
 };
+// 1️⃣ Solo per header
+useEffect(() => {
+  if (!editingSingleBlock || editingSingleBlock.id !== 'header') return;
+
+  if (!isEditingTitleRef.current && titleEditorRef.current) {
+    const w = document.createElement('div');
+    w.innerHTML = editingSingleBlock.html;
+    titleEditorRef.current.innerHTML = w.querySelector('h1')?.innerHTML || '';
+  }
+
+  if (!isEditingSubtitleRef.current && subtitleEditorRef.current) {
+    const w = document.createElement('div');
+    w.innerHTML = editingSingleBlock.html;
+    subtitleEditorRef.current.innerHTML = w.querySelector('p')?.innerHTML || '';
+  }
+}, [editingSingleBlock?.id]);
+
+// 2️⃣ Per tutti gli altri tipi di blocco
+useEffect(() => {
+  if (!editingSingleBlock) return;
+
+  if (editingSingleBlock.id === 'section-2col') {
+    const w = document.createElement('div');
+    w.innerHTML = editingSingleBlock.html;
+    const h3s = w.querySelectorAll('h3');
+    const ps = w.querySelectorAll('p');
+    if (col1TitleRef.current && h3s[0]) col1TitleRef.current.innerHTML = h3s[0].innerHTML;
+    if (col1ParaRef.current && ps[0]) col1ParaRef.current.innerHTML = ps[0].innerHTML;
+    if (col2TitleRef.current && h3s[1]) col2TitleRef.current.innerHTML = h3s[1].innerHTML;
+    if (col2ParaRef.current && ps[1]) col2ParaRef.current.innerHTML = ps[1].innerHTML;
+  }
+
+  if (editingSingleBlock.id === 'text') {
+    const w = document.createElement('div');
+    w.innerHTML = editingSingleBlock.html;
+    if (!isEditingTextTitleRef.current && textTitleRef.current)
+      textTitleRef.current.innerHTML = w.querySelector('h3')?.innerHTML || '';
+    if (!isEditingTextParaRef.current && textParaRef.current)
+      textParaRef.current.innerHTML = w.querySelector('p')?.innerHTML || '';
+  }
+
+  if (editingSingleBlock.id === 'section-3col') {
+    const w = document.createElement('div');
+    w.innerHTML = editingSingleBlock.html;
+    const h4s = w.querySelectorAll('h4');
+    const ps = w.querySelectorAll('p');
+    if (col1TitleRef.current && h4s[0]) col1TitleRef.current.innerHTML = h4s[0].innerHTML;
+    if (col1ParaRef.current && ps[0]) col1ParaRef.current.innerHTML = ps[0].innerHTML;
+    if (col2TitleRef.current && h4s[1]) col2TitleRef.current.innerHTML = h4s[1].innerHTML;
+    if (col2ParaRef.current && ps[1]) col2ParaRef.current.innerHTML = ps[1].innerHTML;
+    if (col3TitleRef.current && h4s[2]) col3TitleRef.current.innerHTML = h4s[2].innerHTML;
+    if (col3ParaRef.current && ps[2]) col3ParaRef.current.innerHTML = ps[2].innerHTML;
+  }
+
+  if (editingSingleBlock.id === 'section-testimonial') {
+    const w = document.createElement('div');
+    w.innerHTML = editingSingleBlock.html;
+    const ps = w.querySelectorAll('p');
+    if (!isEditingTestimonialQuoteRef.current && testimonialQuoteRef.current)
+      testimonialQuoteRef.current.innerHTML = ps[0]?.innerHTML || '';
+    if (!isEditingTestimonialAuthorRef.current && testimonialAuthorRef.current)
+      testimonialAuthorRef.current.innerHTML = ps[1]?.innerHTML || '';
+  }
+
+  if (editingSingleBlock.id === 'section-hero') {
+    const w = document.createElement('div');
+    w.innerHTML = editingSingleBlock.html;
+    if (!isEditingHeroTitleRef.current && heroTitleRef.current)
+      heroTitleRef.current.innerHTML = w.querySelector('h1')?.innerHTML || '';
+    if (!isEditingHeroSubtitleRef.current && heroSubtitleRef.current)
+      heroSubtitleRef.current.innerHTML = w.querySelector('p')?.innerHTML || '';
+  }
+
+  if (editingSingleBlock.id === 'section-imgtext' || editingSingleBlock.id === 'section-textimg') {
+    const w = document.createElement('div');
+    w.innerHTML = editingSingleBlock.html;
+    if (!isEditingImgTextTitleRef.current && imgTextTitleRef.current)
+      imgTextTitleRef.current.innerHTML = w.querySelector('h3')?.innerHTML || '';
+    if (!isEditingImgTextParaRef.current && imgTextParaRef.current)
+      imgTextParaRef.current.innerHTML = w.querySelector('p')?.innerHTML || '';
+  }
+
+  // Generico — tutti i blocchi non gestiti sopra
+  if (!['header','section-hero','section-imgtext','section-textimg','section-2col','section-3col','section-testimonial','text'].includes(editingSingleBlock.id)) {
+    const w = document.createElement('div');
+    w.innerHTML = editingSingleBlock.html;
+    if (genericTitleRef.current)
+      genericTitleRef.current.innerHTML = w.querySelector('h1,h2,h3,h4,h5,h6')?.innerHTML || '';
+    if (genericParaRef.current)
+      genericParaRef.current.innerHTML = w.querySelector('p')?.innerHTML || '';
+  }
+
+}, [editingSingleBlock?.id]); // ← dipendenza solo sull'id
+
 
 useEffect(() => {
   const editingId = sessionStorage.getItem('editingCampaignId');
@@ -12754,7 +13037,7 @@ const contentBlocks = [
               <td width="60%" style="padding-right:20px; vertical-align:middle;">
                 <h3 style="margin:0 0 15px; color:#333333; font-size:24px; font-weight:600;">Scopri di Più</h3>
                 <p style="margin:0 0 20px; color:#666666; line-height:1.6; font-size:15px;">Questo layout permette di dare più spazio al testo mantenendo l'equilibrio visivo con l'immagine sulla destra.</p>
-                <a href="#" style="display:inline-block; background:#667eea; color:#ffffff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600;">Scopri</a>
+                <a href="#" style="display:inline-block; background:#667eea; color:#ffffff; paddinrecensione del prodg:12px 28px; border-radius:6px; text-decoration:none; font-weight:600;">Scopri</a>
               </td>
               <td width="40%" style="padding-left:20px; vertical-align:middle;">
                 <img src=https://placehold.co/240x240/667eea/ffffff?text=Immagine" style="width:100%; max-width:240px; border-radius:8px; display:block; box-shadow:0 4px 12px rgba(0,0,0,0.1);" alt="Visual">
@@ -13137,36 +13420,6 @@ const filteredTemplates = useMemo(() => {
   });
 }, [templates, templateCategory, templateSearch]);
 
-const parseCTAContent = () => {
-  const wrapper = document.createElement("div");
-  wrapper.innerHTML = editingSingleBlock.html;
-
-  return {
-    title: wrapper.querySelector("h2")?.textContent || "",
-    subtitle: wrapper.querySelector("p")?.textContent || "",
-    buttonText: wrapper.querySelector("a")?.textContent || "",
-    buttonLink: wrapper.querySelector("a")?.getAttribute("href") || "#",
-  };
-};
-
-const updateCTAContent = (prop, value) => {
-  const wrapper = document.createElement("div");
-  wrapper.innerHTML = editingSingleBlock.html;
-
-  const h2 = wrapper.querySelector("h2");
-  const p = wrapper.querySelector("p");
-  const a = wrapper.querySelector("a");
-
-  if (prop === "title" && h2) h2.textContent = value;
-  if (prop === "subtitle" && p) p.textContent = value;
-  if (prop === "buttonText" && a) a.textContent = value;
-  if (prop === "buttonLink" && a) a.setAttribute("href", value);
-
-  setEditingSingleBlock({
-    ...editingSingleBlock,
-    html: wrapper.innerHTML
-  });
-};
 
 // ✨ Toolbar testo fluttuante
 const [showTextToolbar, setShowTextToolbar] = useState(false);
@@ -13418,7 +13671,73 @@ const saveCustomBlock = (block) => {
       html: wrapper.innerHTML
     });
   };
-  
+  // ✅ POSIZIONE CORRETTA: dopo updateTestimonialContent, prima di handleDragStart
+
+const parseCTAContent = () => {
+  const w = document.createElement('div');
+  w.innerHTML = editingSingleBlock?.html || '';
+  return {
+    title: w.querySelector('h2')?.textContent || '',
+    subtitle: w.querySelector('p')?.textContent || '',
+    buttonText: w.querySelector('a')?.textContent || '',
+    buttonLink: w.querySelector('a')?.getAttribute('href') || '#',
+  };
+};
+
+const updateCTAContent = (field, value) => {
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = editingSingleBlock.html;
+  if (field === 'title') { const h2 = wrapper.querySelector('h2'); if (h2) h2.textContent = value; }
+  if (field === 'subtitle') { const p = wrapper.querySelector('p'); if (p) p.textContent = value; }
+  if (field === 'buttonText') { const a = wrapper.querySelector('a'); if (a) a.textContent = value; }
+  if (field === 'buttonLink') { const a = wrapper.querySelector('a'); if (a) a.setAttribute('href', value); }
+  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+};
+
+const updateCTAColor = (field, value) => {
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = editingSingleBlock.html;
+  if (field === 'titleColor') { const h2 = wrapper.querySelector('h2'); if (h2) h2.style.color = value; }
+  if (field === 'subtitleColor') { const p = wrapper.querySelector('p'); if (p) p.style.color = value; }
+  if (field === 'buttonTextColor') { const a = wrapper.querySelector('a'); if (a) a.style.color = value; }
+  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+};
+
+const updateCTAGradient = (c1, c2) => {
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = editingSingleBlock.html;
+  const table = wrapper.querySelector('table');
+  if (table) table.style.background = `linear-gradient(135deg, ${c1}, ${c2})`;
+  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+};
+
+const updateCTAGradientAdvanced = ({ angle, color1, color2 }) => {
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = editingSingleBlock.html;
+  const table = wrapper.querySelector('table');
+  if (table) table.style.background = `linear-gradient(${angle}deg, ${color1}, ${color2})`;
+  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+};
+
+const updateCTAButtonStyle = (field, value) => {
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = editingSingleBlock.html;
+  const a = wrapper.querySelector('a');
+  if (!a) return;
+  if (field === 'bg') a.style.background = value;
+  if (field === 'radius') a.style.borderRadius = `${value}px`;
+  if (field === 'shadow') a.style.boxShadow = value ? '0 6px 20px rgba(0,0,0,0.15)' : 'none';
+  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+};
+
+const updateCTAFontSize = (field, value) => {
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = editingSingleBlock.html;
+  if (field === 'title') { const h2 = wrapper.querySelector('h2'); if (h2) h2.style.fontSize = `${value}px`; }
+  if (field === 'subtitle') { const p = wrapper.querySelector('p'); if (p) p.style.fontSize = `${value}px`; }
+  if (field === 'button') { const a = wrapper.querySelector('a'); if (a) a.style.fontSize = `${value}px`; }
+  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+};
  // 🎯 Inizio drag da sidebar
 const handleDragStart = (block, e) => {
   setDraggedBlock(block);
@@ -13461,88 +13780,6 @@ const extractImageURL = (html) => {
   const match = html.match(/src="([^"]+)"/);
   return match ? match[1] : "";
 };
-const updateCTAGradient = (color1, color2) => {
-  const wrapper = document.createElement("div");
-  wrapper.innerHTML = editingSingleBlock.html;
-
-  const table = wrapper.querySelector("table");
-  if (table) {
-    table.style.background = `linear-gradient(135deg, ${color1} 0%, ${color2} 100%)`;
-  }
-
-  setEditingSingleBlock({
-    ...editingSingleBlock,
-    html: wrapper.innerHTML
-  });
-};
-const updateCTAColor = (prop, value) => {
-  const wrapper = document.createElement("div");
-  wrapper.innerHTML = editingSingleBlock.html;
-
-  const h2 = wrapper.querySelector("h2");
-  const p = wrapper.querySelector("p");
-  const a = wrapper.querySelector("a");
-
-  if (prop === "titleColor" && h2) h2.style.color = value;
-  if (prop === "subtitleColor" && p) p.style.color = value;
-  if (prop === "buttonTextColor" && a) a.style.color = value;
-
-  setEditingSingleBlock({
-    ...editingSingleBlock,
-    html: wrapper.innerHTML
-  });
-};
-const updateCTAButtonStyle = (prop, value) => {
-  const wrapper = document.createElement("div");
-  wrapper.innerHTML = editingSingleBlock.html;
-
-  const a = wrapper.querySelector("a");
-  if (!a) return;
-
-  if (prop === "bg") a.style.background = value;
-  if (prop === "radius") a.style.borderRadius = value + "px";
-  if (prop === "padding") a.style.padding = value;
-  if (prop === "shadow") {
-    a.style.boxShadow = value 
-      ? "0 6px 20px rgba(0,0,0,0.15)"
-      : "none";
-  }
-
-  setEditingSingleBlock({
-    ...editingSingleBlock,
-    html: wrapper.innerHTML
-  });
-};
-const updateCTAFontSize = (prop, value) => {
-  const wrapper = document.createElement("div");
-  wrapper.innerHTML = editingSingleBlock.html;
-
-  const h2 = wrapper.querySelector("h2");
-  const p = wrapper.querySelector("p");
-  const a = wrapper.querySelector("a");
-
-  if (prop === "title" && h2) h2.style.fontSize = value + "px";
-  if (prop === "subtitle" && p) p.style.fontSize = value + "px";
-  if (prop === "button" && a) a.style.fontSize = value + "px";
-
-  setEditingSingleBlock({
-    ...editingSingleBlock,
-    html: wrapper.innerHTML
-  });
-};
-const updateCTAGradientAdvanced = ({ angle, color1, color2 }) => {
-  const wrapper = document.createElement("div");
-  wrapper.innerHTML = editingSingleBlock.html;
-
-  const table = wrapper.querySelector("table");
-
-  if (table) {
-    table.style.background = `linear-gradient(${angle}deg, ${color1} 0%, ${color2} 100%)`;
-  }
-
-  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-};
-
 // 🔧 Estrae il contenuto delle colonne da una sezione HTML
 // 🔧 Estrae il contenuto E gli stili delle colonne
 const extractColumnsFromSection = (html) => {
@@ -15088,7 +15325,20 @@ useEffect(() => {
       setTimeout(() => setShowDraftSuccess(false), 2000);
   
       if (onSaveDraft) onSaveDraft(data);
-
+// ✅ Notifica creazione campagna
+try {
+  await supabase.from('notifications').insert({
+    user_id: user.id,
+    title: `📝 Bozza "${campaignName}" salvata`,
+    description: `Oggetto: ${subject}`,
+    type: 'info',
+    read: false,
+    visible_to: 'all',
+  });
+  loadNotifications();
+} catch (notifError) {
+  console.warn('⚠️ Notifica fallita:', notifError.message);
+}
       // ✅ Toast con scelta continua/chiudi
       toast((t) => (
         <div className="p-3">
@@ -15442,6 +15692,21 @@ try {
 } catch (pushError) {
   console.warn('⚠️ Push notification fallita:', pushError.message);
 }
+
+// ✅ Salva notifica nel DB  ← AGGIUNGI QUI
+try {
+  await supabase.from('notifications').insert({
+    user_id: user.id,
+    title: `✅ Campagna "${subject}" inviata`,
+    description: `Inviata a ${successCount} destinatari${failedRecipients.length > 0 ? `, ${failedRecipients.length} fallite` : ''}`,
+    type: failedRecipients.length > 0 ? 'warning' : 'success',
+    read: false,
+  });
+  loadNotifications();
+} catch (notifDbError) {
+  console.warn('⚠️ Salvataggio notifica DB fallito:', notifDbError.message);
+}
+
 
     toast.dismiss();
 
@@ -16450,17 +16715,7 @@ if (campaignMode === 'builder') {
                         activeStyleBlock?.index === index
                           ? "border-green-500 bg-green-50"
                           : "border-transparent hover:border-green-200"
-                      }`}
-                      style={{ perspective: 800 }}
-                      onMouseMove={(e) => {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const x = e.clientX - rect.left - rect.width / 2;
-                        const y = e.clientY - rect.top - rect.height / 2;
-                        e.currentTarget.style.transform = `rotateX(${y / 20}deg) rotateY(${x / 20}deg) scale(1.02)`;
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.transform = "rotateX(0deg) rotateY(0deg) scale(1)";
-                      }}
+                      }`}                                          
                       onClick={() => {
                         // Imposta blocco attivo per il pannello stile
                         console.log('🖱️ BLOCK CLICKED:', block.name);
@@ -16627,1152 +16882,7 @@ if (campaignMode === 'builder') {
                         </motion.div>
                       ))}
 
-                      {/* 🎨 EDITOR BLOCCO SINGOLO (Hero, Header, Footer) */}
-<AnimatePresence>
-  {showSingleBlockEditor && editingSingleBlock && (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999999] p-4"
-      // ✅ RIMOSSO: onMouseDown={(e) => { if (e.target === e.currentTarget) setShowSingleBlockEditor(false); }}
-      // Cliccare fuori ora non farà più nulla.
-    >
-      <motion.div
-        initial={{ scale: 0.9, y: 20 }}
-        animate={{ scale: 1, y: 0 }}
-        exit={{ scale: 0.9, y: 20 }}
-        className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()} 
-      >
-        {/* Header con chiusura ESPLICITA */}
-        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-          <h3 className="font-bold text-gray-800 flex items-center gap-2">
-             ✏️ Editor Avanzato: {editingSingleBlock.name}
-          </h3>
-          <button 
-            onClick={() => setShowSingleBlockEditor(false)} // ✅ Unico modo per chiudere
-            className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-full transition"
-          >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
 
-
-        {/* Content */}
-        <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(90vh-200px)]">
-{/* 🎨 STYLE PANEL */}
-<div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-{/* 📋 HEADER EDITOR */}
-{editingSingleBlock?.id === "header" && (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-800">📋 Editor Header</h3>
-      
-      {/* Titolo */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Titolo</label>
-        <input
-          type="text"
-          defaultValue={editingSingleBlock.html.match(/<h1[^>]*>(.*?)<\/h1>/)?.[1] || ""}
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const h1 = wrapper.querySelector("h1");
-            if (h1) h1.textContent = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full border rounded-lg p-2"
-        />
-      </div>
-
-      {/* Sottotitolo */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Sottotitolo</label>
-        <input
-          type="text"
-          defaultValue={editingSingleBlock.html.match(/<p[^>]*>(.*?)<\/p>/)?.[1] || ""}
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const p = wrapper.querySelector("p");
-            if (p) p.textContent = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full border rounded-lg p-2"
-        />
-      </div>
-
-      {/* Colore Testo */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Colore Testo</label>
-        <input
-          type="color"
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const h1 = wrapper.querySelector("h1");
-            const p = wrapper.querySelector("p");
-            if (h1) h1.style.color = e.target.value;
-            if (p) p.style.color = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full h-10 border rounded"
-        />
-      </div>
-
-      {/* Colore Sfondo / Gradiente */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Sfondo / Gradiente</label>
-        <input
-          type="text"
-          placeholder="es: linear-gradient(135deg, #667eea, #764ba2)"
-          defaultValue={editingSingleBlock.html.match(/background:\s*([^;]+)/)?.[1] || ""}
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const table = wrapper.querySelector("table");
-            if (table) table.style.background = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full border rounded p-2"
-        />
-      </div>
-
-      {/* Allineamento */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Allineamento</label>
-        <div className="flex gap-2">
-          {['left', 'center', 'right'].map(align => (
-            <button
-              key={align}
-              onClick={() => {
-                const wrapper = document.createElement("div");
-                wrapper.innerHTML = editingSingleBlock.html;
-                const td = wrapper.querySelector("td");
-                if (td) td.style.textAlign = align;
-                setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-              }}
-              className="flex-1 bg-gray-100 hover:bg-gray-200 py-2 rounded transition"
-            >
-              {align === 'left' ? '⬅️ Sinistra' : align === 'center' ? '↕️ Centro' : '➡️ Destra'}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  )}
-
-{editingSingleBlock?.id === 'web-link' && (
-  <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
-    <h4 className="font-bold">Configura Link</h4>
-    <input 
-      type="text" 
-      placeholder="Testo del link"
-      className="w-full p-2 border rounded"
-      onChange={(e) => {
-        const newHtml = editingSingleBlock.html.replace(/>(.*?)</, `>${e.target.value}<`);
-        setEditingSingleBlock({...editingSingleBlock, html: newHtml});
-      }}
-    />
-    <input 
-      type="text" 
-      placeholder="https://..."
-      className="w-full p-2 border rounded"
-      onChange={(e) => {
-        const newHtml = editingSingleBlock.html.replace(/href="(.*?)"/, `href="${e.target.value}"`);
-        setEditingSingleBlock({...editingSingleBlock, html: newHtml});
-      }}
-    />
-  </div>
-)}
-
-  {/* 🖼️ IMAGE EDITOR */}
-  {editingSingleBlock?.id === "image" && (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-800">🖼️ Editor Immagine</h3>
-      
-      {/* URL Immagine */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">URL Immagine</label>
-        <input
-          type="text"
-          defaultValue={editingSingleBlock.html.match(/src="([^"]+)"/)?.[1] || ""}
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const img = wrapper.querySelector("img");
-            if (img) img.src = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full border rounded-lg p-2"
-        />
-      </div>
-
-      {/* Upload Immagine */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Oppure Carica Immagine</label>
-        <button
-          onClick={() => {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = 'image/*';
-            input.onchange = (e) => {
-              const file = e.target.files[0];
-              if (file) {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                  const wrapper = document.createElement("div");
-                  wrapper.innerHTML = editingSingleBlock.html;
-                  const img = wrapper.querySelector("img");
-                  if (img) img.src = reader.result;
-                  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-                  toast.success("🖼️ Immagine caricata!");
-                };
-                reader.readAsDataURL(file);
-              }
-            };
-            input.click();
-          }}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition"
-        >
-          📤 Carica Immagine
-        </button>
-      </div>
-
-      {/* Border Radius */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Arrotondamento Bordi (0-50px)</label>
-        <input
-          type="range"
-          min="0"
-          max="50"
-          defaultValue="8"
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const img = wrapper.querySelector("img");
-            if (img) img.style.borderRadius = `${e.target.value}px`;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full"
-        />
-      </div>
-
-      {/* Larghezza Massima */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Larghezza Massima</label>
-        <select
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const img = wrapper.querySelector("img");
-            if (img) img.style.maxWidth = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full border rounded p-2"
-        >
-          <option value="100%">100% (Full Width)</option>
-          <option value="80%">80%</option>
-          <option value="60%">60%</option>
-          <option value="50%">50%</option>
-          <option value="400px">400px</option>
-          <option value="300px">300px</option>
-        </select>
-      </div>
-    </div>
-  )}
-
-  {/* Logica da inserire nel modale Editor Avanzato */}
-{['section-imgtext', 'section-textimg', 'link-block'].includes(editingSingleBlock?.id) && (
-  <div className="mt-6 p-4 border rounded-lg bg-blue-50 space-y-4">
-    <h3 className="font-bold text-blue-800">⚙️ Configurazione Avanzata</h3>
-    
-    {/* Se è un blocco link, mostra input URL */}
-    {editingSingleBlock.id === 'link-block' && (
-      <input 
-        type="text" 
-        placeholder="Indirizzo URL (https://...)"
-        className="w-full p-2 border rounded"
-        onChange={(e) => {
-          const newHtml = editingSingleBlock.html.replace(/href="(.*?)"/, `href="${e.target.value}"`);
-          setEditingSingleBlock({...editingSingleBlock, html: newHtml});
-        }}
-      />
-    )}
-
-    {/* Se contiene immagine, mostra tasto upload */}
-    {editingSingleBlock.html.includes('<img') && (
-      <button
-        onClick={() => {
-          const input = document.createElement('input');
-          input.type = 'file'; input.accept = 'image/*';
-          input.onchange = (e) => {
-            const file = e.target.files[0];
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const newHtml = editingSingleBlock.html.replace(/src="(.*?)"/, `src="${reader.result}"`);
-              setEditingSingleBlock({ ...editingSingleBlock, html: newHtml });
-            };
-            reader.readAsDataURL(file);
-          };
-          input.click();
-        }}
-        className="w-full bg-blue-600 text-white py-2 rounded font-bold"
-      >
-        📷 Cambia Immagine nel Layout
-      </button>
-    )}
-  </div>
-)}
-
-  {/* --- 2. NUOVO: EDITOR PER SEZIONI COMPOSTE (Aggiungilo qui sotto) --- */}
-{(editingSingleBlock?.id === "section-imgtext" || editingSingleBlock?.id === "section-textimg") && (
-  <div className="mt-6 p-4 border rounded-lg bg-blue-50 space-y-4">
-    <h3 className="text-lg font-semibold text-blue-800 mb-2 flex items-center gap-2">
-      🖼️ Gestione Immagine nel Layout
-    </h3>
-    
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-2">Sostituisci l'immagine del layout</label>
-      <div className="flex flex-col gap-3">
-        {/* Anteprima Immagine Attuale */}
-        {editingSingleBlock.html.includes('<img') && (
-          <div className="w-32 h-32 border rounded overflow-hidden bg-white mx-auto shadow-sm">
-             <img 
-               src={editingSingleBlock.html.match(/src="([^"]+)"/)?.[1]} 
-               className="w-full h-full object-cover" 
-               alt="Anteprima"
-             />
-          </div>
-        )}
-
-        <button
-          onClick={() => {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = 'image/*';
-            input.onchange = (e) => {
-              const file = e.target.files[0];
-              if (file) {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                  // Sostituisce l'immagine dentro l'HTML complesso
-                  const newHtml = editingSingleBlock.html.replace(
-                    /src="([^"]+)"/, 
-                    `src="${reader.result}"`
-                  );
-                  setEditingSingleBlock({ ...editingSingleBlock, html: newHtml });
-                  toast.success("🖼️ Immagine aggiornata!");
-                };
-                reader.readAsDataURL(file);
-              }
-            };
-            input.click();
-          }}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-bold transition flex items-center justify-center gap-2"
-        >
-          📤 Carica Nuova Immagine
-        </button>
-      </div>
-    </div>
-{/* Aggiungi questo subito dopo l'upload immagine sopra per editare anche il testo nello stesso posto */}
-<div>
-  <label className="block text-sm font-medium text-gray-700 mt-4">Modifica Titolo della Sezione</label>
-  <input
-    type="text"
-    defaultValue={editingSingleBlock.html.match(/<h3[^>]*>(.*?)<\/h3>/)?.[1] || ""}
-    onChange={(e) => {
-      const newHtml = editingSingleBlock.html.replace(/(<h3[^>]*>)(.*?)(<\/h3>)/, `$1${e.target.value}$3`);
-      setEditingSingleBlock({ ...editingSingleBlock, html: newHtml });
-    }}
-    className="w-full border rounded-lg p-2 mt-1"
-  />
-</div>
-    {/* Modifica Titolo per queste sezioni */}
-    <div className="mt-4">
-      <label className="block text-sm font-medium text-gray-700 mb-1">Titolo Sezione</label>
-      <input
-        type="text"
-        defaultValue={editingSingleBlock.html.match(/<h3[^>]*>(.*?)<\/h3>/)?.[1] || ""}
-        onChange={(e) => {
-          const newHtml = editingSingleBlock.html.replace(/(<h3[^>]*>)(.*?)(<\/h3>)/, `$1${e.target.value}$3`);
-          setEditingSingleBlock({ ...editingSingleBlock, html: newHtml });
-        }}
-        className="w-full border rounded-lg p-2"
-      />
-    </div>
-  </div>
-)}
-
-
-
-  {/* 📝 TEXT EDITOR */}
-  {editingSingleBlock?.id === "text" && (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-800">📝 Editor Paragrafo</h3>
-      
-      {/* Titolo */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Titolo</label>
-        <input
-          type="text"
-          defaultValue={editingSingleBlock.html.match(/<h3[^>]*>(.*?)<\/h3>/)?.[1] || ""}
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const h3 = wrapper.querySelector("h3");
-            if (h3) h3.textContent = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full border rounded-lg p-2"
-        />
-      </div>
-
-      {/* Testo */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Testo</label>
-        <textarea
-          defaultValue={editingSingleBlock.html.match(/<p[^>]*>(.*?)<\/p>/)?.[1] || ""}
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const p = wrapper.querySelector("p");
-            if (p) p.innerHTML = e.target.value.replace(/\n/g, '<br>');
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full border rounded-lg p-2 h-32"
-        />
-      </div>
-
-      {/* Colore Testo */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Colore Testo</label>
-        <input
-          type="color"
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const p = wrapper.querySelector("p");
-            const h3 = wrapper.querySelector("h3");
-            if (p) p.style.color = e.target.value;
-            if (h3) h3.style.color = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full h-10 border rounded"
-        />
-      </div>
-
-      {/* Dimensione Font */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Dimensione Testo</label>
-        <input
-          type="range"
-          min="12"
-          max="24"
-          defaultValue="16"
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const p = wrapper.querySelector("p");
-            if (p) p.style.fontSize = `${e.target.value}px`;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full"
-        />
-      </div>
-    </div>
-  )}
-
-  {/* 🔘 BUTTON EDITOR */}
-  {editingSingleBlock?.id === "button" && (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-800">🔘 Editor Pulsante</h3>
-      
-      {/* Testo Prima del Pulsante */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Testo Descrittivo (opzionale)</label>
-        <input
-          type="text"
-          defaultValue={editingSingleBlock.html.match(/<p[^>]*>(.*?)<\/p>/)?.[1] || ""}
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const p = wrapper.querySelector("p");
-            if (p) p.textContent = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full border rounded-lg p-2"
-        />
-      </div>
-
-      {/* Testo Pulsante */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Testo Pulsante</label>
-        <input
-          type="text"
-          defaultValue={editingSingleBlock.html.match(/<a[^>]*>(.*?)<\/a>/)?.[1] || ""}
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const a = wrapper.querySelector("a");
-            if (a) a.textContent = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full border rounded-lg p-2"
-        />
-      </div>
-
-      {/* Link */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Link (href)</label>
-        <input
-          type="text"
-          defaultValue={editingSingleBlock.html.match(/href="([^"]+)"/)?.[1] || "#"}
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const a = wrapper.querySelector("a");
-            if (a) a.href = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full border rounded-lg p-2"
-        />
-      </div>
-
-      {/* Colore Pulsante */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Colore Pulsante</label>
-        <input
-          type="color"
-          defaultValue="#667eea"
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const a = wrapper.querySelector("a");
-            if (a) a.style.background = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full h-10 border rounded"
-        />
-      </div>
-
-      {/* Colore Testo Pulsante */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Colore Testo</label>
-        <input
-          type="color"
-          defaultValue="#ffffff"
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const a = wrapper.querySelector("a");
-            if (a) a.style.color = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full h-10 border rounded"
-        />
-      </div>
-    </div>
-  )}
-
-  {/* 📱 SOCIAL MEDIA EDITOR */}
-  {editingSingleBlock?.id === "social" && (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-800">📱 Editor Social Media</h3>
-      
-      <p className="text-sm text-gray-600 bg-blue-50 p-3 rounded border border-blue-200">
-        💡 Modifica i link dei social network. I link vengono aggiornati automaticamente.
-      </p>
-
-      {/* Testo Introduttivo */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Testo Introduttivo</label>
-        <input
-          type="text"
-          defaultValue={editingSingleBlock.html.match(/<p[^>]*>(.*?)<\/p>/)?.[1] || ""}
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const p = wrapper.querySelector("p");
-            if (p) p.textContent = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full border rounded-lg p-2"
-        />
-      </div>
-
-      {['Facebook', 'Twitter', 'Instagram', 'LinkedIn'].map((social) => (
-        <div key={social}>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Link {social}</label>
-          <input
-            type="text"
-            placeholder={`https://${social.toLowerCase()}.com/tuoaccount`}
-            onChange={(e) => {
-              const wrapper = document.createElement("div");
-              wrapper.innerHTML = editingSingleBlock.html;
-              const links = wrapper.querySelectorAll("a");
-              links.forEach(link => {
-                if (link.textContent.includes(social)) {
-                  link.href = e.target.value;
-                }
-              });
-              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-            }}
-            className="w-full border rounded-lg p-2"
-          />
-        </div>
-      ))}
-    </div>
-  )}
-
-  {/* 📄 FOOTER EDITOR */}
-  {editingSingleBlock?.id === "footer" && (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-800">📄 Editor Footer</h3>
-      
-      {/* Nome Azienda */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Nome Azienda</label>
-        <input
-          type="text"
-          defaultValue={editingSingleBlock.html.match(/<p[^>]*>([^<]+)<\/p>/)?.[1] || ""}
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const paragraphs = wrapper.querySelectorAll("p");
-            if (paragraphs[0]) paragraphs[0].textContent = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full border rounded-lg p-2"
-        />
-      </div>
-
-      {/* Indirizzo */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Indirizzo e Contatti</label>
-        <textarea
-          placeholder="Via Esempio 123, 20100 Milano&#10;info@tuaazienda.com | +39 02 1234567"
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const paragraphs = wrapper.querySelectorAll("p");
-            if (paragraphs[1]) {
-              paragraphs[1].innerHTML = e.target.value.split('\n').join('<br>');
-            }
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full border rounded-lg p-2 h-24"
-        />
-      </div>
-
-      {/* Copyright */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Testo Copyright</label>
-        <input
-          type="text"
-          defaultValue="La Tua Azienda. Tutti i diritti riservati."
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const paragraphs = wrapper.querySelectorAll("p");
-            const lastP = paragraphs[paragraphs.length - 1];
-            if (lastP) {
-              lastP.textContent = `© ${new Date().getFullYear()} ${e.target.value}`;
-            }
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full border rounded-lg p-2"
-        />
-      </div>
-
-      {/* Colore Sfondo */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Colore Sfondo</label>
-        <input
-          type="color"
-          defaultValue="#2d3748"
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const table = wrapper.querySelector("table");
-            if (table) table.style.background = e.target.value;
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full h-10 border rounded"
-        />
-      </div>
-
-      {/* Colore Testo */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Colore Testo</label>
-        <input
-          type="color"
-          defaultValue="#ffffff"
-          onChange={(e) => {
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = editingSingleBlock.html;
-            const paragraphs = wrapper.querySelectorAll("p");
-            paragraphs.forEach(p => p.style.color = e.target.value);
-            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
-          }}
-          className="w-full h-10 border rounded"
-        />
-      </div>
-    </div>
-  )}
-
-</div>
-
-
-{/* 🔧 HTML MANUAL EDITOR */}
-<div className="mt-6">
-{/* 📝 TEXT CONTENT EDITOR */}
-<div className="mt-6 p-4 border rounded-lg bg-gray-50 space-y-4">
-  <h3 className="text-lg font-semibold text-gray-800 mb-2">Contenuto Testo</h3>
-
-  {/* Titolo */}
-  <div>
-    <label className="block text-sm font-medium text-gray-700">Titolo</label>
-    <input
-      type="text"
-      defaultValue={parseHeroContent().title}
-      onChange={(e) => updateHeroContent("title", e.target.value)}
-      className="w-full border rounded-lg p-2"
-    />
-  </div>
-
-  {/* Sottotitolo */}
-  <div>
-    <label className="block text-sm font-medium text-gray-700">Sottotitolo</label>
-    <textarea
-      defaultValue={parseHeroContent().subtitle}
-      onChange={(e) => updateHeroContent("subtitle", e.target.value)}
-      className="w-full border rounded-lg p-2 h-20"
-    />
-  </div>
-
-  {/* Testo Pulsante */}
-  {editingSingleBlock.html.includes("<a") || editingSingleBlock.html.includes("<button") ? (
-    <>
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Testo Pulsante</label>
-        <input
-          type="text"
-          defaultValue={parseHeroContent().buttonText}
-          onChange={(e) => updateHeroContent("buttonText", e.target.value)}
-          className="w-full border rounded-lg p-2"
-        />
-      </div>
-
-      {/* Link Pulsante */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Link Pulsante (href)</label>
-        <input
-          type="text"
-          defaultValue={parseHeroContent().buttonLink}
-          onChange={(e) => updateHeroContent("buttonLink", e.target.value)}
-          className="w-full border rounded-lg p-2"
-        />
-      </div>
-    </>
-  ) : null}
-</div>
-
-
-{/* 🔧 HTML MANUAL EDITOR */}
-<div className="mt-6">
-  <label className="block text-sm font-medium text-gray-700 mb-2">Codice HTML (Avanzato)</label>
-  <textarea
-    value={editingSingleBlock.html}
-    onChange={(e) =>
-      setEditingSingleBlock({ ...editingSingleBlock, html: e.target.value })
-    }
-    className="w-full h-40 p-4 border rounded font-mono text-sm"
-  />
-</div>
-
-{/* 🔍 Preview aggiornato */}
-<div className="mt-6">
-  <label className="block text-sm font-medium text-gray-700 mb-1">Anteprima</label>
-  <div className="border rounded p-4 bg-gray-50">
-    <div dangerouslySetInnerHTML={{ __html: editingSingleBlock.html }} />
-  </div>
-</div>
-
-</div>
-{editingSingleBlock?.id === "image" && (
-  <div className="mt-6 p-4 border rounded bg-gray-50 space-y-4">
-    <h3 className="font-semibold text-gray-800">Immagine</h3>
-
-    <label>URL immagine2</label>
-    <input
-      className="w-full border rounded p-2"
-      defaultValue={parseImageBlock(editingSingleBlock.html).src}
-      onChange={(e) => updateImageBlock("src", e.target.value)}
-    />
-
-    <label>Border Radius</label>
-    <input
-      className="w-full border rounded p-2"
-      defaultValue={parseImageBlock(editingSingleBlock.html).borderRadius}
-      onChange={(e) => updateImageBlock("borderRadius", e.target.value)}
-    />
-  </div>
-)}
-{editingSingleBlock?.id === "text" && (
-  <div className="mt-6 p-4 border rounded bg-gray-50 space-y-4">
-    <h3 className="font-semibold text-gray-800">Paragrafo</h3>
-
-    <label>Testo</label>
-    <textarea
-      className="w-full border rounded p-2 h-28"
-      defaultValue={parseTextBlock(editingSingleBlock.html).text}
-      onChange={(e) => updateTextBlock("text", e.target.value)}
-    />
-
-    <label>Colore</label>
-    <input
-      type="color"
-      className="w-full h-10 border rounded"
-      onChange={(e) => updateTextBlock("color", e.target.value)}
-    />
-  </div>
-)}
-{editingSingleBlock?.id === "button" && (
-  <div className="mt-6 p-4 border rounded bg-gray-50 space-y-4">
-    <h3 className="font-semibold text-gray-800">Pulsante</h3>
-
-    <label>Testo</label>
-    <input
-      className="w-full border rounded p-2"
-      defaultValue={parseButtonBlock(editingSingleBlock.html).text}
-      onChange={(e) => updateButtonBlock("text", e.target.value)}
-    />
-
-    <label>Link</label>
-    <input
-      className="w-full border rounded p-2"
-      defaultValue={parseButtonBlock(editingSingleBlock.html).link}
-      onChange={(e) => updateButtonBlock("link", e.target.value)}
-    />
-
-    <label>Colore Sfondo</label>
-    <input
-      type="color"
-      className="w-full h-10 border rounded"
-      onChange={(e) => updateButtonBlock("bg", e.target.value)}
-    />
-  </div>
-)}
-
-{/* 📝 CTA Editor */}
-{editingSingleBlock?.id === "section-cta" && (
-  <div className="mt-6 p-4 border rounded-lg bg-gray-50 space-y-6">
-    
-    <h3 className="text-lg font-semibold text-gray-800 mb-2">
-      Call To Action – Contenuto e Stile
-    </h3>
-
-    {/* 🟣 Testo */}
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-      {/* Titolo */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Titolo</label>
-        <input
-          type="text"
-          defaultValue={parseCTAContent().title}
-          onChange={(e) => updateCTAContent("title", e.target.value)}
-          className="w-full border rounded-lg p-2"
-        />
-      </div>
-
-      {/* Sottotitolo */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Sottotitolo</label>
-        <textarea
-          defaultValue={parseCTAContent().subtitle}
-          onChange={(e) => updateCTAContent("subtitle", e.target.value)}
-          className="w-full border rounded-lg p-2 h-20"
-        />
-      </div>
-
-      {/* Testo Pulsante */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Testo Pulsante</label>
-        <input
-          type="text"
-          defaultValue={parseCTAContent().buttonText}
-          onChange={(e) => updateCTAContent("buttonText", e.target.value)}
-          className="w-full border rounded-lg p-2"
-        />
-      </div>
-
-      {/* Link pulsante */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Link Pulsante</label>
-        <input
-          type="text"
-          defaultValue={parseCTAContent().buttonLink}
-          onChange={(e) => updateCTAContent("buttonLink", e.target.value)}
-          className="w-full border rounded-lg p-2"
-        />
-      </div>
-    </div>
-
-    {/* 🎨 COLORI TESTO */}
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div>
-        <label className="text-sm font-medium text-gray-700 mb-1 block">Colore Titolo</label>
-        <input type="color" className="w-full h-10 border rounded"
-          onChange={(e) => updateCTAColor("titleColor", e.target.value)}
-        />
-      </div>
-
-      <div>
-        <label className="text-sm font-medium text-gray-700 mb-1 block">Colore Sottotitolo</label>
-        <input type="color" className="w-full h-10 border rounded"
-          onChange={(e) => updateCTAColor("subtitleColor", e.target.value)}
-        />
-      </div>
-
-      <div>
-        <label className="text-sm font-medium text-gray-700 mb-1 block">Colore Testo Pulsante</label>
-        <input type="color" className="w-full h-10 border rounded"
-          onChange={(e) => updateCTAColor("buttonTextColor", e.target.value)}
-        />
-      </div>
-    </div>
-
-    {/* 🌈 GRADIENT PICKER */}
-    <div>
-      <label className="text-sm font-medium text-gray-700 mb-2 block">
-        Sfondo (Gradient)
-      </label>
-      <div className="grid grid-cols-2 gap-4">
-        <input type="color" className="h-10 w-full border rounded"
-          onChange={(e) => updateCTAGradient(e.target.value, "#f5576c")}
-        />
-        <input type="color" className="h-10 w-full border rounded"
-          onChange={(e) => updateCTAGradient("#f093fb", e.target.value)}
-        />
-      </div>
-    </div>
-
-    {/* 🎨 Gradient Avanzato */}
-<div className="space-y-3">
-  <label className="font-medium text-gray-700">Gradient Background</label>
-
-  {/* Angolo */}
-  <div>
-    <label className="text-xs">Angolo (0–360°)</label>
-    <input
-      type="range"
-      min="0"
-      max="360"
-      onChange={(e) =>
-        updateCTAGradientAdvanced({
-          angle: e.target.value,
-          color1: gradientColor1,
-          color2: gradientColor2,
-        })
-      }
-      className="w-full"
-    />
-  </div>
-
-  {/* Colori */}
-  <div className="grid grid-cols-2 gap-4">
-    <div>
-      <label className="text-xs">Colore 1</label>
-      <input
-        type="color"
-        onChange={(e) => {
-          setGradientColor1(e.target.value);
-          updateCTAGradientAdvanced({
-            angle: 135,
-            color1: e.target.value,
-            color2: gradientColor2,
-          });
-        }}
-        className="w-full h-10 border rounded"
-      />
-    </div>
-
-    <div>
-      <label className="text-xs">Colore 2</label>
-      <input
-        type="color"
-        onChange={(e) => {
-          setGradientColor2(e.target.value);
-          updateCTAGradientAdvanced({
-            angle: 135,
-            color2: e.target.value,
-            color1: gradientColor1,
-          });
-        }}
-        className="w-full h-10 border rounded"
-      />
-    </div>
-  </div>
-</div>
-
-
-    {/* 🔘 BUTTON STYLES */}
-    <div className="space-y-3">
-
-      <label className="font-medium text-gray-700">Stile Pulsante</label>
-
-      <div className="grid grid-cols-3 gap-4">
-        <div>
-          <label className="text-xs block">Colore BG</label>
-          <input type="color" className="w-full h-10 border rounded"
-            onChange={(e) => updateCTAButtonStyle("bg", e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label className="text-xs block">Font Size</label>
-          <input type="number" min="10" max="30"
-            onChange={(e) => updateCTAFontSize("button", e.target.value)}
-            className="w-full border rounded p-2 text-sm"
-          />
-        </div>
-
-        <div>
-          <label className="text-xs block">Raggio</label>
-          <input type="number" min="0" max="60"
-            onChange={(e) => updateCTAButtonStyle("radius", e.target.value)}
-            className="w-full border rounded p-2 text-sm"
-          />
-        </div>
-      </div>
-
-      {/* Shadow */}
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox"
-          onChange={(e) => updateCTAButtonStyle("shadow", e.target.checked)}
-        />
-        Ombreggiatura Pulsante
-      </label>
-    </div>
-
-    {/* 🅰 FONT SIZES */}
-    <div className="grid grid-cols-2 gap-4">
-      <div>
-        <label className="text-xs block">Font Titolo</label>
-        <input type="number" min="18" max="45"
-          onChange={(e) => updateCTAFontSize("title", e.target.value)}
-          className="w-full border rounded p-2 text-sm"
-        />
-      </div>
-
-      <div>
-        <label className="text-xs block">Font Sottotitolo</label>
-        <input type="number" min="12" max="25"
-          onChange={(e) => updateCTAFontSize("subtitle", e.target.value)}
-          className="w-full border rounded p-2 text-sm"
-        />
-      </div>
-    </div>
-
-  </div>
-)}
-
-{/* ... fine sezione CTA ... */}
-
-{/* 🆕 EDITOR GENERICO PER BLOCCHI CONVERTITI (Se non sono Header, Image, etc.) */}
-{!['header', 'link-block', 'footer', 'image', 'text', 'button', 'section-cta'].includes(editingSingleBlock.id) && (
-  <div className="mt-6 p-4 border rounded-lg bg-blue-50 space-y-4">
-    <h3 className="text-lg font-semibold text-blue-800 mb-2 flex items-center gap-2">
-      📝 Modifica Testi Rapida
-    </h3>
-    <p className="text-xs text-blue-600 mb-2 italic">
-      Abbiamo rilevato un blocco personalizzato. Puoi modificare i testi qui sotto o l'HTML completo più in basso.
-    </p>
-
-    {/* Campo dinamico per il primo Titolo trovato nel blocco */}
-    {editingSingleBlock.html.match(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/) && (
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Titolo Principale</label>
-        <input
-          type="text"
-          defaultValue={editingSingleBlock.html.match(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/)?.[1] || ""}
-          onChange={(e) => {
-            const newHtml = editingSingleBlock.html.replace(/(<h[1-6][^>]*>)(.*?)(<\/h[1-6]>)/, `$1${e.target.value}$3`);
-            setEditingSingleBlock({ ...editingSingleBlock, html: newHtml });
-          }}
-          className="w-full border rounded-lg p-2 mt-1"
-        />
-      </div>
-    )}
-
-    {/* Campo dinamico per il primo Paragrafo trovato nel blocco */}
-    {editingSingleBlock.html.match(/<p[^>]*>(.*?)<\/p>/) && (
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Testo Paragrafo</label>
-        <textarea
-          defaultValue={editingSingleBlock.html.match(/<p[^>]*>(.*?)<\/p>/)?.[1].replace(/<br\s*\/?>/gi, '\n') || ""}
-          onChange={(e) => {
-            const newHtml = editingSingleBlock.html.replace(/(<p[^>]*>)(.*?)(<\/p>)/, `$1${e.target.value.replace(/\n/g, '<br>')}$3`);
-            setEditingSingleBlock({ ...editingSingleBlock, html: newHtml });
-          }}
-          className="w-full border rounded-lg p-2 h-32 mt-1"
-        />
-      </div>
-    )}
-  </div>
-)}
-
-{/* 🔍 Preview aggiornato */}
-{/* <div className="mt-6">
-<label className="block text-sm font-medium text-gray-700 mb-1">Anteprima</label>
-<div className="border rounded p-4 bg-gray-50">
-  <div dangerouslySetInnerHTML={{ __html: editingSingleBlock.html }} />
-</div>
-</div> */}
-
-          {/* Preview */}
-          {/* <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Anteprima
-            </label>
-            <div className="border-2 border-gray-200 rounded-lg p-4 bg-gray-50 overflow-auto">
-              <div dangerouslySetInnerHTML={{ __html: editingSingleBlock.html }} />
-            </div>
-          </div> */}
-        </div>
-
-        {/* Footer */}
-        <div className="border-t border-gray-200 p-6 bg-gray-50 flex gap-3">
-          <button
-            onClick={() => setShowSingleBlockEditor(false)}
-            className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-3 px-4 rounded-lg font-medium transition"
-          >
-            Annulla
-          </button>
-          <button
-            onClick={() => {
-              const updated = [...canvasBlocks];
-              updated[editingSingleBlock.index] = {
-                ...updated[editingSingleBlock.index],
-                html: editingSingleBlock.html
-              };
-              setCanvasBlocks(updated);
-              setShowSingleBlockEditor(false);
-              toast.success("✅ Blocco aggiornato!");
-            }}
-            className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-3 px-4 rounded-lg font-medium transition"
-          >
-            Salva Modifiche
-          </button>
-        </div>
-      </motion.div>
-    </motion.div>
-  )}
-</AnimatePresence>
 
 {/* ✏️ Modifica contenuto testo */}
 {activeStyleBlock?.id !== "image" && activeStyleBlock?.id !== "button" && (
@@ -19143,7 +18253,4081 @@ if (campaignMode === 'builder') {
                 )}
               </div>
             </div>
+                      {/* 🎨 EDITOR BLOCCO SINGOLO (Hero, Header, Footer) */}
+                      <AnimatePresence>
+  {showSingleBlockEditor && editingSingleBlock && (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[999999] p-4"
+      // ✅ RIMOSSO: onMouseDown={(e) => { if (e.target === e.currentTarget) setShowSingleBlockEditor(false); }}
+      // Cliccare fuori ora non farà più nulla.
+    >
+      <motion.div
+        initial={{ scale: 0.9, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.9, y: 20 }}
+        className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()} 
+      >
+        {/* Header con chiusura ESPLICITA */}
+        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+          <h3 className="font-bold text-gray-800 flex items-center gap-2">
+             ✏️ Editor Avanzato: {editingSingleBlock.name}
+          </h3>
+          <button 
+            onClick={() => setShowSingleBlockEditor(false)} // ✅ Unico modo per chiudere
+            className="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-full transition"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        </div>
 
+
+        {/* Content */}
+        <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(90vh-200px)]">
+{/* 🎨 STYLE PANEL */}
+<div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+  
+
+{/* 📋 HEADER EDITOR */}
+{editingSingleBlock?.id === "header" && (
+  <div className="space-y-4">
+    <h3 className="text-lg font-semibold text-gray-800">📋 Editor Header</h3>
+
+   {/* TITOLO */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-1">Titolo</label>
+  <div className="flex flex-wrap gap-1 mb-1 bg-gray-50 border border-gray-200 rounded-lg p-1">
+    {[
+      { cmd: 'bold', label: 'B', title: 'Grassetto' },
+      { cmd: 'italic', label: 'I', title: 'Corsivo' },
+      { cmd: 'underline', label: 'U', title: 'Sottolineato' },
+      { cmd: 'strikeThrough', label: 'S', title: 'Barrato' },
+    ].map(({ cmd, label, title }) => (
+      <button key={cmd} type="button" title={title}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          restoreSelection();
+          document.execCommand(cmd, false, null);
+          const el = titleEditorRef.current;
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const h1 = wrapper.querySelector('h1');
+          if (h1) h1.innerHTML = el.innerHTML;
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          updateActiveFormats('header-title-editor', setTitleActiveFormats);
+        }}
+        className={`px-2 py-1 rounded transition text-sm border ${titleActiveFormats[cmd] ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+      >
+        <span style={{ fontWeight: cmd==='bold'?'bold':'normal', fontStyle: cmd==='italic'?'italic':'normal', textDecoration: cmd==='underline'?'underline':cmd==='strikeThrough'?'line-through':'none' }}>{label}</span>
+      </button>
+    ))}
+    <div className="w-px bg-gray-300 mx-1" />
+    {['left','center','right'].map(align => (
+      <button key={align} type="button"
+        onMouseDown={(e) => { e.preventDefault(); restoreSelection(); document.execCommand('justify'+align.charAt(0).toUpperCase()+align.slice(1), false, null); }}
+        className="px-2 py-1 rounded transition text-sm bg-white text-gray-700 border border-gray-200 hover:bg-gray-100"
+      >{align==='left'?'⬅':align==='center'?'↔':'➡'}</button>
+    ))}
+    <div className="w-px bg-gray-300 mx-1" />
+    <select onMouseDown={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        restoreSelection();
+        document.execCommand('fontSize', false, e.target.value);
+        const el = titleEditorRef.current;
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = editingSingleBlock.html;
+        const h1 = wrapper.querySelector('h1');
+        if (h1) h1.innerHTML = el.innerHTML;
+        setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+      }}
+      className="text-xs border border-gray-200 rounded px-1 bg-white h-7"
+    >
+      <option value="" disabled>px</option>
+      {[1,2,3,4,5,6,7].map(s => <option key={s} value={s}>{[10,13,16,18,24,32,48][s-1]}</option>)}
+    </select>
+    <select onMouseDown={(e) => e.stopPropagation()}
+  onChange={(e) => {
+    restoreSelection();
+    document.execCommand('fontName', false, e.target.value);
+    const el = titleEditorRef.current; // ← subtitleEditorRef.current per sottotitolo
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = editingSingleBlock.html;
+    const h1 = wrapper.querySelector('h1'); // ← querySelector('p') per sottotitolo
+    if (h1) h1.innerHTML = el.innerHTML;
+    setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+  }}
+  className="text-xs border border-gray-200 rounded px-1 bg-white h-7 max-w-[100px]"
+>
+  <option value="" disabled>Font</option>
+  <optgroup label="Sans-serif">
+    <option value="Arial">Arial</option>
+    <option value="Arial Black">Arial Black</option>
+    <option value="Helvetica">Helvetica</option>
+    <option value="Helvetica Neue">Helvetica Neue</option>
+    <option value="Verdana">Verdana</option>
+    <option value="Tahoma">Tahoma</option>
+    <option value="Trebuchet MS">Trebuchet MS</option>
+    <option value="Gill Sans">Gill Sans</option>
+    <option value="Century Gothic">Century Gothic</option>
+    <option value="Calibri">Calibri</option>
+    <option value="Candara">Candara</option>
+    <option value="Optima">Optima</option>
+    <option value="Segoe UI">Segoe UI</option>
+    <option value="Futura">Futura</option>
+    <option value="Franklin Gothic Medium">Franklin Gothic</option>
+  </optgroup>
+  <optgroup label="Serif">
+    <option value="Georgia">Georgia</option>
+    <option value="Times New Roman">Times New Roman</option>
+    <option value="Times">Times</option>
+    <option value="Palatino">Palatino</option>
+    <option value="Palatino Linotype">Palatino Linotype</option>
+    <option value="Garamond">Garamond</option>
+    <option value="Book Antiqua">Book Antiqua</option>
+    <option value="Baskerville">Baskerville</option>
+    <option value="Didot">Didot</option>
+    <option value="Bodoni MT">Bodoni MT</option>
+    <option value="Cambria">Cambria</option>
+    <option value="Constantia">Constantia</option>
+    <option value="Goudy Old Style">Goudy Old Style</option>
+    <option value="Rockwell">Rockwell</option>
+    <option value="Copperplate">Copperplate</option>
+  </optgroup>
+  <optgroup label="Monospace">
+    <option value="Courier New">Courier New</option>
+    <option value="Courier">Courier</option>
+    <option value="Lucida Console">Lucida Console</option>
+    <option value="Monaco">Monaco</option>
+    <option value="Consolas">Consolas</option>
+    <option value="Andale Mono">Andale Mono</option>
+    <option value="Lucida Typewriter">Lucida Typewriter</option>
+  </optgroup>
+  <optgroup label="Display">
+    <option value="Impact">Impact</option>
+    <option value="Comic Sans MS">Comic Sans MS</option>
+    <option value="Papyrus">Papyrus</option>
+    <option value="Brush Script MT">Brush Script MT</option>
+    <option value="Luminari">Luminari</option>
+    <option value="Chalkboard">Chalkboard</option>
+    <option value="Marker Felt">Marker Felt</option>
+    <option value="Trattatello">Trattatello</option>
+  </optgroup>
+  <optgroup label="Google Fonts">
+    <option value="Roboto">Roboto</option>
+    <option value="Open Sans">Open Sans</option>
+    <option value="Lato">Lato</option>
+    <option value="Montserrat">Montserrat</option>
+    <option value="Raleway">Raleway</option>
+    <option value="Poppins">Poppins</option>
+    <option value="Nunito">Nunito</option>
+    <option value="Playfair Display">Playfair Display</option>
+    <option value="Merriweather">Merriweather</option>
+    <option value="Ubuntu">Ubuntu</option>
+    <option value="Oswald">Oswald</option>
+    <option value="Source Sans Pro">Source Sans Pro</option>
+    <option value="PT Sans">PT Sans</option>
+    <option value="Noto Sans">Noto Sans</option>
+    <option value="Quicksand">Quicksand</option>
+    <option value="Josefin Sans">Josefin Sans</option>
+    <option value="Cabin">Cabin</option>
+    <option value="Mukta">Mukta</option>
+    <option value="Barlow">Barlow</option>
+    <option value="Exo 2">Exo 2</option>
+  </optgroup>
+</select>
+    <input type="color" title="Colore testo" onMouseDown={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        restoreSelection();
+        document.execCommand('foreColor', false, e.target.value);
+        const el = titleEditorRef.current;
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = editingSingleBlock.html;
+        const h1 = wrapper.querySelector('h1');
+        if (h1) h1.innerHTML = el.innerHTML;
+        setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+      }}
+      className="w-7 h-7 border border-gray-200 rounded cursor-pointer p-0.5"
+    />
+  </div>
+  <div
+    ref={titleEditorRef}
+    id="header-title-editor"
+    contentEditable
+    suppressContentEditableWarning
+    onFocus={() => { isEditingTitleRef.current = true; }}
+    onBlur={() => { isEditingTitleRef.current = false; }}
+    onMouseUp={() => { saveSelection(); updateActiveFormats('header-title-editor', setTitleActiveFormats); }}
+    onKeyUp={() => { saveSelection(); updateActiveFormats('header-title-editor', setTitleActiveFormats); }}
+    onSelect={() => updateActiveFormats('header-title-editor', setTitleActiveFormats)}
+    onInput={(e) => {
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = editingSingleBlock.html;
+      const h1 = wrapper.querySelector('h1');
+      if (h1) h1.innerHTML = e.currentTarget.innerHTML;
+      setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+    }}
+    className="w-full border border-gray-300 rounded-lg p-3 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+  />
+</div>
+
+{/* SOTTOTITOLO */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-1">Sottotitolo</label>
+  <div className="flex flex-wrap gap-1 mb-1 bg-gray-50 border border-gray-200 rounded-lg p-1">
+    {[
+      { cmd: 'bold', label: 'B', title: 'Grassetto' },
+      { cmd: 'italic', label: 'I', title: 'Corsivo' },
+      { cmd: 'underline', label: 'U', title: 'Sottolineato' },
+      { cmd: 'strikeThrough', label: 'S', title: 'Barrato' },
+    ].map(({ cmd, label, title }) => (
+      <button key={cmd} type="button" title={title}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          restoreSelection();
+          document.execCommand(cmd, false, null);
+          const el = subtitleEditorRef.current;
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const p = wrapper.querySelector('p');
+          if (p) p.innerHTML = el.innerHTML;
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          updateActiveFormats('header-subtitle-editor', setSubtitleActiveFormats);
+        }}
+        className={`px-2 py-1 rounded transition text-sm border ${subtitleActiveFormats[cmd] ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+      >
+        <span style={{ fontWeight: cmd==='bold'?'bold':'normal', fontStyle: cmd==='italic'?'italic':'normal', textDecoration: cmd==='underline'?'underline':cmd==='strikeThrough'?'line-through':'none' }}>{label}</span>
+      </button>
+    ))}
+    <div className="w-px bg-gray-300 mx-1" />
+    {['left','center','right'].map(align => (
+      <button key={align} type="button"
+        onMouseDown={(e) => { e.preventDefault(); restoreSelection(); document.execCommand('justify'+align.charAt(0).toUpperCase()+align.slice(1), false, null); }}
+        className="px-2 py-1 rounded transition text-sm bg-white text-gray-700 border border-gray-200 hover:bg-gray-100"
+      >{align==='left'?'⬅':align==='center'?'↔':'➡'}</button>
+    ))}
+    <div className="w-px bg-gray-300 mx-1" />
+    <select onMouseDown={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        restoreSelection();
+        document.execCommand('fontSize', false, e.target.value);
+        const el = subtitleEditorRef.current;
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = editingSingleBlock.html;
+        const p = wrapper.querySelector('p');
+        if (p) p.innerHTML = el.innerHTML;
+        setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+      }}
+      className="text-xs border border-gray-200 rounded px-1 bg-white h-7"
+    >
+      <option value="" disabled>px</option>
+      {[1,2,3,4,5,6,7].map(s => <option key={s} value={s}>{[10,13,16,18,24,32,48][s-1]}</option>)}
+    </select>
+    <select onMouseDown={(e) => e.stopPropagation()}
+  onChange={(e) => {
+    restoreSelection();
+    document.execCommand('fontName', false, e.target.value);
+    const el = subtitleEditorRef.current; // ← subtitleEditorRef.current per sottotitolo
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = editingSingleBlock.html;
+    const h1 = wrapper.querySelector('p'); // ← querySelector('p') per sottotitolo
+    if (h1) h1.innerHTML = el.innerHTML;
+    setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+  }}
+  className="text-xs border border-gray-200 rounded px-1 bg-white h-7 max-w-[100px]"
+>
+  <option value="" disabled>Font</option>
+  <optgroup label="Sans-serif">
+    <option value="Arial">Arial</option>
+    <option value="Arial Black">Arial Black</option>
+    <option value="Helvetica">Helvetica</option>
+    <option value="Helvetica Neue">Helvetica Neue</option>
+    <option value="Verdana">Verdana</option>
+    <option value="Tahoma">Tahoma</option>
+    <option value="Trebuchet MS">Trebuchet MS</option>
+    <option value="Gill Sans">Gill Sans</option>
+    <option value="Century Gothic">Century Gothic</option>
+    <option value="Calibri">Calibri</option>
+    <option value="Candara">Candara</option>
+    <option value="Optima">Optima</option>
+    <option value="Segoe UI">Segoe UI</option>
+    <option value="Futura">Futura</option>
+    <option value="Franklin Gothic Medium">Franklin Gothic</option>
+  </optgroup>
+  <optgroup label="Serif">
+    <option value="Georgia">Georgia</option>
+    <option value="Times New Roman">Times New Roman</option>
+    <option value="Times">Times</option>
+    <option value="Palatino">Palatino</option>
+    <option value="Palatino Linotype">Palatino Linotype</option>
+    <option value="Garamond">Garamond</option>
+    <option value="Book Antiqua">Book Antiqua</option>
+    <option value="Baskerville">Baskerville</option>
+    <option value="Didot">Didot</option>
+    <option value="Bodoni MT">Bodoni MT</option>
+    <option value="Cambria">Cambria</option>
+    <option value="Constantia">Constantia</option>
+    <option value="Goudy Old Style">Goudy Old Style</option>
+    <option value="Rockwell">Rockwell</option>
+    <option value="Copperplate">Copperplate</option>
+  </optgroup>
+  <optgroup label="Monospace">
+    <option value="Courier New">Courier New</option>
+    <option value="Courier">Courier</option>
+    <option value="Lucida Console">Lucida Console</option>
+    <option value="Monaco">Monaco</option>
+    <option value="Consolas">Consolas</option>
+    <option value="Andale Mono">Andale Mono</option>
+    <option value="Lucida Typewriter">Lucida Typewriter</option>
+  </optgroup>
+  <optgroup label="Display">
+    <option value="Impact">Impact</option>
+    <option value="Comic Sans MS">Comic Sans MS</option>
+    <option value="Papyrus">Papyrus</option>
+    <option value="Brush Script MT">Brush Script MT</option>
+    <option value="Luminari">Luminari</option>
+    <option value="Chalkboard">Chalkboard</option>
+    <option value="Marker Felt">Marker Felt</option>
+    <option value="Trattatello">Trattatello</option>
+  </optgroup>
+  <optgroup label="Google Fonts">
+    <option value="Roboto">Roboto</option>
+    <option value="Open Sans">Open Sans</option>
+    <option value="Lato">Lato</option>
+    <option value="Montserrat">Montserrat</option>
+    <option value="Raleway">Raleway</option>
+    <option value="Poppins">Poppins</option>
+    <option value="Nunito">Nunito</option>
+    <option value="Playfair Display">Playfair Display</option>
+    <option value="Merriweather">Merriweather</option>
+    <option value="Ubuntu">Ubuntu</option>
+    <option value="Oswald">Oswald</option>
+    <option value="Source Sans Pro">Source Sans Pro</option>
+    <option value="PT Sans">PT Sans</option>
+    <option value="Noto Sans">Noto Sans</option>
+    <option value="Quicksand">Quicksand</option>
+    <option value="Josefin Sans">Josefin Sans</option>
+    <option value="Cabin">Cabin</option>
+    <option value="Mukta">Mukta</option>
+    <option value="Barlow">Barlow</option>
+    <option value="Exo 2">Exo 2</option>
+  </optgroup>
+</select>
+    <input type="color" title="Colore testo" onMouseDown={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        restoreSelection();
+        document.execCommand('foreColor', false, e.target.value);
+        const el = subtitleEditorRef.current;
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = editingSingleBlock.html;
+        const p = wrapper.querySelector('p');
+        if (p) p.innerHTML = el.innerHTML;
+        setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+      }}
+      className="w-7 h-7 border border-gray-200 rounded cursor-pointer p-0.5"
+    />
+  </div>
+  <div
+    ref={subtitleEditorRef}
+    id="header-subtitle-editor"
+    contentEditable
+    suppressContentEditableWarning
+    onFocus={() => { isEditingSubtitleRef.current = true; }}
+    onBlur={() => { isEditingSubtitleRef.current = false; }}
+    onMouseUp={() => { saveSelection(); updateActiveFormats('header-subtitle-editor', setSubtitleActiveFormats); }}
+    onKeyUp={() => { saveSelection(); updateActiveFormats('header-subtitle-editor', setSubtitleActiveFormats); }}
+    onSelect={() => updateActiveFormats('header-subtitle-editor', setSubtitleActiveFormats)}
+    onInput={(e) => {
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = editingSingleBlock.html;
+      const p = wrapper.querySelector('p');
+      if (p) p.innerHTML = e.currentTarget.innerHTML;
+      setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+    }}
+    className="w-full border border-gray-300 rounded-lg p-3 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+  />
+</div>
+
+    {/* Sfondo */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">Sfondo Header</label>
+  <div className="space-y-3">
+    
+    {/* Colore solido */}
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-gray-500 w-24 flex-shrink-0">Colore solido</span>
+      <input
+        type="color"
+        defaultValue="#ffffff"
+        onChange={(e) => {
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const table = wrapper.querySelector('table');
+          if (table) table.style.background = e.target.value;
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        className="w-10 h-8 border border-gray-200 rounded cursor-pointer p-0.5"
+      />
+    </div>
+
+    {/* Gradiente con due colori */}
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-gray-500 w-24 flex-shrink-0">Gradiente</span>
+      <input
+        type="color"
+        defaultValue="#667eea"
+        id="grad-color1"
+        onChange={(e) => {
+          const c2 = document.getElementById('grad-color2')?.value || '#764ba2';
+          const angle = document.getElementById('grad-angle')?.value || '135';
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const table = wrapper.querySelector('table');
+          if (table) table.style.background = `linear-gradient(${angle}deg, ${e.target.value}, ${c2})`;
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        className="w-10 h-8 border border-gray-200 rounded cursor-pointer p-0.5"
+      />
+      <span className="text-xs text-gray-400">→</span>
+      <input
+        type="color"
+        defaultValue="#764ba2"
+        id="grad-color2"
+        onChange={(e) => {
+          const c1 = document.getElementById('grad-color1')?.value || '#667eea';
+          const angle = document.getElementById('grad-angle')?.value || '135';
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const table = wrapper.querySelector('table');
+          if (table) table.style.background = `linear-gradient(${angle}deg, ${c1}, ${e.target.value})`;
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        className="w-10 h-8 border border-gray-200 rounded cursor-pointer p-0.5"
+      />
+      <input
+        type="range"
+        id="grad-angle"
+        min="0"
+        max="360"
+        defaultValue="135"
+        onChange={(e) => {
+          const c1 = document.getElementById('grad-color1')?.value || '#667eea';
+          const c2 = document.getElementById('grad-color2')?.value || '#764ba2';
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const table = wrapper.querySelector('table');
+          if (table) table.style.background = `linear-gradient(${e.target.value}deg, ${c1}, ${c2})`;
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        className="flex-1 h-2 accent-blue-600"
+      />
+      <span className="text-xs text-gray-400 w-6">°</span>
+    </div>
+
+    {/* Preset gradienti */}
+    <div>
+      <span className="text-xs text-gray-500 block mb-1">Preset</span>
+      <div className="flex flex-wrap gap-2">
+        {[
+          { label: 'Oceano', value: 'linear-gradient(135deg, #667eea, #764ba2)' },
+          { label: 'Tramonto', value: 'linear-gradient(135deg, #f093fb, #f5576c)' },
+          { label: 'Verde', value: 'linear-gradient(135deg, #4facfe, #00f2fe)' },
+          { label: 'Fuoco', value: 'linear-gradient(135deg, #f7971e, #ffd200)' },
+          { label: 'Notte', value: 'linear-gradient(135deg, #0f2027, #203a43, #2c5364)' },
+          { label: 'Rosa', value: 'linear-gradient(135deg, #ff9a9e, #fecfef)' },
+          { label: 'Menta', value: 'linear-gradient(135deg, #84fab0, #8fd3f4)' },
+          { label: 'Carbone', value: 'linear-gradient(135deg, #2c3e50, #4ca1af)' },
+        ].map(({ label, value }) => (
+          <button
+            key={label}
+            type="button"
+            onClick={() => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const table = wrapper.querySelector('table');
+              if (table) table.style.background = value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            style={{ background: value }}
+            className="w-8 h-8 rounded-lg border-2 border-white shadow-sm hover:scale-110 transition-transform cursor-pointer"
+            title={label}
+          />
+        ))}
+      </div>
+    </div>
+  </div>
+</div>
+  </div>
+)}
+
+{editingSingleBlock?.id === 'section-testimonial' && (
+  <div className="space-y-5">
+    <h3 className="text-lg font-semibold text-gray-800">💬 Editor Testimonial</h3>
+
+    {/* AVATAR EMOJI */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">Avatar / Emoji</label>
+      <input
+        type="text"
+        defaultValue={(() => {
+          const w = document.createElement('div');
+          w.innerHTML = editingSingleBlock.html;
+          return w.querySelector('div[style*="border-radius:50%"]')?.textContent || '👤';
+        })()}
+        onChange={(e) => {
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const avatar = wrapper.querySelector('div[style*="border-radius:50%"]');
+          if (avatar) avatar.textContent = e.target.value;
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        className="w-full border border-gray-300 rounded-lg p-2 text-2xl"
+        placeholder="👤"
+        maxLength={2}
+      />
+    </div>
+
+    {/* CITAZIONE */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">Testo Citazione</label>
+      <div className="flex flex-wrap gap-1 mb-1 bg-gray-50 border border-gray-200 rounded-lg p-1">
+        {[
+          { cmd: 'bold', label: 'B' },
+          { cmd: 'italic', label: 'I' },
+          { cmd: 'underline', label: 'U' },
+          { cmd: 'strikeThrough', label: 'S' },
+        ].map(({ cmd, label }) => (
+          <button key={cmd} type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              restoreSelection();
+              document.execCommand(cmd, false, null);
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const ps = wrapper.querySelectorAll('p');
+              if (ps[0] && testimonialQuoteRef.current) ps[0].innerHTML = testimonialQuoteRef.current.innerHTML;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              setTestimonialQuoteFormats(prev => ({ ...prev, [cmd]: document.queryCommandState(cmd) }));
+            }}
+            className={`px-2 py-1 rounded transition text-sm border ${testimonialQuoteFormats[cmd] ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+          >
+            <span style={{ fontWeight: cmd==='bold'?'bold':'normal', fontStyle: cmd==='italic'?'italic':'normal', textDecoration: cmd==='underline'?'underline':cmd==='strikeThrough'?'line-through':'none' }}>{label}</span>
+          </button>
+        ))}
+        <div className="w-px bg-gray-300 mx-1" />
+        <select onMouseDown={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            restoreSelection();
+            document.execCommand('fontSize', false, e.target.value);
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const ps = wrapper.querySelectorAll('p');
+            if (ps[0] && testimonialQuoteRef.current) ps[0].innerHTML = testimonialQuoteRef.current.innerHTML;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="text-xs border border-gray-200 rounded px-1 bg-white h-7"
+        >
+          <option value="" disabled>px</option>
+          {[1,2,3,4,5,6,7].map(s => <option key={s} value={s}>{[10,13,16,18,24,32,48][s-1]}</option>)}
+        </select>
+        <input type="color" title="Colore" onMouseDown={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            restoreSelection();
+            document.execCommand('foreColor', false, e.target.value);
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const ps = wrapper.querySelectorAll('p');
+            if (ps[0] && testimonialQuoteRef.current) ps[0].innerHTML = testimonialQuoteRef.current.innerHTML;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-7 h-7 border border-gray-200 rounded cursor-pointer p-0.5"
+        />
+      </div>
+      <div
+        ref={testimonialQuoteRef}
+        id="testimonial-quote-editor"
+        contentEditable
+        suppressContentEditableWarning
+        onMouseDown={(e) => e.stopPropagation()}
+        onFocus={() => { isEditingTestimonialQuoteRef.current = true; saveSelection(); }}
+        onBlur={() => { isEditingTestimonialQuoteRef.current = false; }}
+        onMouseUp={() => { saveSelection(); setTestimonialQuoteFormats({ bold: document.queryCommandState('bold'), italic: document.queryCommandState('italic'), underline: document.queryCommandState('underline'), strikeThrough: document.queryCommandState('strikeThrough') }); }}
+        onKeyUp={() => { saveSelection(); setTestimonialQuoteFormats({ bold: document.queryCommandState('bold'), italic: document.queryCommandState('italic'), underline: document.queryCommandState('underline'), strikeThrough: document.queryCommandState('strikeThrough') }); }}
+        onInput={(e) => {
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const ps = wrapper.querySelectorAll('p');
+          if (ps[0]) ps[0].innerHTML = e.currentTarget.innerHTML;
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        className="w-full border border-gray-300 rounded-lg p-3 min-h-[80px] focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white italic text-gray-600"
+      />
+    </div>
+
+    {/* AUTORE */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">Autore / Firma</label>
+      <div className="flex flex-wrap gap-1 mb-1 bg-gray-50 border border-gray-200 rounded-lg p-1">
+        {[
+          { cmd: 'bold', label: 'B' },
+          { cmd: 'italic', label: 'I' },
+          { cmd: 'underline', label: 'U' },
+        ].map(({ cmd, label }) => (
+          <button key={cmd} type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              restoreSelection();
+              document.execCommand(cmd, false, null);
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const ps = wrapper.querySelectorAll('p');
+              if (ps[1] && testimonialAuthorRef.current) ps[1].innerHTML = testimonialAuthorRef.current.innerHTML;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              setTestimonialAuthorFormats(prev => ({ ...prev, [cmd]: document.queryCommandState(cmd) }));
+            }}
+            className={`px-2 py-1 rounded transition text-sm border ${testimonialAuthorFormats[cmd] ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+          >
+            <span style={{ fontWeight: cmd==='bold'?'bold':'normal', fontStyle: cmd==='italic'?'italic':'normal', textDecoration: cmd==='underline'?'underline':'none' }}>{label}</span>
+          </button>
+        ))}
+        <input type="color" title="Colore" onMouseDown={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            restoreSelection();
+            document.execCommand('foreColor', false, e.target.value);
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const ps = wrapper.querySelectorAll('p');
+            if (ps[1] && testimonialAuthorRef.current) ps[1].innerHTML = testimonialAuthorRef.current.innerHTML;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-7 h-7 border border-gray-200 rounded cursor-pointer p-0.5"
+        />
+      </div>
+      <div
+        ref={testimonialAuthorRef}
+        id="testimonial-author-editor"
+        contentEditable
+        suppressContentEditableWarning
+        onMouseDown={(e) => e.stopPropagation()}
+        onFocus={() => { isEditingTestimonialAuthorRef.current = true; saveSelection(); }}
+        onBlur={() => { isEditingTestimonialAuthorRef.current = false; }}
+        onMouseUp={() => { saveSelection(); setTestimonialAuthorFormats({ bold: document.queryCommandState('bold'), italic: document.queryCommandState('italic'), underline: document.queryCommandState('underline'), strikeThrough: document.queryCommandState('strikeThrough') }); }}
+        onKeyUp={() => { saveSelection(); setTestimonialAuthorFormats({ bold: document.queryCommandState('bold'), italic: document.queryCommandState('italic'), underline: document.queryCommandState('underline'), strikeThrough: document.queryCommandState('strikeThrough') }); }}
+        onInput={(e) => {
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const ps = wrapper.querySelectorAll('p');
+          if (ps[1]) ps[1].innerHTML = e.currentTarget.innerHTML;
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        className="w-full border border-gray-300 rounded-lg p-3 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-semibold text-gray-800"
+      />
+    </div>
+
+    {/* COLORI */}
+    <div className="grid grid-cols-2 gap-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Colore Avatar</label>
+        <input type="color" defaultValue="#667eea"
+          onChange={(e) => {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const avatar = wrapper.querySelector('div[style*="border-radius:50%"]');
+            if (avatar) avatar.style.background = e.target.value;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full h-9 border border-gray-200 rounded cursor-pointer p-0.5"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Sfondo Card</label>
+        <input type="color" defaultValue="#ffffff"
+          onChange={(e) => {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const tables = wrapper.querySelectorAll('table');
+            if (tables[1]) tables[1].style.background = e.target.value;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full h-9 border border-gray-200 rounded cursor-pointer p-0.5"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Sfondo Esterno</label>
+        <input type="color" defaultValue="#f4f4f4"
+          onChange={(e) => {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const table = wrapper.querySelector('table');
+            if (table) table.style.background = e.target.value;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full h-9 border border-gray-200 rounded cursor-pointer p-0.5"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Colore Stelle ⭐</label>
+        <div className="flex gap-1 mt-1">
+          {['⭐','🌟','✨','💫','❤️','👍'].map(emoji => (
+            <button key={emoji} type="button"
+              onClick={() => {
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = editingSingleBlock.html;
+                const avatar = wrapper.querySelector('div[style*="border-radius:50%"]');
+                if (avatar) avatar.textContent = emoji;
+                setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              }}
+              className="text-xl hover:scale-125 transition-transform cursor-pointer"
+            >{emoji}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+
+  </div>
+)}
+
+{/* 🎨 HERO EDITOR */}
+{editingSingleBlock?.id === 'section-hero' && (
+  <div className="space-y-5">
+    <h3 className="text-lg font-semibold text-gray-800">🎨 Editor Hero Banner</h3>
+
+   {/* TITOLO */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-1">Titolo</label>
+  <div className="flex flex-wrap gap-1 mb-1 bg-gray-50 border border-gray-200 rounded-lg p-1">
+    {[
+      { cmd: 'bold', label: 'B' },
+      { cmd: 'italic', label: 'I' },
+      { cmd: 'underline', label: 'U' },
+      { cmd: 'strikeThrough', label: 'S' },
+    ].map(({ cmd, label }) => (
+      <button key={cmd} type="button"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          restoreSelection();
+          document.execCommand(cmd, false, null);
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const h1 = wrapper.querySelector('h1');
+          if (h1 && heroTitleRef.current) h1.innerHTML = heroTitleRef.current.innerHTML;
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          setHeroTitleFormats(prev => ({ ...prev, [cmd]: document.queryCommandState(cmd) }));
+        }}
+        className={`px-2 py-1 rounded transition text-sm border ${heroTitleFormats[cmd] ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+      >
+        <span style={{ fontWeight: cmd==='bold'?'bold':'normal', fontStyle: cmd==='italic'?'italic':'normal', textDecoration: cmd==='underline'?'underline':cmd==='strikeThrough'?'line-through':'none' }}>{label}</span>
+      </button>
+    ))}
+    <div className="w-px bg-gray-300 mx-1" />
+    {['left','center','right'].map(align => (
+      <button key={align} type="button"
+        onMouseDown={(e) => { e.preventDefault(); restoreSelection(); document.execCommand('justify'+align.charAt(0).toUpperCase()+align.slice(1), false, null); }}
+        className="px-2 py-1 rounded transition text-sm bg-white text-gray-700 border border-gray-200 hover:bg-gray-100"
+      >{align==='left'?'⬅':align==='center'?'↔':'➡'}</button>
+    ))}
+    <div className="w-px bg-gray-300 mx-1" />
+    <select onMouseDown={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        restoreSelection();
+        document.execCommand('fontSize', false, e.target.value);
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = editingSingleBlock.html;
+        const h1 = wrapper.querySelector('h1');
+        if (h1 && heroTitleRef.current) h1.innerHTML = heroTitleRef.current.innerHTML;
+        setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+      }}
+      className="text-xs border border-gray-200 rounded px-1 bg-white h-7"
+    >
+      <option value="" disabled>px</option>
+      {[1,2,3,4,5,6,7].map(s => <option key={s} value={s}>{[10,13,16,18,24,32,48][s-1]}</option>)}
+    </select>
+    <select onMouseDown={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        restoreSelection();
+        document.execCommand('fontName', false, e.target.value);
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = editingSingleBlock.html;
+        const h1 = wrapper.querySelector('h1');
+        if (h1 && heroTitleRef.current) h1.innerHTML = heroTitleRef.current.innerHTML;
+        setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+      }}
+      className="text-xs border border-gray-200 rounded px-1 bg-white h-7 max-w-[90px]"
+    >
+      <option value="" disabled>Font</option>
+      <optgroup label="Sans-serif">
+        <option value="Arial">Arial</option>
+        <option value="Helvetica">Helvetica</option>
+        <option value="Verdana">Verdana</option>
+        <option value="Tahoma">Tahoma</option>
+        <option value="Calibri">Calibri</option>
+        <option value="Segoe UI">Segoe UI</option>
+        <option value="Futura">Futura</option>
+      </optgroup>
+      <optgroup label="Serif">
+        <option value="Georgia">Georgia</option>
+        <option value="Times New Roman">Times New Roman</option>
+        <option value="Garamond">Garamond</option>
+        <option value="Palatino">Palatino</option>
+        <option value="Baskerville">Baskerville</option>
+        <option value="Cambria">Cambria</option>
+      </optgroup>
+      <optgroup label="Monospace">
+        <option value="Courier New">Courier New</option>
+        <option value="Consolas">Consolas</option>
+        <option value="Monaco">Monaco</option>
+      </optgroup>
+      <optgroup label="Google Fonts">
+        <option value="Roboto">Roboto</option>
+        <option value="Open Sans">Open Sans</option>
+        <option value="Lato">Lato</option>
+        <option value="Montserrat">Montserrat</option>
+        <option value="Poppins">Poppins</option>
+        <option value="Raleway">Raleway</option>
+        <option value="Nunito">Nunito</option>
+        <option value="Playfair Display">Playfair Display</option>
+        <option value="Oswald">Oswald</option>
+        <option value="Ubuntu">Ubuntu</option>
+      </optgroup>
+    </select>
+    <input type="color" title="Colore" onMouseDown={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        restoreSelection();
+        document.execCommand('foreColor', false, e.target.value);
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = editingSingleBlock.html;
+        const h1 = wrapper.querySelector('h1');
+        if (h1 && heroTitleRef.current) h1.innerHTML = heroTitleRef.current.innerHTML;
+        setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+      }}
+      className="w-7 h-7 border border-gray-200 rounded cursor-pointer p-0.5"
+    />
+  </div>
+  <div
+    ref={heroTitleRef}
+    id="hero-title-editor"
+    contentEditable
+    suppressContentEditableWarning
+    onFocus={() => { isEditingHeroTitleRef.current = true; }}
+    onBlur={() => { isEditingHeroTitleRef.current = false; }}
+    onMouseUp={() => { saveSelection(); setHeroTitleFormats({ bold: document.queryCommandState('bold'), italic: document.queryCommandState('italic'), underline: document.queryCommandState('underline'), strikeThrough: document.queryCommandState('strikeThrough') }); }}
+    onKeyUp={() => { saveSelection(); setHeroTitleFormats({ bold: document.queryCommandState('bold'), italic: document.queryCommandState('italic'), underline: document.queryCommandState('underline'), strikeThrough: document.queryCommandState('strikeThrough') }); }}
+    onInput={(e) => {
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = editingSingleBlock.html;
+      const h1 = wrapper.querySelector('h1');
+      if (h1) h1.innerHTML = e.currentTarget.innerHTML;
+      setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+    }}
+    className="w-full border border-gray-300 rounded-lg p-3 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+  />
+</div>
+
+{/* SOTTOTITOLO */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-1">Sottotitolo</label>
+  <div className="flex flex-wrap gap-1 mb-1 bg-gray-50 border border-gray-200 rounded-lg p-1">
+    {[
+      { cmd: 'bold', label: 'B' },
+      { cmd: 'italic', label: 'I' },
+      { cmd: 'underline', label: 'U' },
+      { cmd: 'strikeThrough', label: 'S' },
+    ].map(({ cmd, label }) => (
+      <button key={cmd} type="button"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          restoreSelection();
+          document.execCommand(cmd, false, null);
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const p = wrapper.querySelector('p');
+          if (p && heroSubtitleRef.current) p.innerHTML = heroSubtitleRef.current.innerHTML;
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          setHeroSubtitleFormats(prev => ({ ...prev, [cmd]: document.queryCommandState(cmd) }));
+        }}
+        className={`px-2 py-1 rounded transition text-sm border ${heroSubtitleFormats[cmd] ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+      >
+        <span style={{ fontWeight: cmd==='bold'?'bold':'normal', fontStyle: cmd==='italic'?'italic':'normal', textDecoration: cmd==='underline'?'underline':cmd==='strikeThrough'?'line-through':'none' }}>{label}</span>
+      </button>
+    ))}
+    <div className="w-px bg-gray-300 mx-1" />
+    {['left','center','right'].map(align => (
+      <button key={align} type="button"
+        onMouseDown={(e) => { e.preventDefault(); restoreSelection(); document.execCommand('justify'+align.charAt(0).toUpperCase()+align.slice(1), false, null); }}
+        className="px-2 py-1 rounded transition text-sm bg-white text-gray-700 border border-gray-200 hover:bg-gray-100"
+      >{align==='left'?'⬅':align==='center'?'↔':'➡'}</button>
+    ))}
+    <div className="w-px bg-gray-300 mx-1" />
+    <select onMouseDown={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        restoreSelection();
+        document.execCommand('fontSize', false, e.target.value);
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = editingSingleBlock.html;
+        const p = wrapper.querySelector('p');
+        if (p && heroSubtitleRef.current) p.innerHTML = heroSubtitleRef.current.innerHTML;
+        setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+      }}
+      className="text-xs border border-gray-200 rounded px-1 bg-white h-7"
+    >
+      <option value="" disabled>px</option>
+      {[1,2,3,4,5,6,7].map(s => <option key={s} value={s}>{[10,13,16,18,24,32,48][s-1]}</option>)}
+    </select>
+    <select onMouseDown={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        restoreSelection();
+        document.execCommand('fontName', false, e.target.value);
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = editingSingleBlock.html;
+        const p = wrapper.querySelector('p');
+        if (p && heroSubtitleRef.current) p.innerHTML = heroSubtitleRef.current.innerHTML;
+        setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+      }}
+      className="text-xs border border-gray-200 rounded px-1 bg-white h-7 max-w-[90px]"
+    >
+      <option value="" disabled>Font</option>
+      <optgroup label="Sans-serif">
+        <option value="Arial">Arial</option>
+        <option value="Helvetica">Helvetica</option>
+        <option value="Verdana">Verdana</option>
+        <option value="Tahoma">Tahoma</option>
+        <option value="Calibri">Calibri</option>
+        <option value="Segoe UI">Segoe UI</option>
+        <option value="Futura">Futura</option>
+      </optgroup>
+      <optgroup label="Serif">
+        <option value="Georgia">Georgia</option>
+        <option value="Times New Roman">Times New Roman</option>
+        <option value="Garamond">Garamond</option>
+        <option value="Palatino">Palatino</option>
+        <option value="Baskerville">Baskerville</option>
+        <option value="Cambria">Cambria</option>
+      </optgroup>
+      <optgroup label="Monospace">
+        <option value="Courier New">Courier New</option>
+        <option value="Consolas">Consolas</option>
+        <option value="Monaco">Monaco</option>
+      </optgroup>
+      <optgroup label="Google Fonts">
+        <option value="Roboto">Roboto</option>
+        <option value="Open Sans">Open Sans</option>
+        <option value="Lato">Lato</option>
+        <option value="Montserrat">Montserrat</option>
+        <option value="Poppins">Poppins</option>
+        <option value="Raleway">Raleway</option>
+        <option value="Nunito">Nunito</option>
+        <option value="Playfair Display">Playfair Display</option>
+        <option value="Oswald">Oswald</option>
+        <option value="Ubuntu">Ubuntu</option>
+      </optgroup>
+    </select>
+    <input type="color" title="Colore" onMouseDown={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        restoreSelection();
+        document.execCommand('foreColor', false, e.target.value);
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = editingSingleBlock.html;
+        const p = wrapper.querySelector('p');
+        if (p && heroSubtitleRef.current) p.innerHTML = heroSubtitleRef.current.innerHTML;
+        setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+      }}
+      className="w-7 h-7 border border-gray-200 rounded cursor-pointer p-0.5"
+    />
+  </div>
+  <div
+    ref={heroSubtitleRef}
+    id="hero-subtitle-editor"
+    contentEditable
+    suppressContentEditableWarning
+    onFocus={() => { isEditingHeroSubtitleRef.current = true; }}
+    onBlur={() => { isEditingHeroSubtitleRef.current = false; }}
+    onMouseUp={() => { saveSelection(); setHeroSubtitleFormats({ bold: document.queryCommandState('bold'), italic: document.queryCommandState('italic'), underline: document.queryCommandState('underline'), strikeThrough: document.queryCommandState('strikeThrough') }); }}
+    onKeyUp={() => { saveSelection(); setHeroSubtitleFormats({ bold: document.queryCommandState('bold'), italic: document.queryCommandState('italic'), underline: document.queryCommandState('underline'), strikeThrough: document.queryCommandState('strikeThrough') }); }}
+    onInput={(e) => {
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = editingSingleBlock.html;
+      const p = wrapper.querySelector('p');
+      if (p) p.innerHTML = e.currentTarget.innerHTML;
+      setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+    }}
+    className="w-full border border-gray-300 rounded-lg p-3 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+  />
+</div>
+
+    {/* COLORE TESTI */}
+    <div className="flex items-center gap-3">
+      <label className="text-sm font-medium text-gray-700 w-32 shrink-0">Colore testi</label>
+      <input type="color" defaultValue="#ffffff"
+        onChange={(e) => {
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const h1 = wrapper.querySelector('h1');
+          const p = wrapper.querySelector('p');
+          if (h1) h1.style.color = e.target.value;
+          if (p) p.style.color = e.target.value;
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        className="w-10 h-8 border border-gray-200 rounded cursor-pointer p-0.5"
+      />
+    </div>
+
+    {/* SFONDO */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-2">Sfondo</label>
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500 w-24 shrink-0">Colore solido</span>
+          <input type="color" defaultValue="#667eea"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const table = wrapper.querySelector('table');
+              if (table) table.style.background = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-10 h-8 border border-gray-200 rounded cursor-pointer p-0.5"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500 w-24 shrink-0">Gradiente</span>
+          <input type="color" defaultValue="#667eea" id="hero-grad-c1"
+            onChange={(e) => {
+              const c2 = document.getElementById('hero-grad-c2')?.value || '#764ba2';
+              const angle = document.getElementById('hero-grad-angle')?.value || '135';
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const table = wrapper.querySelector('table');
+              if (table) table.style.background = `linear-gradient(${angle}deg, ${e.target.value}, ${c2})`;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-10 h-8 border border-gray-200 rounded cursor-pointer p-0.5"
+          />
+          <span className="text-xs text-gray-400">→</span>
+          <input type="color" defaultValue="#764ba2" id="hero-grad-c2"
+            onChange={(e) => {
+              const c1 = document.getElementById('hero-grad-c1')?.value || '#667eea';
+              const angle = document.getElementById('hero-grad-angle')?.value || '135';
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const table = wrapper.querySelector('table');
+              if (table) table.style.background = `linear-gradient(${angle}deg, ${c1}, ${e.target.value})`;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-10 h-8 border border-gray-200 rounded cursor-pointer p-0.5"
+          />
+          <input type="range" id="hero-grad-angle" min="0" max="360" defaultValue="135"
+            onChange={(e) => {
+              const c1 = document.getElementById('hero-grad-c1')?.value || '#667eea';
+              const c2 = document.getElementById('hero-grad-c2')?.value || '#764ba2';
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const table = wrapper.querySelector('table');
+              if (table) table.style.background = `linear-gradient(${e.target.value}deg, ${c1}, ${c2})`;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="flex-1 h-2 accent-blue-600"
+          />
+          <span className="text-xs text-gray-400 w-4">°</span>
+        </div>
+        <div>
+          <span className="text-xs text-gray-500 block mb-1">Preset</span>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { label: 'Viola', value: 'linear-gradient(135deg, #667eea, #764ba2)' },
+              { label: 'Tramonto', value: 'linear-gradient(135deg, #f093fb, #f5576c)' },
+              { label: 'Oceano', value: 'linear-gradient(135deg, #4facfe, #00f2fe)' },
+              { label: 'Fuoco', value: 'linear-gradient(135deg, #f7971e, #ffd200)' },
+              { label: 'Notte', value: 'linear-gradient(135deg, #0f2027, #203a43, #2c5364)' },
+              { label: 'Rosa', value: 'linear-gradient(135deg, #ff9a9e, #fecfef)' },
+              { label: 'Menta', value: 'linear-gradient(135deg, #84fab0, #8fd3f4)' },
+              { label: 'Carbone', value: 'linear-gradient(135deg, #2c3e50, #4ca1af)' },
+            ].map(({ label, value }) => (
+              <button key={label} type="button" title={label}
+                onClick={() => {
+                  const wrapper = document.createElement('div');
+                  wrapper.innerHTML = editingSingleBlock.html;
+                  const table = wrapper.querySelector('table');
+                  if (table) table.style.background = value;
+                  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                }}
+                style={{ background: value }}
+                className="w-8 h-8 rounded-lg border-2 border-white shadow-sm hover:scale-110 transition-transform cursor-pointer"
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* PULSANTE */}
+    <div className="border border-gray-200 rounded-lg p-4 bg-gray-50 space-y-3">
+      <h4 className="text-sm font-semibold text-gray-700">🔘 Pulsante</h4>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Testo</label>
+        <input type="text"
+          defaultValue={(() => { const w = document.createElement('div'); w.innerHTML = editingSingleBlock.html; return w.querySelector('a')?.textContent || ''; })()}
+          onChange={(e) => {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const a = wrapper.querySelector('a');
+            if (a) a.textContent = e.target.value;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full border border-gray-300 rounded-lg p-2 text-sm"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Link (href)</label>
+        <input type="text"
+          defaultValue={(() => { const w = document.createElement('div'); w.innerHTML = editingSingleBlock.html; return w.querySelector('a')?.getAttribute('href') || '#'; })()}
+          onChange={(e) => {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const a = wrapper.querySelector('a');
+            if (a) a.setAttribute('href', e.target.value);
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full border border-gray-300 rounded-lg p-2 text-sm"
+          placeholder="https://..."
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Sfondo pulsante</label>
+          <input type="color" defaultValue="#ffffff"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const a = wrapper.querySelector('a');
+              if (a) a.style.background = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full h-8 border border-gray-200 rounded cursor-pointer p-0.5"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Colore testo</label>
+          <input type="color" defaultValue="#667eea"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const a = wrapper.querySelector('a');
+              if (a) a.style.color = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full h-8 border border-gray-200 rounded cursor-pointer p-0.5"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Dimensione testo (px)</label>
+          <input type="number" min="10" max="30" defaultValue="16"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const a = wrapper.querySelector('a');
+              if (a) a.style.fontSize = `${e.target.value}px`;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full border border-gray-300 rounded-lg p-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Padding (es: 15px 40px)</label>
+          <input type="text" defaultValue="15px 40px"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const a = wrapper.querySelector('a');
+              if (a) a.style.padding = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full border border-gray-300 rounded-lg p-2 text-sm"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">
+          Arrotondamento angoli: <span id="hero-radius-val" className="text-blue-600 font-semibold">50px</span>
+        </label>
+        <input type="range" min="0" max="50" defaultValue="50"
+          onChange={(e) => {
+            const span = document.getElementById('hero-radius-val');
+            if (span) span.textContent = `${e.target.value}px`;
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const a = wrapper.querySelector('a');
+            if (a) a.style.borderRadius = `${e.target.value}px`;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full accent-blue-600"
+        />
+        <div className="flex justify-between text-xs text-gray-400 mt-0.5">
+          <span>Quadrato</span>
+          <span>Pillow</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+)}
+{editingSingleBlock?.id === 'web-link' && (
+  <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
+    <h4 className="font-bold">Configura Link</h4>
+    <input 
+      type="text" 
+      placeholder="Testo del link"
+      className="w-full p-2 border rounded"
+      onChange={(e) => {
+        const newHtml = editingSingleBlock.html.replace(/>(.*?)</, `>${e.target.value}<`);
+        setEditingSingleBlock({...editingSingleBlock, html: newHtml});
+      }}
+    />
+    <input 
+      type="text" 
+      placeholder="https://..."
+      className="w-full p-2 border rounded"
+      onChange={(e) => {
+        const newHtml = editingSingleBlock.html.replace(/href="(.*?)"/, `href="${e.target.value}"`);
+        setEditingSingleBlock({...editingSingleBlock, html: newHtml});
+      }}
+    />
+  </div>
+)}
+
+  {/* 🖼️ IMAGE EDITOR */}
+{/* 🖼️ IMAGE EDITOR */}
+{editingSingleBlock?.id === "image" && (
+  <div className="space-y-5">
+    <h3 className="text-lg font-semibold text-gray-800">🖼️ Editor Immagine</h3>
+
+    {/* ANTEPRIMA IMMAGINE */}
+    <div className="relative w-full h-40 bg-gray-100 border-2 border-dashed border-gray-300 rounded-xl overflow-hidden flex items-center justify-center group">
+      {editingSingleBlock.html.match(/src="([^"]+)"/)?.[1] ? (
+        <>
+          <img
+            src={editingSingleBlock.html.match(/src="([^"]+)"/)?.[1]}
+            className="max-h-full max-w-full object-contain"
+            alt="Anteprima"
+          />
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-3">
+            <button
+              onClick={() => {
+                const input = document.createElement('input');
+                input.type = 'file'; input.accept = 'image/*';
+                input.onchange = (e) => {
+                  const file = e.target.files[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                      const wrapper = document.createElement('div');
+                      wrapper.innerHTML = editingSingleBlock.html;
+                      const img = wrapper.querySelector('img');
+                      if (img) img.src = reader.result;
+                      setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                      toast.success('🖼️ Immagine aggiornata!');
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                };
+                input.click();
+              }}
+              className="bg-white text-gray-800 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-blue-600 hover:text-white transition"
+            >
+              📤 Sostituisci
+            </button>
+            <button
+              onClick={() => {
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = editingSingleBlock.html;
+                const img = wrapper.querySelector('img');
+                if (img) img.src = '';
+                setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              }}
+              className="bg-white text-red-600 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-red-600 hover:text-white transition"
+            >
+              🗑️ Rimuovi
+            </button>
+          </div>
+        </>
+      ) : (
+        <button
+          onClick={() => {
+            const input = document.createElement('input');
+            input.type = 'file'; input.accept = 'image/*';
+            input.onchange = (e) => {
+              const file = e.target.files[0];
+              if (file) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  const wrapper = document.createElement('div');
+                  wrapper.innerHTML = editingSingleBlock.html;
+                  const img = wrapper.querySelector('img');
+                  if (img) img.src = reader.result;
+                  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                  toast.success('🖼️ Immagine caricata!');
+                };
+                reader.readAsDataURL(file);
+              }
+            };
+            input.click();
+          }}
+          className="flex flex-col items-center gap-2 text-gray-400 hover:text-blue-600 transition"
+        >
+          <span className="text-4xl">🖼️</span>
+          <span className="text-sm font-medium">Clicca per caricare</span>
+        </button>
+      )}
+    </div>
+
+    {/* URL IMMAGINE */}
+    <div>
+      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">URL Immagine</label>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          defaultValue={editingSingleBlock.html.match(/src="([^"]+)"/)?.[1] || ''}
+          onChange={(e) => {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const img = wrapper.querySelector('img');
+            if (img) img.src = e.target.value;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          placeholder="https://..."
+          className="flex-1 border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+        />
+        <button
+          onClick={() => {
+            const input = document.createElement('input');
+            input.type = 'file'; input.accept = 'image/*';
+            input.onchange = (e) => {
+              const file = e.target.files[0];
+              if (file) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  const wrapper = document.createElement('div');
+                  wrapper.innerHTML = editingSingleBlock.html;
+                  const img = wrapper.querySelector('img');
+                  if (img) img.src = reader.result;
+                  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                  toast.success('🖼️ Immagine caricata!');
+                };
+                reader.readAsDataURL(file);
+              }
+            };
+            input.click();
+          }}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap"
+        >
+          📤 Carica
+        </button>
+      </div>
+    </div>
+
+    {/* DIMENSIONI */}
+    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">📐 Dimensioni</h4>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Larghezza</label>
+          <input
+            type="text"
+            defaultValue={(() => {
+              const w = document.createElement('div'); w.innerHTML = editingSingleBlock.html;
+              return w.querySelector('img')?.style.width || '100%';
+            })()}
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const img = wrapper.querySelector('img');
+              if (img) img.style.width = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            placeholder="es. 100%, 400px"
+            className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Larghezza Max</label>
+          <select
+            defaultValue={(() => {
+              const w = document.createElement('div'); w.innerHTML = editingSingleBlock.html;
+              return w.querySelector('img')?.style.maxWidth || '100%';
+            })()}
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const img = wrapper.querySelector('img');
+              if (img) img.style.maxWidth = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          >
+            <option value="100%">100%</option>
+            <option value="80%">80%</option>
+            <option value="60%">60%</option>
+            <option value="50%">50%</option>
+            <option value="500px">500px</option>
+            <option value="400px">400px</option>
+            <option value="300px">300px</option>
+            <option value="200px">200px</option>
+          </select>
+        </div>
+      </div>
+
+      {/* ALTEZZA */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Altezza (opzionale)</label>
+        <div className="flex gap-2 items-center">
+          <input
+            type="text"
+            defaultValue={(() => {
+              const w = document.createElement('div'); w.innerHTML = editingSingleBlock.html;
+              return w.querySelector('img')?.style.height || '';
+            })()}
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const img = wrapper.querySelector('img');
+              if (img) img.style.height = e.target.value || 'auto';
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            placeholder="es. 200px, auto"
+            className="flex-1 border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          />
+          <button
+            onClick={() => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const img = wrapper.querySelector('img');
+              if (img) img.style.height = 'auto';
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              toast.success('Altezza impostata su auto');
+            }}
+            className="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-2 py-2 rounded-lg transition"
+          >
+            Auto
+          </button>
+        </div>
+      </div>
+
+      {/* OBJECT FIT */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Adattamento (object-fit)</label>
+        <div className="grid grid-cols-4 gap-1.5">
+          {[
+            { value: 'cover', label: 'Cover', icon: '⬛' },
+            { value: 'contain', label: 'Contain', icon: '🔲' },
+            { value: 'fill', label: 'Fill', icon: '▪️' },
+            { value: 'none', label: 'None', icon: '○' },
+          ].map(({ value, label, icon }) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => {
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = editingSingleBlock.html;
+                const img = wrapper.querySelector('img');
+                if (img) img.style.objectFit = value;
+                setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              }}
+              className="flex flex-col items-center gap-0.5 p-2 border border-gray-200 rounded-lg bg-white hover:border-blue-500 hover:bg-blue-50 transition text-xs"
+            >
+              <span>{icon}</span>
+              <span className="text-gray-600 text-[10px]">{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+
+    {/* ALLINEAMENTO */}
+    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-2">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">↔️ Allineamento</h4>
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          { value: 'left', label: 'Sinistra', icon: '⬅️' },
+          { value: 'center', label: 'Centro', icon: '↔️' },
+          { value: 'right', label: 'Destra', icon: '➡️' },
+        ].map(({ value, label, icon }) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const img = wrapper.querySelector('img');
+              const td = wrapper.querySelector('td');
+              if (img) {
+                img.style.display = 'block';
+                img.style.margin = value === 'center' ? '0 auto' : value === 'right' ? '0 0 0 auto' : '0 auto 0 0';
+              }
+              if (td) td.style.textAlign = value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="flex flex-col items-center gap-1 py-2 border border-gray-200 rounded-lg bg-white hover:border-blue-500 hover:bg-blue-50 transition"
+          >
+            <span className="text-base">{icon}</span>
+            <span className="text-xs text-gray-600">{label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+
+    {/* BORDI E STILE */}
+    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">🎨 Stile</h4>
+
+      {/* Border Radius */}
+      <div>
+        <div className="flex justify-between items-center mb-1">
+          <label className="text-xs font-medium text-gray-600">Arrotondamento angoli</label>
+          <span id="img-radius-val" className="text-xs font-semibold text-blue-600">8px</span>
+        </div>
+        <input
+          type="range" min="0" max="100" defaultValue="8"
+          onChange={(e) => {
+            const span = document.getElementById('img-radius-val');
+            if (span) span.textContent = `${e.target.value}px`;
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const img = wrapper.querySelector('img');
+            if (img) img.style.borderRadius = `${e.target.value}px`;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full accent-blue-600"
+        />
+        <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
+          <span>Quadrato</span><span>Cerchio</span>
+        </div>
+      </div>
+
+      {/* Ombra */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-2">Ombra</label>
+        <div className="grid grid-cols-4 gap-1.5">
+          {[
+            { label: 'Nessuna', value: 'none' },
+            { label: 'Leggera', value: '0 2px 8px rgba(0,0,0,0.1)' },
+            { label: 'Media', value: '0 4px 16px rgba(0,0,0,0.15)' },
+            { label: 'Forte', value: '0 8px 30px rgba(0,0,0,0.25)' },
+          ].map(({ label, value }) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => {
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = editingSingleBlock.html;
+                const img = wrapper.querySelector('img');
+                if (img) img.style.boxShadow = value;
+                setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              }}
+              className="py-1.5 text-[11px] border border-gray-200 rounded-lg bg-white hover:border-blue-500 hover:bg-blue-50 transition text-gray-600 font-medium"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Bordo */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Spessore bordo</label>
+          <select
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const img = wrapper.querySelector('img');
+              if (img) {
+                const currentBorder = img.style.border || 'none';
+                const color = currentBorder.match(/#[0-9a-f]{3,6}/i)?.[0] || '#e5e7eb';
+                img.style.border = e.target.value === '0' ? 'none' : `${e.target.value}px solid ${color}`;
+              }
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          >
+            <option value="0">Nessuno</option>
+            <option value="1">1px</option>
+            <option value="2">2px</option>
+            <option value="3">3px</option>
+            <option value="4">4px</option>
+            <option value="6">6px</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Colore bordo</label>
+          <input
+            type="color"
+            defaultValue="#e5e7eb"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const img = wrapper.querySelector('img');
+              if (img && img.style.border && img.style.border !== 'none') {
+                img.style.borderColor = e.target.value;
+              }
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full h-9 border border-gray-300 rounded-lg cursor-pointer p-0.5"
+          />
+        </div>
+      </div>
+
+      {/* Opacità */}
+      <div>
+        <div className="flex justify-between items-center mb-1">
+          <label className="text-xs font-medium text-gray-600">Opacità</label>
+          <span id="img-opacity-val" className="text-xs font-semibold text-blue-600">100%</span>
+        </div>
+        <input
+          type="range" min="10" max="100" defaultValue="100"
+          onChange={(e) => {
+            const span = document.getElementById('img-opacity-val');
+            if (span) span.textContent = `${e.target.value}%`;
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const img = wrapper.querySelector('img');
+            if (img) img.style.opacity = (e.target.value / 100).toString();
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full accent-blue-600"
+        />
+      </div>
+    </div>
+
+    {/* SPAZIATURA */}
+    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">📏 Spaziatura</h4>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Padding (interno)</label>
+          <input
+            type="text"
+            defaultValue="0px"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const td = wrapper.querySelector('td');
+              if (td) td.style.padding = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            placeholder="es. 10px 20px"
+            className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Margine (esterno)</label>
+          <input
+            type="text"
+            defaultValue="0px"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const img = wrapper.querySelector('img');
+              if (img) img.style.margin = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            placeholder="es. 10px 0"
+            className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          />
+        </div>
+      </div>
+    </div>
+
+    {/* LINK */}
+    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">🔗 Link Immagine</h4>
+      <input
+        type="text"
+        defaultValue={(() => {
+          const w = document.createElement('div'); w.innerHTML = editingSingleBlock.html;
+          return w.querySelector('a')?.getAttribute('href') || '';
+        })()}
+        onChange={(e) => {
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const img = wrapper.querySelector('img');
+          if (!img) return;
+          const existingLink = wrapper.querySelector('a');
+          if (e.target.value) {
+            if (existingLink) {
+              existingLink.setAttribute('href', e.target.value);
+            } else {
+              const a = document.createElement('a');
+              a.href = e.target.value;
+              a.target = '_blank';
+              img.parentNode.insertBefore(a, img);
+              a.appendChild(img);
+            }
+          } else if (existingLink) {
+            existingLink.parentNode.insertBefore(img, existingLink);
+            existingLink.remove();
+          }
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        placeholder="https://... (opzionale)"
+        className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+      />
+    </div>
+
+    {/* ALT TEXT */}
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-1">Testo Alternativo (alt)</label>
+      <input
+        type="text"
+        defaultValue={(() => {
+          const w = document.createElement('div'); w.innerHTML = editingSingleBlock.html;
+          return w.querySelector('img')?.getAttribute('alt') || '';
+        })()}
+        onChange={(e) => {
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const img = wrapper.querySelector('img');
+          if (img) img.setAttribute('alt', e.target.value);
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        placeholder="Descrizione immagine per accessibilità"
+        className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+      />
+    </div>
+
+  </div>
+)}
+
+  {/* Logica da inserire nel modale Editor Avanzato */}
+
+
+  {/* --- 2. NUOVO: EDITOR PER SEZIONI COMPOSTE (Aggiungilo qui sotto) --- */}
+  {(editingSingleBlock?.id === "section-imgtext" || editingSingleBlock?.id === "section-textimg") && (
+  <div className="space-y-5">
+    <h3 className="text-lg font-semibold text-gray-800">🖼️ Editor Immagine + Testo</h3>
+
+    {/* IMMAGINE */}
+    <div className="border border-gray-200 rounded-lg p-4 bg-gray-50 space-y-3">
+      <h4 className="text-sm font-semibold text-gray-700">🖼️ Immagine</h4>
+      {editingSingleBlock.html.includes('<img') && (
+        <div className="w-28 h-28 border rounded overflow-hidden bg-white mx-auto shadow-sm">
+          <img
+            src={editingSingleBlock.html.match(/src="([^"]+)"/)?.[1]}
+            className="w-full h-full object-cover"
+            alt="Anteprima"
+          />
+        </div>
+      )}
+      <button
+        onClick={() => {
+          const input = document.createElement('input');
+          input.type = 'file'; input.accept = 'image/*';
+          input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const newHtml = editingSingleBlock.html.replace(/src="([^"]+)"/, `src="${reader.result}"`);
+                setEditingSingleBlock({ ...editingSingleBlock, html: newHtml });
+                toast.success("🖼️ Immagine aggiornata!");
+              };
+              reader.readAsDataURL(file);
+            }
+          };
+          input.click();
+        }}
+        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-medium transition flex items-center justify-center gap-2"
+      >
+        📤 Carica Nuova Immagine
+      </button>
+    </div>
+
+    {/* LINK */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">Link "Leggi di più"</label>
+      <input
+        type="text"
+        defaultValue={(() => {
+          const w = document.createElement('div');
+          w.innerHTML = editingSingleBlock.html;
+          return w.querySelector('a')?.getAttribute('href') || '#';
+        })()}
+        onChange={(e) => {
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const a = wrapper.querySelector('a');
+          if (a) a.setAttribute('href', e.target.value);
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        className="w-full border border-gray-300 rounded-lg p-2 text-sm"
+        placeholder="https://..."
+      />
+    </div>
+
+    {/* INFO */}
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+      <p className="text-xs text-blue-700">
+        💡 Per modificare titolo e testo usa <strong>Modifica Testi Rapida</strong> nella sezione sottostante.
+      </p>
+    </div>
+
+  </div>
+)}
+
+
+{/* 📝 TEXT EDITOR */}
+{editingSingleBlock?.id === "text" && (
+  <div className="space-y-5">
+    <h3 className="text-lg font-semibold text-gray-800">📝 Editor Paragrafo</h3>
+
+    {/* ── TITOLO ── */}
+    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-2">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">📌 Titolo</h4>
+
+      {/* TOOLBAR TITOLO */}
+      <div className="flex flex-wrap gap-1 bg-white border border-gray-200 rounded-lg p-1">
+        {[
+          { cmd: 'bold', label: 'B' },
+          { cmd: 'italic', label: 'I' },
+          { cmd: 'underline', label: 'U' },
+          { cmd: 'strikeThrough', label: 'S' },
+        ].map(({ cmd, label }) => (
+          <button key={cmd} type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              restoreSelection();
+              document.execCommand(cmd, false, null);
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const h3 = wrapper.querySelector('h3');
+              if (h3 && textTitleRef.current) h3.innerHTML = textTitleRef.current.innerHTML;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              setTextTitleFormats(prev => ({ ...prev, [cmd]: document.queryCommandState(cmd) }));
+            }}
+            className={`px-2 py-1 rounded text-sm border transition ${textTitleFormats[cmd] ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+          >
+            <span style={{ fontWeight: cmd==='bold'?'bold':'normal', fontStyle: cmd==='italic'?'italic':'normal', textDecoration: cmd==='underline'?'underline':cmd==='strikeThrough'?'line-through':'none' }}>{label}</span>
+          </button>
+        ))}
+
+        <div className="w-px bg-gray-300 mx-1" />
+
+        {/* Allineamento */}
+        {[['left','⬅'],['center','↔'],['right','➡']].map(([align, icon]) => (
+          <button key={align} type="button"
+            onMouseDown={(e) => { e.preventDefault(); restoreSelection(); document.execCommand('justify'+align.charAt(0).toUpperCase()+align.slice(1), false, null); }}
+            className="px-2 py-1 rounded text-sm bg-white text-gray-700 border border-gray-200 hover:bg-gray-100 transition"
+          >{icon}</button>
+        ))}
+
+        <div className="w-px bg-gray-300 mx-1" />
+
+        {/* Font Size */}
+        <select onMouseDown={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            restoreSelection();
+            document.execCommand('fontSize', false, e.target.value);
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const h3 = wrapper.querySelector('h3');
+            if (h3 && textTitleRef.current) h3.innerHTML = textTitleRef.current.innerHTML;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="text-xs border border-gray-200 rounded px-1 bg-white h-7"
+        >
+          <option value="" disabled>px</option>
+          {[1,2,3,4,5,6,7].map(s => <option key={s} value={s}>{[10,13,16,18,24,32,48][s-1]}</option>)}
+        </select>
+
+        {/* Font Family */}
+        <select onMouseDown={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            restoreSelection();
+            document.execCommand('fontName', false, e.target.value);
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const h3 = wrapper.querySelector('h3');
+            if (h3 && textTitleRef.current) h3.innerHTML = textTitleRef.current.innerHTML;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="text-xs border border-gray-200 rounded px-1 bg-white h-7 max-w-[90px]"
+        >
+          <option value="" disabled>Font</option>
+          <optgroup label="Sans-serif">
+            <option value="Arial">Arial</option>
+            <option value="Helvetica">Helvetica</option>
+            <option value="Verdana">Verdana</option>
+            <option value="Tahoma">Tahoma</option>
+            <option value="Calibri">Calibri</option>
+            <option value="Segoe UI">Segoe UI</option>
+          </optgroup>
+          <optgroup label="Serif">
+            <option value="Georgia">Georgia</option>
+            <option value="Times New Roman">Times New Roman</option>
+            <option value="Garamond">Garamond</option>
+            <option value="Cambria">Cambria</option>
+          </optgroup>
+          <optgroup label="Google Fonts">
+            <option value="Roboto">Roboto</option>
+            <option value="Open Sans">Open Sans</option>
+            <option value="Lato">Lato</option>
+            <option value="Montserrat">Montserrat</option>
+            <option value="Poppins">Poppins</option>
+            <option value="Oswald">Oswald</option>
+            <option value="Playfair Display">Playfair Display</option>
+          </optgroup>
+        </select>
+
+        {/* Colore */}
+        <input type="color" title="Colore testo" onMouseDown={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            restoreSelection();
+            document.execCommand('foreColor', false, e.target.value);
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const h3 = wrapper.querySelector('h3');
+            if (h3 && textTitleRef.current) h3.innerHTML = textTitleRef.current.innerHTML;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-7 h-7 border border-gray-200 rounded cursor-pointer p-0.5"
+        />
+      </div>
+
+      {/* ContentEditable titolo */}
+      <div
+        ref={textTitleRef}
+        id="text-title-editor"
+        contentEditable
+        suppressContentEditableWarning
+        onMouseDown={(e) => e.stopPropagation()}
+        onFocus={() => { isEditingTextTitleRef.current = true; }}
+        onBlur={() => { isEditingTextTitleRef.current = false; }}
+        onMouseUp={() => { saveSelection(); setTextTitleFormats({ bold: document.queryCommandState('bold'), italic: document.queryCommandState('italic'), underline: document.queryCommandState('underline'), strikeThrough: document.queryCommandState('strikeThrough') }); }}
+        onKeyUp={() => { saveSelection(); setTextTitleFormats({ bold: document.queryCommandState('bold'), italic: document.queryCommandState('italic'), underline: document.queryCommandState('underline'), strikeThrough: document.queryCommandState('strikeThrough') }); }}
+        onInput={(e) => {
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const h3 = wrapper.querySelector('h3');
+          if (h3) h3.innerHTML = e.currentTarget.innerHTML;
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        className="w-full border border-gray-300 rounded-lg p-3 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-lg font-semibold"
+      />
+
+      {/* Stile titolo extra */}
+      <div className="grid grid-cols-2 gap-2 pt-1">
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">Tag heading</label>
+          <select
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const currentH = wrapper.querySelector('h1,h2,h3,h4,h5,h6');
+              if (currentH) {
+                const newH = document.createElement(e.target.value);
+                newH.innerHTML = currentH.innerHTML;
+                newH.setAttribute('style', currentH.getAttribute('style') || '');
+                currentH.replaceWith(newH);
+              }
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full border border-gray-300 rounded-lg p-1.5 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          >
+            <option value="h1">H1 - Grande</option>
+            <option value="h2">H2 - Medio</option>
+            <option value="h3" selected>H3 - Normale</option>
+            <option value="h4">H4 - Piccolo</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">Sfondo titolo</label>
+          <input type="color" defaultValue="#ffffff"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const h3 = wrapper.querySelector('h1,h2,h3,h4,h5,h6');
+              if (h3) h3.style.backgroundColor = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full h-8 border border-gray-300 rounded-lg cursor-pointer p-0.5"
+          />
+        </div>
+      </div>
+    </div>
+
+    {/* ── PARAGRAFO ── */}
+    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-2">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">📄 Testo Paragrafo</h4>
+
+      {/* TOOLBAR PARAGRAFO */}
+      <div className="flex flex-wrap gap-1 bg-white border border-gray-200 rounded-lg p-1">
+        {[
+          { cmd: 'bold', label: 'B' },
+          { cmd: 'italic', label: 'I' },
+          { cmd: 'underline', label: 'U' },
+          { cmd: 'strikeThrough', label: 'S' },
+        ].map(({ cmd, label }) => (
+          <button key={cmd} type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              restoreSelection();
+              document.execCommand(cmd, false, null);
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const p = wrapper.querySelector('p');
+              if (p && textParaRef.current) p.innerHTML = textParaRef.current.innerHTML;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              setTextParaFormats(prev => ({ ...prev, [cmd]: document.queryCommandState(cmd) }));
+            }}
+            className={`px-2 py-1 rounded text-sm border transition ${textParaFormats[cmd] ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+          >
+            <span style={{ fontWeight: cmd==='bold'?'bold':'normal', fontStyle: cmd==='italic'?'italic':'normal', textDecoration: cmd==='underline'?'underline':cmd==='strikeThrough'?'line-through':'none' }}>{label}</span>
+          </button>
+        ))}
+
+        <div className="w-px bg-gray-300 mx-1" />
+
+        {[['left','⬅'],['center','↔'],['right','➡'],['full','⬛']].map(([align, icon]) => (
+          <button key={align} type="button"
+            onMouseDown={(e) => {
+              e.preventDefault(); restoreSelection();
+              const cmds = { left: 'justifyLeft', center: 'justifyCenter', right: 'justifyRight', full: 'justifyFull' };
+              document.execCommand(cmds[align], false, null);
+            }}
+            className="px-2 py-1 rounded text-sm bg-white text-gray-700 border border-gray-200 hover:bg-gray-100 transition"
+          >{icon}</button>
+        ))}
+
+        <div className="w-px bg-gray-300 mx-1" />
+
+        <select onMouseDown={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            restoreSelection();
+            document.execCommand('fontSize', false, e.target.value);
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const p = wrapper.querySelector('p');
+            if (p && textParaRef.current) p.innerHTML = textParaRef.current.innerHTML;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="text-xs border border-gray-200 rounded px-1 bg-white h-7"
+        >
+          <option value="" disabled>px</option>
+          {[1,2,3,4,5,6,7].map(s => <option key={s} value={s}>{[10,13,16,18,24,32,48][s-1]}</option>)}
+        </select>
+
+        <select onMouseDown={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            restoreSelection();
+            document.execCommand('fontName', false, e.target.value);
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const p = wrapper.querySelector('p');
+            if (p && textParaRef.current) p.innerHTML = textParaRef.current.innerHTML;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="text-xs border border-gray-200 rounded px-1 bg-white h-7 max-w-[90px]"
+        >
+          <option value="" disabled>Font</option>
+          <optgroup label="Sans-serif">
+            <option value="Arial">Arial</option>
+            <option value="Helvetica">Helvetica</option>
+            <option value="Verdana">Verdana</option>
+            <option value="Tahoma">Tahoma</option>
+            <option value="Calibri">Calibri</option>
+            <option value="Segoe UI">Segoe UI</option>
+          </optgroup>
+          <optgroup label="Serif">
+            <option value="Georgia">Georgia</option>
+            <option value="Times New Roman">Times New Roman</option>
+            <option value="Garamond">Garamond</option>
+            <option value="Cambria">Cambria</option>
+          </optgroup>
+          <optgroup label="Google Fonts">
+            <option value="Roboto">Roboto</option>
+            <option value="Open Sans">Open Sans</option>
+            <option value="Lato">Lato</option>
+            <option value="Montserrat">Montserrat</option>
+            <option value="Poppins">Poppins</option>
+            <option value="Oswald">Oswald</option>
+            <option value="Playfair Display">Playfair Display</option>
+          </optgroup>
+        </select>
+
+        <input type="color" title="Colore testo" onMouseDown={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            restoreSelection();
+            document.execCommand('foreColor', false, e.target.value);
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const p = wrapper.querySelector('p');
+            if (p && textParaRef.current) p.innerHTML = textParaRef.current.innerHTML;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-7 h-7 border border-gray-200 rounded cursor-pointer p-0.5"
+        />
+
+        {/* Link */}
+        <button type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            restoreSelection();
+            const url = prompt('Inserisci URL:', 'https://');
+            if (url) document.execCommand('createLink', false, url);
+          }}
+          className="px-2 py-1 rounded text-sm bg-white text-blue-600 border border-gray-200 hover:bg-blue-50 transition"
+          title="Inserisci link"
+        >🔗</button>
+      </div>
+
+      {/* ContentEditable paragrafo */}
+      <div
+        ref={textParaRef}
+        id="text-para-editor"
+        contentEditable
+        suppressContentEditableWarning
+        onMouseDown={(e) => e.stopPropagation()}
+        onFocus={() => { isEditingTextParaRef.current = true; }}
+        onBlur={() => { isEditingTextParaRef.current = false; }}
+        onMouseUp={() => { saveSelection(); setTextParaFormats({ bold: document.queryCommandState('bold'), italic: document.queryCommandState('italic'), underline: document.queryCommandState('underline'), strikeThrough: document.queryCommandState('strikeThrough') }); }}
+        onKeyUp={() => { saveSelection(); setTextParaFormats({ bold: document.queryCommandState('bold'), italic: document.queryCommandState('italic'), underline: document.queryCommandState('underline'), strikeThrough: document.queryCommandState('strikeThrough') }); }}
+        onInput={(e) => {
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = editingSingleBlock.html;
+          const p = wrapper.querySelector('p');
+          if (p) p.innerHTML = e.currentTarget.innerHTML;
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        className="w-full border border-gray-300 rounded-lg p-3 min-h-[100px] focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white leading-relaxed"
+      />
+
+      {/* Line height */}
+      <div>
+        <div className="flex justify-between items-center mb-1">
+          <label className="text-xs text-gray-500">Interlinea</label>
+          <span id="text-lh-val" className="text-xs font-semibold text-blue-600">1.6</span>
+        </div>
+        <input type="range" min="10" max="30" defaultValue="16"
+          onChange={(e) => {
+            const val = (e.target.value / 10).toFixed(1);
+            const span = document.getElementById('text-lh-val');
+            if (span) span.textContent = val;
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const p = wrapper.querySelector('p');
+            if (p) p.style.lineHeight = val;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full accent-blue-600"
+        />
+      </div>
+    </div>
+
+    {/* ── SFONDO E SPAZIATURA ── */}
+    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">🎨 Sfondo e Spaziatura</h4>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">Sfondo sezione</label>
+          <input type="color" defaultValue="#ffffff"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const table = wrapper.querySelector('table');
+              if (table) table.style.background = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full h-9 border border-gray-300 rounded-lg cursor-pointer p-0.5"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">Sfondo testo</label>
+          <input type="color" defaultValue="#ffffff"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const td = wrapper.querySelector('td');
+              if (td) td.style.backgroundColor = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full h-9 border border-gray-300 rounded-lg cursor-pointer p-0.5"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">Padding (es. 20px 30px)</label>
+          <input type="text" defaultValue="40px"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const td = wrapper.querySelector('td');
+              if (td) td.style.padding = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full border border-gray-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">Border radius</label>
+          <input type="text" defaultValue="0px"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const innerTable = wrapper.querySelectorAll('table')[1];
+              if (innerTable) innerTable.style.borderRadius = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            placeholder="es. 8px"
+            className="w-full border border-gray-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          />
+        </div>
+      </div>
+
+      {/* Bordo sezione */}
+      <div>
+        <label className="text-xs font-medium text-gray-600 block mb-2">Bordo sezione</label>
+        <div className="grid grid-cols-3 gap-2">
+          <select
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const innerTable = wrapper.querySelectorAll('table')[1];
+              if (innerTable) {
+                const w = innerTable.style.borderWidth || '1px';
+                const c = innerTable.style.borderColor || '#e5e7eb';
+                innerTable.style.border = e.target.value === 'none' ? 'none' : `${w} ${e.target.value} ${c}`;
+              }
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="border border-gray-300 rounded-lg p-1.5 text-xs col-span-1 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          >
+            <option value="none">Nessuno</option>
+            <option value="solid">Solido</option>
+            <option value="dashed">Tratteggiato</option>
+            <option value="dotted">Punteggiato</option>
+          </select>
+          <select
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const innerTable = wrapper.querySelectorAll('table')[1];
+              if (innerTable && innerTable.style.border && innerTable.style.border !== 'none') {
+                innerTable.style.borderWidth = e.target.value;
+              }
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="border border-gray-300 rounded-lg p-1.5 text-xs col-span-1 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          >
+            <option value="1px">1px</option>
+            <option value="2px">2px</option>
+            <option value="3px">3px</option>
+            <option value="4px">4px</option>
+          </select>
+          <input type="color" defaultValue="#e5e7eb"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const innerTable = wrapper.querySelectorAll('table')[1];
+              if (innerTable) innerTable.style.borderColor = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="h-8 border border-gray-300 rounded-lg cursor-pointer p-0.5 col-span-1"
+          />
+        </div>
+      </div>
+    </div>
+
+  </div>
+)}
+
+  {/* 🔘 BUTTON EDITOR */}
+  {/* 🔘 BUTTON EDITOR */}
+{editingSingleBlock?.id === "button" && (
+  <div className="space-y-5">
+    <h3 className="text-lg font-semibold text-gray-800">🔘 Editor Pulsante</h3>
+
+    {/* ANTEPRIMA LIVE */}
+    <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 bg-gray-50 flex items-center justify-center min-h-[80px]">
+      <div dangerouslySetInnerHTML={{
+        __html: (() => {
+          const w = document.createElement('div');
+          w.innerHTML = editingSingleBlock.html;
+          return w.querySelector('a')?.outerHTML || '<span class="text-gray-400 text-sm">Anteprima pulsante</span>';
+        })()
+      }} />
+    </div>
+
+    {/* ── CONTENUTO ── */}
+    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">✏️ Contenuto</h4>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Testo Pulsante</label>
+        <input
+          type="text"
+          defaultValue={(() => { const w = document.createElement('div'); w.innerHTML = editingSingleBlock.html; return w.querySelector('a')?.textContent || ''; })()}
+          onChange={(e) => {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const a = wrapper.querySelector('a');
+            if (a) a.textContent = e.target.value;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          placeholder="Es. Scopri di più"
+          className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Link (href)</label>
+        <input
+          type="text"
+          defaultValue={(() => { const w = document.createElement('div'); w.innerHTML = editingSingleBlock.html; return w.querySelector('a')?.getAttribute('href') || '#'; })()}
+          onChange={(e) => {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const a = wrapper.querySelector('a');
+            if (a) a.setAttribute('href', e.target.value);
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          placeholder="https://..."
+          className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Testo descrittivo (sopra il pulsante)</label>
+        <input
+          type="text"
+          defaultValue={(() => { const w = document.createElement('div'); w.innerHTML = editingSingleBlock.html; return w.querySelector('p')?.textContent || ''; })()}
+          onChange={(e) => {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const p = wrapper.querySelector('p');
+            if (p) p.textContent = e.target.value;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          placeholder="Testo opzionale sopra il pulsante"
+          className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+        />
+      </div>
+
+      {/* Apri in nuova tab */}
+      <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+        <input
+          type="checkbox"
+          defaultChecked={(() => { const w = document.createElement('div'); w.innerHTML = editingSingleBlock.html; return w.querySelector('a')?.getAttribute('target') === '_blank'; })()}
+          onChange={(e) => {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const a = wrapper.querySelector('a');
+            if (a) {
+              if (e.target.checked) { a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener noreferrer'); }
+              else { a.removeAttribute('target'); a.removeAttribute('rel'); }
+            }
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="rounded accent-blue-600"
+        />
+        Apri link in nuova scheda
+      </label>
+    </div>
+
+    {/* ── COLORI ── */}
+    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">🎨 Colori</h4>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Sfondo pulsante</label>
+          <div className="flex gap-2">
+            <input type="color" defaultValue="#667eea"
+              onChange={(e) => {
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = editingSingleBlock.html;
+                const a = wrapper.querySelector('a');
+                if (a) a.style.background = e.target.value;
+                setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              }}
+              className="w-10 h-9 border border-gray-300 rounded-lg cursor-pointer p-0.5"
+            />
+            <input type="text" placeholder="#667eea"
+              onChange={(e) => {
+                if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
+                  const wrapper = document.createElement('div');
+                  wrapper.innerHTML = editingSingleBlock.html;
+                  const a = wrapper.querySelector('a');
+                  if (a) a.style.background = e.target.value;
+                  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                }
+              }}
+              className="flex-1 border border-gray-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Colore testo</label>
+          <div className="flex gap-2">
+            <input type="color" defaultValue="#ffffff"
+              onChange={(e) => {
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = editingSingleBlock.html;
+                const a = wrapper.querySelector('a');
+                if (a) a.style.color = e.target.value;
+                setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              }}
+              className="w-10 h-9 border border-gray-300 rounded-lg cursor-pointer p-0.5"
+            />
+            <input type="text" placeholder="#ffffff"
+              onChange={(e) => {
+                if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
+                  const wrapper = document.createElement('div');
+                  wrapper.innerHTML = editingSingleBlock.html;
+                  const a = wrapper.querySelector('a');
+                  if (a) a.style.color = e.target.value;
+                  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                }
+              }}
+              className="flex-1 border border-gray-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Preset colori */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-2">Preset colori</label>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { bg: '#667eea', label: 'Viola' },
+            { bg: '#f5576c', label: 'Rosa' },
+            { bg: '#10b981', label: 'Verde' },
+            { bg: '#f59e0b', label: 'Arancio' },
+            { bg: '#3b82f6', label: 'Blu' },
+            { bg: '#8b5cf6', label: 'Indaco' },
+            { bg: '#ec4899', label: 'Fucsia' },
+            { bg: '#0f172a', label: 'Nero' },
+          ].map(({ bg, label }) => (
+            <button key={bg} type="button" title={label}
+              onClick={() => {
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = editingSingleBlock.html;
+                const a = wrapper.querySelector('a');
+                if (a) { a.style.background = bg; a.style.color = '#ffffff'; }
+                setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              }}
+              style={{ background: bg }}
+              className="w-8 h-8 rounded-lg border-2 border-white shadow hover:scale-110 transition-transform cursor-pointer"
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Gradiente */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-2">Sfondo gradiente</label>
+        <div className="flex gap-2 items-center">
+          <input type="color" defaultValue="#667eea" id="btn-grad-c1"
+            onChange={(e) => {
+              const c2 = document.getElementById('btn-grad-c2')?.value || '#764ba2';
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const a = wrapper.querySelector('a');
+              if (a) a.style.background = `linear-gradient(135deg, ${e.target.value}, ${c2})`;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-10 h-8 border border-gray-300 rounded cursor-pointer p-0.5"
+          />
+          <span className="text-gray-400 text-xs">→</span>
+          <input type="color" defaultValue="#764ba2" id="btn-grad-c2"
+            onChange={(e) => {
+              const c1 = document.getElementById('btn-grad-c1')?.value || '#667eea';
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const a = wrapper.querySelector('a');
+              if (a) a.style.background = `linear-gradient(135deg, ${c1}, ${e.target.value})`;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-10 h-8 border border-gray-300 rounded cursor-pointer p-0.5"
+          />
+          <button type="button"
+            onClick={() => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const a = wrapper.querySelector('a');
+              if (a) a.style.background = '#667eea';
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="text-xs text-gray-500 hover:text-red-500 ml-auto transition"
+          >✕ Rimuovi</button>
+        </div>
+      </div>
+    </div>
+
+    {/* ── FORMA E DIMENSIONI ── */}
+    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">📐 Forma e Dimensioni</h4>
+
+      {/* Forma */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-2">Forma</label>
+        <div className="grid grid-cols-4 gap-2">
+          {[
+            { label: 'Quadrato', radius: '0px', icon: '⬛' },
+            { label: 'Lieve', radius: '6px', icon: '▪️' },
+            { label: 'Arrotondato', radius: '12px', icon: '🔲' },
+            { label: 'Pillola', radius: '50px', icon: '💊' },
+          ].map(({ label, radius, icon }) => (
+            <button key={radius} type="button"
+              onClick={() => {
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = editingSingleBlock.html;
+                const a = wrapper.querySelector('a');
+                if (a) a.style.borderRadius = radius;
+                setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              }}
+              className="flex flex-col items-center gap-1 py-2 border border-gray-200 rounded-lg bg-white hover:border-blue-500 hover:bg-blue-50 transition"
+            >
+              <span className="text-base">{icon}</span>
+              <span className="text-[10px] text-gray-600">{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Arrotondamento custom */}
+      <div>
+        <div className="flex justify-between items-center mb-1">
+          <label className="text-xs text-gray-600">Arrotondamento personalizzato</label>
+          <span id="btn-radius-val" className="text-xs font-semibold text-blue-600">6px</span>
+        </div>
+        <input type="range" min="0" max="60" defaultValue="6"
+          onChange={(e) => {
+            const span = document.getElementById('btn-radius-val');
+            if (span) span.textContent = `${e.target.value}px`;
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const a = wrapper.querySelector('a');
+            if (a) a.style.borderRadius = `${e.target.value}px`;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full accent-blue-600"
+        />
+      </div>
+
+      {/* Padding */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Padding verticale (px)</label>
+          <input type="number" min="4" max="40" defaultValue="15"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const a = wrapper.querySelector('a');
+              if (a) {
+                const parts = (a.style.padding || '15px 40px').split(' ');
+                const h = parts[1] || '40px';
+                a.style.padding = `${e.target.value}px ${h}`;
+              }
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Padding orizzontale (px)</label>
+          <input type="number" min="8" max="80" defaultValue="40"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const a = wrapper.querySelector('a');
+              if (a) {
+                const parts = (a.style.padding || '15px 40px').split(' ');
+                const v = parts[0] || '15px';
+                a.style.padding = `${v} ${e.target.value}px`;
+              }
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          />
+        </div>
+      </div>
+
+      {/* Dimensione full width */}
+      <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+        <input type="checkbox"
+          onChange={(e) => {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const a = wrapper.querySelector('a');
+            if (a) a.style.display = e.target.checked ? 'block' : 'inline-block';
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="rounded accent-blue-600"
+        />
+        Larghezza piena (full width)
+      </label>
+    </div>
+
+    {/* ── TIPOGRAFIA ── */}
+    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">🅰 Tipografia</h4>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Dimensione testo (px)</label>
+          <input type="number" min="10" max="28" defaultValue="16"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const a = wrapper.querySelector('a');
+              if (a) a.style.fontSize = `${e.target.value}px`;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Font weight</label>
+          <select
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const a = wrapper.querySelector('a');
+              if (a) a.style.fontWeight = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          >
+            <option value="400">Normal</option>
+            <option value="500">Medium</option>
+            <option value="600" selected>Semibold</option>
+            <option value="700">Bold</option>
+            <option value="800">ExtraBold</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Font</label>
+        <select
+          onChange={(e) => {
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = editingSingleBlock.html;
+            const a = wrapper.querySelector('a');
+            if (a) a.style.fontFamily = e.target.value;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+        >
+          <option value="Arial, sans-serif">Arial</option>
+          <option value="Helvetica, sans-serif">Helvetica</option>
+          <option value="Georgia, serif">Georgia</option>
+          <option value="'Times New Roman', serif">Times New Roman</option>
+          <option value="Verdana, sans-serif">Verdana</option>
+          <option value="'Courier New', monospace">Courier New</option>
+          <option value="Roboto, sans-serif">Roboto</option>
+          <option value="'Open Sans', sans-serif">Open Sans</option>
+          <option value="Montserrat, sans-serif">Montserrat</option>
+          <option value="Poppins, sans-serif">Poppins</option>
+        </select>
+      </div>
+
+      {/* Trasformazione testo */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-2">Trasformazione testo</label>
+        <div className="grid grid-cols-4 gap-1.5">
+          {[
+            { value: 'none', label: 'Abc' },
+            { value: 'uppercase', label: 'ABC' },
+            { value: 'lowercase', label: 'abc' },
+            { value: 'capitalize', label: 'Abc' },
+          ].map(({ value, label }) => (
+            <button key={value} type="button"
+              onClick={() => {
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = editingSingleBlock.html;
+                const a = wrapper.querySelector('a');
+                if (a) a.style.textTransform = value;
+                setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              }}
+              className="py-1.5 text-xs border border-gray-200 rounded-lg bg-white hover:border-blue-500 hover:bg-blue-50 transition text-gray-700 font-medium"
+              style={{ textTransform: value }}
+            >{label}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+
+    {/* ── BORDO E OMBRA ── */}
+    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">✨ Bordo e Ombra</h4>
+
+      <div className="grid grid-cols-3 gap-2">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Stile bordo</label>
+          <select
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const a = wrapper.querySelector('a');
+              if (a) {
+                const w = a.style.borderWidth || '2px';
+                const c = a.style.borderColor || '#667eea';
+                a.style.border = e.target.value === 'none' ? 'none' : `${w} ${e.target.value} ${c}`;
+              }
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full border border-gray-300 rounded-lg p-1.5 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          >
+            <option value="none">Nessuno</option>
+            <option value="solid">Solido</option>
+            <option value="dashed">Tratteggiato</option>
+            <option value="dotted">Punteggiato</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Spessore</label>
+          <select
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const a = wrapper.querySelector('a');
+              if (a && a.style.border && a.style.border !== 'none') a.style.borderWidth = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full border border-gray-300 rounded-lg p-1.5 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          >
+            <option value="1px">1px</option>
+            <option value="2px">2px</option>
+            <option value="3px">3px</option>
+            <option value="4px">4px</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Colore bordo</label>
+          <input type="color" defaultValue="#667eea"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const a = wrapper.querySelector('a');
+              if (a) a.style.borderColor = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full h-8 border border-gray-300 rounded-lg cursor-pointer p-0.5"
+          />
+        </div>
+      </div>
+
+      {/* Ombra */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-2">Ombra</label>
+        <div className="grid grid-cols-4 gap-1.5">
+          {[
+            { label: 'Nessuna', value: 'none' },
+            { label: 'Leggera', value: '0 2px 8px rgba(0,0,0,0.15)' },
+            { label: 'Media', value: '0 4px 16px rgba(0,0,0,0.2)' },
+            { label: 'Forte', value: '0 8px 25px rgba(0,0,0,0.3)' },
+          ].map(({ label, value }) => (
+            <button key={label} type="button"
+              onClick={() => {
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = editingSingleBlock.html;
+                const a = wrapper.querySelector('a');
+                if (a) a.style.boxShadow = value;
+                setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              }}
+              className="py-1.5 text-[11px] border border-gray-200 rounded-lg bg-white hover:border-blue-500 hover:bg-blue-50 transition text-gray-600 font-medium"
+            >{label}</button>
+          ))}
+        </div>
+      </div>
+    </div>
+
+    {/* ── ALLINEAMENTO ── */}
+    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-2">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">↔️ Allineamento</h4>
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          { value: 'left', label: 'Sinistra', icon: '⬅️' },
+          { value: 'center', label: 'Centro', icon: '↔️' },
+          { value: 'right', label: 'Destra', icon: '➡️' },
+        ].map(({ value, label, icon }) => (
+          <button key={value} type="button"
+            onClick={() => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const td = wrapper.querySelector('td[style*="text-align"]') || wrapper.querySelector('td');
+              if (td) td.style.textAlign = value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="flex flex-col items-center gap-1 py-2 border border-gray-200 rounded-lg bg-white hover:border-blue-500 hover:bg-blue-50 transition"
+          >
+            <span className="text-base">{icon}</span>
+            <span className="text-xs text-gray-600">{label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+
+    {/* ── SFONDO SEZIONE ── */}
+    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">🖼 Sfondo Sezione</h4>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Colore sfondo</label>
+          <input type="color" defaultValue="#ffffff"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const table = wrapper.querySelector('table');
+              if (table) table.style.background = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full h-9 border border-gray-300 rounded-lg cursor-pointer p-0.5"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Padding sezione</label>
+          <input type="text" defaultValue="30px 20px"
+            onChange={(e) => {
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const table = wrapper.querySelector('table');
+              if (table) table.style.padding = e.target.value;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            placeholder="es. 30px 20px"
+            className="w-full border border-gray-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          />
+        </div>
+      </div>
+    </div>
+
+  </div>
+)}
+
+  {/* 📱 SOCIAL MEDIA EDITOR */}
+  {editingSingleBlock?.id === "social" && (
+    <div className="space-y-4">
+      <h3 className="text-lg font-semibold text-gray-800">📱 Editor Social Media</h3>
+      
+      <p className="text-sm text-gray-600 bg-blue-50 p-3 rounded border border-blue-200">
+        💡 Modifica i link dei social network. I link vengono aggiornati automaticamente.
+      </p>
+
+      {/* Testo Introduttivo */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Testo Introduttivo</label>
+        <input
+          type="text"
+          defaultValue={editingSingleBlock.html.match(/<p[^>]*>(.*?)<\/p>/)?.[1] || ""}
+          onChange={(e) => {
+            const wrapper = document.createElement("div");
+            wrapper.innerHTML = editingSingleBlock.html;
+            const p = wrapper.querySelector("p");
+            if (p) p.textContent = e.target.value;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full border rounded-lg p-2"
+        />
+      </div>
+
+      {['Facebook', 'Twitter', 'Instagram', 'LinkedIn'].map((social) => (
+        <div key={social}>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Link {social}</label>
+          <input
+            type="text"
+            placeholder={`https://${social.toLowerCase()}.com/tuoaccount`}
+            onChange={(e) => {
+              const wrapper = document.createElement("div");
+              wrapper.innerHTML = editingSingleBlock.html;
+              const links = wrapper.querySelectorAll("a");
+              links.forEach(link => {
+                if (link.textContent.includes(social)) {
+                  link.href = e.target.value;
+                }
+              });
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-full border rounded-lg p-2"
+          />
+        </div>
+      ))}
+    </div>
+  )}
+
+  {/* 📄 FOOTER EDITOR */}
+  {editingSingleBlock?.id === "footer" && (
+    <div className="space-y-4">
+      <h3 className="text-lg font-semibold text-gray-800">📄 Editor Footer</h3>
+      
+      {/* Nome Azienda */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Nome Azienda</label>
+        <input
+          type="text"
+          defaultValue={editingSingleBlock.html.match(/<p[^>]*>([^<]+)<\/p>/)?.[1] || ""}
+          onChange={(e) => {
+            const wrapper = document.createElement("div");
+            wrapper.innerHTML = editingSingleBlock.html;
+            const paragraphs = wrapper.querySelectorAll("p");
+            if (paragraphs[0]) paragraphs[0].textContent = e.target.value;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full border rounded-lg p-2"
+        />
+      </div>
+
+      {/* Indirizzo */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Indirizzo e Contatti</label>
+        <textarea
+          placeholder="Via Esempio 123, 20100 Milano&#10;info@tuaazienda.com | +39 02 1234567"
+          onChange={(e) => {
+            const wrapper = document.createElement("div");
+            wrapper.innerHTML = editingSingleBlock.html;
+            const paragraphs = wrapper.querySelectorAll("p");
+            if (paragraphs[1]) {
+              paragraphs[1].innerHTML = e.target.value.split('\n').join('<br>');
+            }
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full border rounded-lg p-2 h-24"
+        />
+      </div>
+
+      {/* Copyright */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Testo Copyright</label>
+        <input
+          type="text"
+          defaultValue="La Tua Azienda. Tutti i diritti riservati."
+          onChange={(e) => {
+            const wrapper = document.createElement("div");
+            wrapper.innerHTML = editingSingleBlock.html;
+            const paragraphs = wrapper.querySelectorAll("p");
+            const lastP = paragraphs[paragraphs.length - 1];
+            if (lastP) {
+              lastP.textContent = `© ${new Date().getFullYear()} ${e.target.value}`;
+            }
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full border rounded-lg p-2"
+        />
+      </div>
+
+      {/* Colore Sfondo */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Colore Sfondo</label>
+        <input
+          type="color"
+          defaultValue="#2d3748"
+          onChange={(e) => {
+            const wrapper = document.createElement("div");
+            wrapper.innerHTML = editingSingleBlock.html;
+            const table = wrapper.querySelector("table");
+            if (table) table.style.background = e.target.value;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full h-10 border rounded"
+        />
+      </div>
+
+      {/* Colore Testo */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Colore Testo</label>
+        <input
+          type="color"
+          defaultValue="#ffffff"
+          onChange={(e) => {
+            const wrapper = document.createElement("div");
+            wrapper.innerHTML = editingSingleBlock.html;
+            const paragraphs = wrapper.querySelectorAll("p");
+            paragraphs.forEach(p => p.style.color = e.target.value);
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full h-10 border rounded"
+        />
+      </div>
+    </div>
+  )}
+
+</div>
+
+
+{/* 🔧 HTML MANUAL EDITOR */}
+<div className="mt-6">
+
+{/* 🔧 HTML MANUAL EDITOR */}
+<div className="mt-6">
+  <label className="block text-sm font-medium text-gray-700 mb-2">Codice HTML (Avanzato)</label>
+  <textarea
+    value={editingSingleBlock.html}
+    onChange={(e) =>
+      setEditingSingleBlock({ ...editingSingleBlock, html: e.target.value })
+    }
+    className="w-full h-40 p-4 border rounded font-mono text-sm"
+  />
+</div>
+
+{/* 🔍 Preview aggiornato */}
+<div className="mt-6">
+  <label className="block text-sm font-medium text-gray-700 mb-1">Anteprima</label>
+  <div className="border rounded p-4 bg-gray-50">
+    <div dangerouslySetInnerHTML={{ __html: editingSingleBlock.html }} />
+  </div>
+</div>
+
+</div>
+{editingSingleBlock?.id === "image" && (
+  <div className="mt-6 p-4 border rounded bg-gray-50 space-y-4">
+    <h3 className="font-semibold text-gray-800">Immagine</h3>
+
+    <label>URL immagine2</label>
+    <input
+      className="w-full border rounded p-2"
+      defaultValue={parseImageBlock(editingSingleBlock.html).src}
+      onChange={(e) => updateImageBlock("src", e.target.value)}
+    />
+
+    <label>Border Radius</label>
+    <input
+      className="w-full border rounded p-2"
+      defaultValue={parseImageBlock(editingSingleBlock.html).borderRadius}
+      onChange={(e) => updateImageBlock("borderRadius", e.target.value)}
+    />
+  </div>
+)}
+{editingSingleBlock?.id === "text" && (
+  <div className="mt-6 p-4 border rounded bg-gray-50 space-y-4">
+    <h3 className="font-semibold text-gray-800">Paragrafo</h3>
+
+    <label>Testo</label>
+    <textarea
+      className="w-full border rounded p-2 h-28"
+      defaultValue={parseTextBlock(editingSingleBlock.html).text}
+      onChange={(e) => updateTextBlock("text", e.target.value)}
+    />
+
+    <label>Colore</label>
+    <input
+      type="color"
+      className="w-full h-10 border rounded"
+      onChange={(e) => updateTextBlock("color", e.target.value)}
+    />
+  </div>
+)}
+{editingSingleBlock?.id === "button" && (
+  <div className="mt-6 p-4 border rounded bg-gray-50 space-y-4">
+    <h3 className="font-semibold text-gray-800">Pulsante</h3>
+
+    <label>Testo</label>
+    <input
+      className="w-full border rounded p-2"
+      defaultValue={parseButtonBlock(editingSingleBlock.html).text}
+      onChange={(e) => updateButtonBlock("text", e.target.value)}
+    />
+
+    <label>Link</label>
+    <input
+      className="w-full border rounded p-2"
+      defaultValue={parseButtonBlock(editingSingleBlock.html).link}
+      onChange={(e) => updateButtonBlock("link", e.target.value)}
+    />
+
+    <label>Colore Sfondo</label>
+    <input
+      type="color"
+      className="w-full h-10 border rounded"
+      onChange={(e) => updateButtonBlock("bg", e.target.value)}
+    />
+  </div>
+)}
+
+{/* 📝 CTA Editor */}
+{editingSingleBlock?.id === "section-cta" && (
+  <div className="mt-6 p-4 border rounded-lg bg-gray-50 space-y-6">
+    
+    <h3 className="text-lg font-semibold text-gray-800 mb-2">
+      Call To Action – Contenuto e Stile
+    </h3>
+
+    {/* 🟣 Testo */}
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+      {/* Titolo */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Titolo</label>
+        <input
+          type="text"
+          defaultValue={parseCTAContent().title}
+          onChange={(e) => updateCTAContent("title", e.target.value)}
+          className="w-full border rounded-lg p-2"
+        />
+      </div>
+
+      {/* Sottotitolo */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Sottotitolo</label>
+        <textarea
+          defaultValue={parseCTAContent().subtitle}
+          onChange={(e) => updateCTAContent("subtitle", e.target.value)}
+          className="w-full border rounded-lg p-2 h-20"
+        />
+      </div>
+
+      {/* Testo Pulsante */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Testo Pulsante</label>
+        <input
+          type="text"
+          defaultValue={parseCTAContent().buttonText}
+          onChange={(e) => updateCTAContent("buttonText", e.target.value)}
+          className="w-full border rounded-lg p-2"
+        />
+      </div>
+
+      {/* Link pulsante */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Link Pulsante</label>
+        <input
+          type="text"
+          defaultValue={parseCTAContent().buttonLink}
+          onChange={(e) => updateCTAContent("buttonLink", e.target.value)}
+          className="w-full border rounded-lg p-2"
+        />
+      </div>
+    </div>
+
+    {/* 🎨 COLORI TESTO */}
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div>
+        <label className="text-sm font-medium text-gray-700 mb-1 block">Colore Titolo</label>
+        <input type="color" className="w-full h-10 border rounded"
+          onChange={(e) => updateCTAColor("titleColor", e.target.value)}
+        />
+      </div>
+
+      <div>
+        <label className="text-sm font-medium text-gray-700 mb-1 block">Colore Sottotitolo</label>
+        <input type="color" className="w-full h-10 border rounded"
+          onChange={(e) => updateCTAColor("subtitleColor", e.target.value)}
+        />
+      </div>
+
+      <div>
+        <label className="text-sm font-medium text-gray-700 mb-1 block">Colore Testo Pulsante</label>
+        <input type="color" className="w-full h-10 border rounded"
+          onChange={(e) => updateCTAColor("buttonTextColor", e.target.value)}
+        />
+      </div>
+    </div>
+
+    {/* 🌈 GRADIENT PICKER */}
+    <div>
+      <label className="text-sm font-medium text-gray-700 mb-2 block">
+        Sfondo (Gradient)
+      </label>
+      <div className="grid grid-cols-2 gap-4">
+        <input type="color" className="h-10 w-full border rounded"
+          onChange={(e) => updateCTAGradient(e.target.value, "#f5576c")}
+        />
+        <input type="color" className="h-10 w-full border rounded"
+          onChange={(e) => updateCTAGradient("#f093fb", e.target.value)}
+        />
+      </div>
+    </div>
+
+    {/* 🎨 Gradient Avanzato */}
+<div className="space-y-3">
+  <label className="font-medium text-gray-700">Gradient Background</label>
+
+  {/* Angolo */}
+  <div>
+    <label className="text-xs">Angolo (0–360°)</label>
+    <input
+      type="range"
+      min="0"
+      max="360"
+      onChange={(e) =>
+        updateCTAGradientAdvanced({
+          angle: e.target.value,
+          color1: gradientColor1,
+          color2: gradientColor2,
+        })
+      }
+      className="w-full"
+    />
+  </div>
+
+  {/* Colori */}
+  <div className="grid grid-cols-2 gap-4">
+    <div>
+      <label className="text-xs">Colore 1</label>
+      <input
+        type="color"
+        onChange={(e) => {
+          setGradientColor1(e.target.value);
+          updateCTAGradientAdvanced({
+            angle: 135,
+            color1: e.target.value,
+            color2: gradientColor2,
+          });
+        }}
+        className="w-full h-10 border rounded"
+      />
+    </div>
+
+    <div>
+      <label className="text-xs">Colore 2</label>
+      <input
+        type="color"
+        onChange={(e) => {
+          setGradientColor2(e.target.value);
+          updateCTAGradientAdvanced({
+            angle: 135,
+            color2: e.target.value,
+            color1: gradientColor1,
+          });
+        }}
+        className="w-full h-10 border rounded"
+      />
+    </div>
+  </div>
+</div>
+
+
+    {/* 🔘 BUTTON STYLES */}
+    <div className="space-y-3">
+
+      <label className="font-medium text-gray-700">Stile Pulsante</label>
+
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <label className="text-xs block">Colore BG</label>
+          <input type="color" className="w-full h-10 border rounded"
+            onChange={(e) => updateCTAButtonStyle("bg", e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="text-xs block">Font Size</label>
+          <input type="number" min="10" max="30"
+            onChange={(e) => updateCTAFontSize("button", e.target.value)}
+            className="w-full border rounded p-2 text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="text-xs block">Raggio</label>
+          <input type="number" min="0" max="60"
+            onChange={(e) => updateCTAButtonStyle("radius", e.target.value)}
+            className="w-full border rounded p-2 text-sm"
+          />
+        </div>
+      </div>
+
+      {/* Shadow */}
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox"
+          onChange={(e) => updateCTAButtonStyle("shadow", e.target.checked)}
+        />
+        Ombreggiatura Pulsante
+      </label>
+    </div>
+
+    {/* 🅰 FONT SIZES */}
+    <div className="grid grid-cols-2 gap-4">
+      <div>
+        <label className="text-xs block">Font Titolo</label>
+        <input type="number" min="18" max="45"
+          onChange={(e) => updateCTAFontSize("title", e.target.value)}
+          className="w-full border rounded p-2 text-sm"
+        />
+      </div>
+
+      <div>
+        <label className="text-xs block">Font Sottotitolo</label>
+        <input type="number" min="12" max="25"
+          onChange={(e) => updateCTAFontSize("subtitle", e.target.value)}
+          className="w-full border rounded p-2 text-sm"
+        />
+      </div>
+    </div>
+
+  </div>
+)}
+{editingSingleBlock?.id === 'section-3col' && (
+  <div className="space-y-6">
+    <h3 className="text-lg font-semibold text-gray-800">≡ Editor Sezione 3 Colonne</h3>
+
+    {[
+      {
+        label: 'Colonna 1', color: 'blue',
+        fields: [
+          { label: 'Icona', isEmoji: true, selector: (w) => w.querySelectorAll('div[style*="font-size:32px"]')[0] },
+          { label: 'Titolo', ref: col1TitleRef, formats: col1TitleFormats, setFormats: setCol1TitleFormats, editorId: 'col3-1-title', selector: (w) => w.querySelectorAll('h4')[0] },
+          { label: 'Testo',  ref: col1ParaRef,  formats: col1ParaFormats,  setFormats: setCol1ParaFormats,  editorId: 'col3-1-para',  selector: (w) => w.querySelectorAll('p')[0] },
+        ]
+      },
+      {
+        label: 'Colonna 2', color: 'purple',
+        fields: [
+          { label: 'Icona', isEmoji: true, selector: (w) => w.querySelectorAll('div[style*="font-size:32px"]')[1] },
+          { label: 'Titolo', ref: col2TitleRef, formats: col2TitleFormats, setFormats: setCol2TitleFormats, editorId: 'col3-2-title', selector: (w) => w.querySelectorAll('h4')[1] },
+          { label: 'Testo',  ref: col2ParaRef,  formats: col2ParaFormats,  setFormats: setCol2ParaFormats,  editorId: 'col3-2-para',  selector: (w) => w.querySelectorAll('p')[1] },
+        ]
+      },
+      {
+        label: 'Colonna 3', color: 'green',
+        fields: [
+          { label: 'Icona', isEmoji: true, selector: (w) => w.querySelectorAll('div[style*="font-size:32px"]')[2] },
+          { label: 'Titolo', ref: col3TitleRef, formats: col3TitleFormats, setFormats: setCol3TitleFormats, editorId: 'col3-3-title', selector: (w) => w.querySelectorAll('h4')[2] },
+          { label: 'Testo',  ref: col3ParaRef,  formats: col3ParaFormats,  setFormats: setCol3ParaFormats,  editorId: 'col3-3-para',  selector: (w) => w.querySelectorAll('p')[2] },
+        ]
+      }
+    ].map(({ label, color, fields }) => (
+      <div key={label} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+        <h4 className="text-sm font-semibold text-gray-700 mb-3">
+          <span className={`bg-${color}-100 text-${color}-700 px-2 py-0.5 rounded text-xs`}>{label}</span>
+        </h4>
+
+        {fields.map((field) => (
+          <div key={field.editorId || field.label} className="mb-4">
+            <label className="block text-xs font-medium text-gray-600 mb-1">{field.label}</label>
+
+            {/* Campo Emoji */}
+            {field.isEmoji ? (
+              <input
+                type="text"
+                defaultValue={(() => {
+                  const w = document.createElement('div');
+                  w.innerHTML = editingSingleBlock.html;
+                  return field.selector(w)?.textContent || '';
+                })()}
+                onChange={(e) => {
+                  const wrapper = document.createElement('div');
+                  wrapper.innerHTML = editingSingleBlock.html;
+                  const el = field.selector(wrapper);
+                  if (el) el.textContent = e.target.value;
+                  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                }}
+                className="w-full border border-gray-300 rounded-lg p-2 text-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="es. 📦"
+              />
+            ) : (
+              <>
+                {/* TOOLBAR */}
+                <div className="flex flex-wrap gap-1 mb-1 bg-white border border-gray-200 rounded-lg p-1">
+                  {[
+                    { cmd: 'bold', label: 'B' },
+                    { cmd: 'italic', label: 'I' },
+                    { cmd: 'underline', label: 'U' },
+                    { cmd: 'strikeThrough', label: 'S' },
+                  ].map(({ cmd, label: btnLabel }) => (
+                    <button key={cmd} type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        restoreSelection();
+                        document.execCommand(cmd, false, null);
+                        const wrapper = document.createElement('div');
+                        wrapper.innerHTML = editingSingleBlock.html;
+                        const el = field.selector(wrapper);
+                        if (el && field.ref.current) el.innerHTML = field.ref.current.innerHTML;
+                        setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                        field.setFormats(prev => ({ ...prev, [cmd]: document.queryCommandState(cmd) }));
+                      }}
+                      className={`px-2 py-1 rounded transition text-xs border ${field.formats?.[cmd] ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+                    >
+                      <span style={{
+                        fontWeight: cmd==='bold'?'bold':'normal',
+                        fontStyle: cmd==='italic'?'italic':'normal',
+                        textDecoration: cmd==='underline'?'underline':cmd==='strikeThrough'?'line-through':'none'
+                      }}>{btnLabel}</span>
+                    </button>
+                  ))}
+                  <div className="w-px bg-gray-300 mx-1" />
+                  {['left','center','right'].map(align => (
+                    <button key={align} type="button"
+                      onMouseDown={(e) => { e.preventDefault(); restoreSelection(); document.execCommand('justify'+align.charAt(0).toUpperCase()+align.slice(1), false, null); }}
+                      className="px-2 py-1 rounded transition text-xs bg-white text-gray-700 border border-gray-200 hover:bg-gray-100"
+                    >{align==='left'?'⬅':align==='center'?'↔':'➡'}</button>
+                  ))}
+                  <div className="w-px bg-gray-300 mx-1" />
+                  <select onMouseDown={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      restoreSelection();
+                      document.execCommand('fontSize', false, e.target.value);
+                      const wrapper = document.createElement('div');
+                      wrapper.innerHTML = editingSingleBlock.html;
+                      const el = field.selector(wrapper);
+                      if (el && field.ref.current) el.innerHTML = field.ref.current.innerHTML;
+                      setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                    }}
+                    className="text-xs border border-gray-200 rounded px-1 bg-white h-7"
+                  >
+                    <option value="" disabled>px</option>
+                    {[1,2,3,4,5,6,7].map(s => <option key={s} value={s}>{[10,13,16,18,24,32,48][s-1]}</option>)}
+                  </select>
+                  <select onMouseDown={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      restoreSelection();
+                      document.execCommand('fontName', false, e.target.value);
+                      const wrapper = document.createElement('div');
+                      wrapper.innerHTML = editingSingleBlock.html;
+                      const el = field.selector(wrapper);
+                      if (el && field.ref.current) el.innerHTML = field.ref.current.innerHTML;
+                      setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                    }}
+                    className="text-xs border border-gray-200 rounded px-1 bg-white h-7 max-w-[90px]"
+                  >
+                    <option value="" disabled>Font</option>
+                    <optgroup label="Sans-serif">
+                      <option value="Arial">Arial</option>
+                      <option value="Helvetica">Helvetica</option>
+                      <option value="Verdana">Verdana</option>
+                      <option value="Tahoma">Tahoma</option>
+                      <option value="Calibri">Calibri</option>
+                      <option value="Segoe UI">Segoe UI</option>
+                    </optgroup>
+                    <optgroup label="Serif">
+                      <option value="Georgia">Georgia</option>
+                      <option value="Times New Roman">Times New Roman</option>
+                      <option value="Garamond">Garamond</option>
+                      <option value="Cambria">Cambria</option>
+                    </optgroup>
+                    <optgroup label="Monospace">
+                      <option value="Courier New">Courier New</option>
+                      <option value="Consolas">Consolas</option>
+                    </optgroup>
+                    <optgroup label="Google Fonts">
+                      <option value="Roboto">Roboto</option>
+                      <option value="Open Sans">Open Sans</option>
+                      <option value="Lato">Lato</option>
+                      <option value="Montserrat">Montserrat</option>
+                      <option value="Poppins">Poppins</option>
+                      <option value="Raleway">Raleway</option>
+                      <option value="Nunito">Nunito</option>
+                      <option value="Oswald">Oswald</option>
+                    </optgroup>
+                  </select>
+                  <input type="color" title="Colore" onMouseDown={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      restoreSelection();
+                      document.execCommand('foreColor', false, e.target.value);
+                      const wrapper = document.createElement('div');
+                      wrapper.innerHTML = editingSingleBlock.html;
+                      const el = field.selector(wrapper);
+                      if (el && field.ref.current) el.innerHTML = field.ref.current.innerHTML;
+                      setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                    }}
+                    className="w-7 h-7 border border-gray-200 rounded cursor-pointer p-0.5"
+                  />
+                </div>
+
+                {/* EDITOR */}
+                <div
+                  ref={field.ref}
+                  id={field.editorId}
+                  contentEditable
+                  suppressContentEditableWarning
+                  onFocus={() => { savedSelectionRef.current = null; }}
+                  onMouseUp={() => {
+                    saveSelection();
+                    field.setFormats({
+                      bold: document.queryCommandState('bold'),
+                      italic: document.queryCommandState('italic'),
+                      underline: document.queryCommandState('underline'),
+                      strikeThrough: document.queryCommandState('strikeThrough'),
+                    });
+                  }}
+                  onKeyUp={() => {
+                    saveSelection();
+                    field.setFormats({
+                      bold: document.queryCommandState('bold'),
+                      italic: document.queryCommandState('italic'),
+                      underline: document.queryCommandState('underline'),
+                      strikeThrough: document.queryCommandState('strikeThrough'),
+                    });
+                  }}
+                  onInput={(e) => {
+                    const wrapper = document.createElement('div');
+                    wrapper.innerHTML = editingSingleBlock.html;
+                    const el = field.selector(wrapper);
+                    if (el) el.innerHTML = e.currentTarget.innerHTML;
+                    setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                  }}
+                  className="w-full border border-gray-300 rounded-lg p-2 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+                />
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    ))}
+  </div>
+)}
+{/* ... fine sezione CTA ... */}
+{editingSingleBlock?.id === 'section-2col' && (
+  <div className="space-y-6">
+    <h3 className="text-lg font-semibold text-gray-800">▯ Editor Sezione 2 Colonne</h3>
+
+    {/* ── Helper toolbar riusabile ── */}
+    {[
+      {
+        label: 'Colonna 1', color: 'blue',
+        fields: [
+          { label: 'Titolo', ref: col1TitleRef, formats: col1TitleFormats, setFormats: setCol1TitleFormats, editorId: 'col1-title', selector: (w) => w.querySelectorAll('h3')[0] },
+          { label: 'Testo',  ref: col1ParaRef,  formats: col1ParaFormats,  setFormats: setCol1ParaFormats,  editorId: 'col1-para',  selector: (w) => w.querySelectorAll('p')[0] },
+        ]
+      },
+      {
+        label: 'Colonna 2', color: 'purple',
+        fields: [
+          { label: 'Titolo', ref: col2TitleRef, formats: col2TitleFormats, setFormats: setCol2TitleFormats, editorId: 'col2-title', selector: (w) => w.querySelectorAll('h3')[1] },
+          { label: 'Testo',  ref: col2ParaRef,  formats: col2ParaFormats,  setFormats: setCol2ParaFormats,  editorId: 'col2-para',  selector: (w) => w.querySelectorAll('p')[1] },
+        ]
+      }
+    ].map(({ label, color, fields }) => (
+      <div key={label} className={`border border-gray-200 rounded-lg p-4 bg-gray-50`}>
+        <h4 className="text-sm font-semibold text-gray-700 mb-3">
+          <span className={`bg-${color}-100 text-${color}-700 px-2 py-0.5 rounded text-xs`}>{label}</span>
+        </h4>
+
+        {fields.map(({ label: fieldLabel, ref, formats, setFormats, editorId, selector }) => (
+          <div key={editorId} className="mb-4">
+            <label className="block text-xs font-medium text-gray-600 mb-1">{fieldLabel}</label>
+
+            {/* TOOLBAR COMPLETA */}
+            <div className="flex flex-wrap gap-1 mb-1 bg-white border border-gray-200 rounded-lg p-1">
+              {[
+                { cmd: 'bold', label: 'B' },
+                { cmd: 'italic', label: 'I' },
+                { cmd: 'underline', label: 'U' },
+                { cmd: 'strikeThrough', label: 'S' },
+              ].map(({ cmd, label: btnLabel }) => (
+                <button key={cmd} type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    restoreSelection();
+                    document.execCommand(cmd, false, null);
+                    const wrapper = document.createElement('div');
+                    wrapper.innerHTML = editingSingleBlock.html;
+                    const el = selector(wrapper);
+                    if (el && ref.current) el.innerHTML = ref.current.innerHTML;
+                    setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                    setFormats(prev => ({ ...prev, [cmd]: document.queryCommandState(cmd) }));
+                  }}
+                  className={`px-2 py-1 rounded transition text-xs border ${formats[cmd] ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+                >
+                  <span style={{
+                    fontWeight: cmd==='bold'?'bold':'normal',
+                    fontStyle: cmd==='italic'?'italic':'normal',
+                    textDecoration: cmd==='underline'?'underline':cmd==='strikeThrough'?'line-through':'none'
+                  }}>{btnLabel}</span>
+                </button>
+              ))}
+
+              <div className="w-px bg-gray-300 mx-1" />
+
+              {['left','center','right'].map(align => (
+                <button key={align} type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    restoreSelection();
+                    document.execCommand('justify'+align.charAt(0).toUpperCase()+align.slice(1), false, null);
+                  }}
+                  className="px-2 py-1 rounded transition text-xs bg-white text-gray-700 border border-gray-200 hover:bg-gray-100"
+                >{align==='left'?'⬅':align==='center'?'↔':'➡'}</button>
+              ))}
+
+              <div className="w-px bg-gray-300 mx-1" />
+
+              {/* Dimensione */}
+              <select onMouseDown={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  restoreSelection();
+                  document.execCommand('fontSize', false, e.target.value);
+                  const wrapper = document.createElement('div');
+                  wrapper.innerHTML = editingSingleBlock.html;
+                  const el = selector(wrapper);
+                  if (el && ref.current) el.innerHTML = ref.current.innerHTML;
+                  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                }}
+                className="text-xs border border-gray-200 rounded px-1 bg-white h-7"
+              >
+                <option value="" disabled>px</option>
+                {[1,2,3,4,5,6,7].map(s => <option key={s} value={s}>{[10,13,16,18,24,32,48][s-1]}</option>)}
+              </select>
+
+              {/* Font */}
+              <select onMouseDown={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  restoreSelection();
+                  document.execCommand('fontName', false, e.target.value);
+                  const wrapper = document.createElement('div');
+                  wrapper.innerHTML = editingSingleBlock.html;
+                  const el = selector(wrapper);
+                  if (el && ref.current) el.innerHTML = ref.current.innerHTML;
+                  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                }}
+                className="text-xs border border-gray-200 rounded px-1 bg-white h-7 max-w-[90px]"
+              >
+                <option value="" disabled>Font</option>
+                <optgroup label="Sans-serif">
+                  <option value="Arial">Arial</option>
+                  <option value="Helvetica">Helvetica</option>
+                  <option value="Verdana">Verdana</option>
+                  <option value="Tahoma">Tahoma</option>
+                  <option value="Trebuchet MS">Trebuchet MS</option>
+                  <option value="Calibri">Calibri</option>
+                  <option value="Segoe UI">Segoe UI</option>
+                  <option value="Futura">Futura</option>
+                </optgroup>
+                <optgroup label="Serif">
+                  <option value="Georgia">Georgia</option>
+                  <option value="Times New Roman">Times New Roman</option>
+                  <option value="Garamond">Garamond</option>
+                  <option value="Palatino">Palatino</option>
+                  <option value="Baskerville">Baskerville</option>
+                  <option value="Cambria">Cambria</option>
+                </optgroup>
+                <optgroup label="Monospace">
+                  <option value="Courier New">Courier New</option>
+                  <option value="Consolas">Consolas</option>
+                  <option value="Monaco">Monaco</option>
+                </optgroup>
+                <optgroup label="Google Fonts">
+                  <option value="Roboto">Roboto</option>
+                  <option value="Open Sans">Open Sans</option>
+                  <option value="Lato">Lato</option>
+                  <option value="Montserrat">Montserrat</option>
+                  <option value="Poppins">Poppins</option>
+                  <option value="Raleway">Raleway</option>
+                  <option value="Nunito">Nunito</option>
+                  <option value="Playfair Display">Playfair Display</option>
+                  <option value="Oswald">Oswald</option>
+                  <option value="Ubuntu">Ubuntu</option>
+                </optgroup>
+              </select>
+
+              {/* Colore */}
+              <input type="color" title="Colore testo" onMouseDown={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  restoreSelection();
+                  document.execCommand('foreColor', false, e.target.value);
+                  const wrapper = document.createElement('div');
+                  wrapper.innerHTML = editingSingleBlock.html;
+                  const el = selector(wrapper);
+                  if (el && ref.current) el.innerHTML = ref.current.innerHTML;
+                  setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                }}
+                className="w-7 h-7 border border-gray-200 rounded cursor-pointer p-0.5"
+              />
+            </div>
+
+            {/* EDITOR SENZA dangerouslySetInnerHTML */}
+            <div
+              ref={ref}
+              id={editorId}
+              contentEditable
+              suppressContentEditableWarning
+              onFocus={() => { savedSelectionRef.current = null; }}
+              onBlur={() => {}}
+              onMouseUp={() => {
+                saveSelection();
+                setFormats({
+                  bold: document.queryCommandState('bold'),
+                  italic: document.queryCommandState('italic'),
+                  underline: document.queryCommandState('underline'),
+                  strikeThrough: document.queryCommandState('strikeThrough'),
+                });
+              }}
+              onKeyUp={() => {
+                saveSelection();
+                setFormats({
+                  bold: document.queryCommandState('bold'),
+                  italic: document.queryCommandState('italic'),
+                  underline: document.queryCommandState('underline'),
+                  strikeThrough: document.queryCommandState('strikeThrough'),
+                });
+              }}
+              onSelect={() => {
+                setFormats({
+                  bold: document.queryCommandState('bold'),
+                  italic: document.queryCommandState('italic'),
+                  underline: document.queryCommandState('underline'),
+                  strikeThrough: document.queryCommandState('strikeThrough'),
+                });
+              }}
+              onInput={(e) => {
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = editingSingleBlock.html;
+                const el = selector(wrapper);
+                if (el) el.innerHTML = e.currentTarget.innerHTML;
+                setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+              }}
+              className="w-full border border-gray-300 rounded-lg p-2 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+            />
+          </div>
+        ))}
+      </div>
+    ))}
+  </div>
+)}
+{/* 🆕 EDITOR GENERICO PER BLOCCHI CONVERTITI (Se non sono Header, Image, etc.) */}
+{!['header', 'link-block', 'footer', 'image', 'text', 'button', 'section-cta', 'section-2col', 'section-3col'].includes(editingSingleBlock.id) && (
+  <div className="mt-6 p-4 border rounded-lg bg-blue-50 space-y-4">
+    <h3 className="text-lg font-semibold text-blue-800 mb-2 flex items-center gap-2">
+      📝 Modifica Testi Rapida
+    </h3>
+    <p className="text-xs text-blue-600 mb-2 italic">
+      Blocco personalizzato rilevato. Modifica i testi qui sotto o l'HTML completo più in basso.
+    </p>
+
+    {/* TITOLO PRINCIPALE */}
+    {editingSingleBlock.html.match(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/) && (
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Titolo Principale</label>
+        {/* TOOLBAR */}
+        <div className="flex flex-wrap gap-1 mb-1 bg-white border border-gray-200 rounded-lg p-1">
+          {[
+            { cmd: 'bold', label: 'B', title: 'Grassetto' },
+            { cmd: 'italic', label: 'I', title: 'Corsivo' },
+            { cmd: 'underline', label: 'U', title: 'Sottolineato' },
+            { cmd: 'strikeThrough', label: 'S', title: 'Barrato' },
+          ].map(({ cmd, label, title }) => (
+            <button key={cmd} type="button" title={title}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                restoreSelection();
+                document.execCommand(cmd, false, null);
+                const el = genericTitleRef.current;
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = editingSingleBlock.html;
+                const h = wrapper.querySelector('h1,h2,h3,h4,h5,h6');
+                if (h) h.innerHTML = el.innerHTML;
+                setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                updateActiveFormats('generic-title-editor', setGenericTitleFormats);
+              }}
+              className={`px-2 py-1 rounded transition text-sm border ${genericTitleFormats[cmd] ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+            >
+              <span style={{ fontWeight: cmd==='bold'?'bold':'normal', fontStyle: cmd==='italic'?'italic':'normal', textDecoration: cmd==='underline'?'underline':cmd==='strikeThrough'?'line-through':'none' }}>{label}</span>
+            </button>
+          ))}
+          <div className="w-px bg-gray-300 mx-1" />
+          {['left','center','right'].map(align => (
+            <button key={align} type="button"
+              onMouseDown={(e) => { e.preventDefault(); restoreSelection(); document.execCommand('justify'+align.charAt(0).toUpperCase()+align.slice(1), false, null); }}
+              className="px-2 py-1 rounded transition text-sm bg-white text-gray-700 border border-gray-200 hover:bg-gray-100"
+            >{align==='left'?'⬅':align==='center'?'↔':'➡'}</button>
+          ))}
+          <div className="w-px bg-gray-300 mx-1" />
+          <select onMouseDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              restoreSelection();
+              document.execCommand('fontSize', false, e.target.value);
+              const el = genericTitleRef.current;
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const h = wrapper.querySelector('h1,h2,h3,h4,h5,h6');
+              if (h) h.innerHTML = el.innerHTML;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="text-xs border border-gray-200 rounded px-1 bg-white h-7"
+          >
+            <option value="" disabled>px</option>
+            {[1,2,3,4,5,6,7].map(s => <option key={s} value={s}>{[10,13,16,18,24,32,48][s-1]}</option>)}
+          </select>
+          <select onMouseDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              restoreSelection();
+              document.execCommand('fontName', false, e.target.value);
+              const el = genericTitleRef.current;
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const h = wrapper.querySelector('h1,h2,h3,h4,h5,h6');
+              if (h) h.innerHTML = el.innerHTML;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="text-xs border border-gray-200 rounded px-1 bg-white h-7 max-w-[90px]"
+          >
+            <option value="" disabled>Font</option>
+            <optgroup label="Sans-serif">
+              <option value="Arial">Arial</option>
+              <option value="Helvetica">Helvetica</option>
+              <option value="Verdana">Verdana</option>
+              <option value="Tahoma">Tahoma</option>
+              <option value="Trebuchet MS">Trebuchet MS</option>
+              <option value="Calibri">Calibri</option>
+              <option value="Segoe UI">Segoe UI</option>
+              <option value="Futura">Futura</option>
+            </optgroup>
+            <optgroup label="Serif">
+              <option value="Georgia">Georgia</option>
+              <option value="Times New Roman">Times New Roman</option>
+              <option value="Garamond">Garamond</option>
+              <option value="Palatino">Palatino</option>
+              <option value="Baskerville">Baskerville</option>
+              <option value="Cambria">Cambria</option>
+            </optgroup>
+            <optgroup label="Monospace">
+              <option value="Courier New">Courier New</option>
+              <option value="Consolas">Consolas</option>
+              <option value="Monaco">Monaco</option>
+            </optgroup>
+            <optgroup label="Google Fonts">
+              <option value="Roboto">Roboto</option>
+              <option value="Open Sans">Open Sans</option>
+              <option value="Lato">Lato</option>
+              <option value="Montserrat">Montserrat</option>
+              <option value="Poppins">Poppins</option>
+              <option value="Raleway">Raleway</option>
+              <option value="Nunito">Nunito</option>
+              <option value="Playfair Display">Playfair Display</option>
+              <option value="Oswald">Oswald</option>
+              <option value="Ubuntu">Ubuntu</option>
+            </optgroup>
+          </select>
+          <input type="color" title="Colore testo" onMouseDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              restoreSelection();
+              document.execCommand('foreColor', false, e.target.value);
+              const el = genericTitleRef.current;
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const h = wrapper.querySelector('h1,h2,h3,h4,h5,h6');
+              if (h) h.innerHTML = el.innerHTML;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-7 h-7 border border-gray-200 rounded cursor-pointer p-0.5"
+          />
+        </div>
+        {/* EDITOR */}
+       
+<div
+  ref={genericTitleRef}
+  id="generic-title-editor"
+  contentEditable
+  suppressContentEditableWarning
+  onMouseDown={(e) => e.stopPropagation()}
+  onFocus={() => { savedSelectionRef.current = null; }}
+  onMouseUp={() => { saveSelection(); updateActiveFormats('generic-title-editor', setGenericTitleFormats); }}
+  onKeyUp={() => { saveSelection(); updateActiveFormats('generic-title-editor', setGenericTitleFormats); }}
+  onSelect={() => updateActiveFormats('generic-title-editor', setGenericTitleFormats)}
+  onInput={(e) => {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = editingSingleBlock.html;
+    const h = wrapper.querySelector('h1,h2,h3,h4,h5,h6');
+    if (h) h.innerHTML = e.currentTarget.innerHTML;
+    setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+  }}
+  className="w-full border border-gray-300 rounded-lg p-3 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+/>
+      </div>
+    )}
+
+    {/* TESTO PARAGRAFO */}
+    {editingSingleBlock.html.match(/<p[^>]*>(.*?)<\/p>/) && (
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Testo Paragrafo</label>
+        {/* TOOLBAR */}
+        <div className="flex flex-wrap gap-1 mb-1 bg-white border border-gray-200 rounded-lg p-1">
+          {[
+            { cmd: 'bold', label: 'B', title: 'Grassetto' },
+            { cmd: 'italic', label: 'I', title: 'Corsivo' },
+            { cmd: 'underline', label: 'U', title: 'Sottolineato' },
+            { cmd: 'strikeThrough', label: 'S', title: 'Barrato' },
+          ].map(({ cmd, label, title }) => (
+            <button key={cmd} type="button" title={title}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                restoreSelection();
+                document.execCommand(cmd, false, null);
+                const el = genericParaRef.current;
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = editingSingleBlock.html;
+                const p = wrapper.querySelector('p');
+                if (p) p.innerHTML = el.innerHTML;
+                setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+                updateActiveFormats('generic-para-editor', setGenericParaFormats);
+              }}
+              className={`px-2 py-1 rounded transition text-sm border ${genericParaFormats[cmd] ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+            >
+              <span style={{ fontWeight: cmd==='bold'?'bold':'normal', fontStyle: cmd==='italic'?'italic':'normal', textDecoration: cmd==='underline'?'underline':cmd==='strikeThrough'?'line-through':'none' }}>{label}</span>
+            </button>
+          ))}
+          <div className="w-px bg-gray-300 mx-1" />
+          {['left','center','right'].map(align => (
+            <button key={align} type="button"
+              onMouseDown={(e) => { e.preventDefault(); restoreSelection(); document.execCommand('justify'+align.charAt(0).toUpperCase()+align.slice(1), false, null); }}
+              className="px-2 py-1 rounded transition text-sm bg-white text-gray-700 border border-gray-200 hover:bg-gray-100"
+            >{align==='left'?'⬅':align==='center'?'↔':'➡'}</button>
+          ))}
+          <div className="w-px bg-gray-300 mx-1" />
+          <select onMouseDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              restoreSelection();
+              document.execCommand('fontSize', false, e.target.value);
+              const el = genericParaRef.current;
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const p = wrapper.querySelector('p');
+              if (p) p.innerHTML = el.innerHTML;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="text-xs border border-gray-200 rounded px-1 bg-white h-7"
+          >
+            <option value="" disabled>px</option>
+            {[1,2,3,4,5,6,7].map(s => <option key={s} value={s}>{[10,13,16,18,24,32,48][s-1]}</option>)}
+          </select>
+          <select onMouseDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              restoreSelection();
+              document.execCommand('fontName', false, e.target.value);
+              const el = genericParaRef.current;
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const p = wrapper.querySelector('p');
+              if (p) p.innerHTML = el.innerHTML;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="text-xs border border-gray-200 rounded px-1 bg-white h-7 max-w-[90px]"
+          >
+            <option value="" disabled>Font</option>
+            <optgroup label="Sans-serif">
+              <option value="Arial">Arial</option>
+              <option value="Helvetica">Helvetica</option>
+              <option value="Verdana">Verdana</option>
+              <option value="Tahoma">Tahoma</option>
+              <option value="Trebuchet MS">Trebuchet MS</option>
+              <option value="Calibri">Calibri</option>
+              <option value="Segoe UI">Segoe UI</option>
+            </optgroup>
+            <optgroup label="Serif">
+              <option value="Georgia">Georgia</option>
+              <option value="Times New Roman">Times New Roman</option>
+              <option value="Garamond">Garamond</option>
+              <option value="Palatino">Palatino</option>
+              <option value="Cambria">Cambria</option>
+            </optgroup>
+            <optgroup label="Monospace">
+              <option value="Courier New">Courier New</option>
+              <option value="Consolas">Consolas</option>
+              <option value="Monaco">Monaco</option>
+            </optgroup>
+            <optgroup label="Google Fonts">
+              <option value="Roboto">Roboto</option>
+              <option value="Open Sans">Open Sans</option>
+              <option value="Lato">Lato</option>
+              <option value="Montserrat">Montserrat</option>
+              <option value="Poppins">Poppins</option>
+              <option value="Raleway">Raleway</option>
+              <option value="Nunito">Nunito</option>
+              <option value="Playfair Display">Playfair Display</option>
+              <option value="Oswald">Oswald</option>
+              <option value="Ubuntu">Ubuntu</option>
+            </optgroup>
+          </select>
+          <input type="color" title="Colore testo" onMouseDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              restoreSelection();
+              document.execCommand('foreColor', false, e.target.value);
+              const el = genericParaRef.current;
+              const wrapper = document.createElement('div');
+              wrapper.innerHTML = editingSingleBlock.html;
+              const p = wrapper.querySelector('p');
+              if (p) p.innerHTML = el.innerHTML;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }}
+            className="w-7 h-7 border border-gray-200 rounded cursor-pointer p-0.5"
+          />
+        </div>
+        {/* EDITOR */}
+        <div
+  ref={genericParaRef}
+  id="generic-para-editor"
+  contentEditable
+  suppressContentEditableWarning
+  onMouseDown={(e) => e.stopPropagation()}
+  onFocus={() => { savedSelectionRef.current = null; }}
+  onMouseUp={() => { saveSelection(); updateActiveFormats('generic-para-editor', setGenericParaFormats); }}
+  onKeyUp={() => { saveSelection(); updateActiveFormats('generic-para-editor', setGenericParaFormats); }}
+  onSelect={() => updateActiveFormats('generic-para-editor', setGenericParaFormats)}
+  onInput={(e) => {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = editingSingleBlock.html;
+    const p = wrapper.querySelector('p');
+    if (p) p.innerHTML = e.currentTarget.innerHTML;
+    setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+  }}
+  className="w-full border border-gray-300 rounded-lg p-3 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+/>
+      </div>
+    )}
+  </div>
+)}
+
+{/* 🔍 Preview aggiornato */}
+{/* <div className="mt-6">
+<label className="block text-sm font-medium text-gray-700 mb-1">Anteprima</label>
+<div className="border rounded p-4 bg-gray-50">
+  <div dangerouslySetInnerHTML={{ __html: editingSingleBlock.html }} />
+</div>
+</div> */}
+
+          {/* Preview */}
+          {/* <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Anteprima
+            </label>
+            <div className="border-2 border-gray-200 rounded-lg p-4 bg-gray-50 overflow-auto">
+              <div dangerouslySetInnerHTML={{ __html: editingSingleBlock.html }} />
+            </div>
+          </div> */}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-gray-200 p-6 bg-gray-50 flex gap-3">
+          <button
+            onClick={() => setShowSingleBlockEditor(false)}
+            className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-3 px-4 rounded-lg font-medium transition"
+          >
+            Annulla
+          </button>
+          <button
+            onClick={() => {
+              const updated = [...canvasBlocks];
+              updated[editingSingleBlock.index] = {
+                ...updated[editingSingleBlock.index],
+                html: editingSingleBlock.html
+              };
+              setCanvasBlocks(updated);
+              setShowSingleBlockEditor(false);
+              toast.success("✅ Blocco aggiornato!");
+            }}
+            className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-3 px-4 rounded-lg font-medium transition"
+          >
+            Salva Modifiche
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  )}
+</AnimatePresence>
             {/* Pulsanti Azione */}
             <div className="flex flex-wrap gap-3 p-6 border-t border-gray-200 bg-gray-50">
               <button
@@ -22209,15 +25393,18 @@ if (loadingProfile && !user && !authUser) {
                         Formato data/ora
                       </button>
 
-                      <button
-                        onClick={() => setActiveProfileTab('notifiche2')}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${activeProfileTab === 'notifiche2'
-                          ? 'text-blue-600 bg-blue-50 border border-blue-200'
-                          : 'text-gray-700 hover:bg-gray-100'
-                          }`}
-                      >
-                        Notifiche
-                      </button>
+                      {isAdmin && (
+  <button
+    onClick={() => setActiveProfileTab('notifiche2')}
+    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+      activeProfileTab === 'notifiche2'
+        ? 'text-blue-600 bg-blue-50 border border-blue-200'
+        : 'text-gray-700 hover:bg-gray-100'
+    }`}
+  >
+    Notifiche
+  </button>
+)}
 
                       <button
                         onClick={() => setActiveProfileTab('privacy')}
@@ -22661,100 +25848,209 @@ if (loadingProfile && !user && !authUser) {
                   {/* Contenuto dinamico basato sul tab attivo */}
                   {/* 🆕 TAB NOTIFICHE2 */}
                   {activeProfileTab === 'notifiche2' && (
-                    <div>
-                      <h2 className="text-xl font-semibold mb-4">Notifiche</h2>
+  <div className="space-y-6">
+    <h2 className="text-xl font-semibold">Notifiche</h2>
 
-                      <div className="space-y-4 mb-6">
-                        <div className="flex gap-4">
-                          <label htmlFor="notify_email" className="flex items-center gap-2">
-                            <input
-                              id="notify_email"
-                              name="notify_email"
-                              type="checkbox"
-                              checked={notificationsData.notify_new_campaigns || false}
-                              onChange={(e) => setNotificationsData({ ...notificationsData, notify_new_campaigns: e.target.checked })}
-                            />
-                            <span className="ml-2">Email</span>
-                          </label>
-                          <div className="flex items-center gap-3">
-  <label htmlFor="notify_push" className="flex items-center gap-2">
-    <input
-      id="notify_push"
-      name="notify_push"
-      type="checkbox"
-      checked={notificationsData.notify_push_new_tasks || false}
-      onChange={(e) => setNotificationsData({ ...notificationsData, notify_push_new_tasks: e.target.checked })}
-    />
-    <span className="ml-2">Push</span>
-  </label>
+    {/* 🔔 Canali notifica */}
+    <div className="bg-white border border-gray-200 rounded-lg p-6">
+      <h3 className="font-semibold text-gray-900 mb-4">Canali di notifica</h3>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium text-gray-900">Email</p>
+            <p className="text-sm text-gray-500">Ricevi notifiche via email</p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" className="sr-only peer"
+              checked={notificationsData.notify_new_campaigns || false}
+              onChange={(e) => setNotificationsData({ ...notificationsData, notify_new_campaigns: e.target.checked })}
+            />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+          </label>
+        </div>
 
-  {/* Bottone attiva push */}
-  <button
-    onClick={async () => {
-      const { subscribe } = usePushNotifications();
-      const result = await subscribe();
-      if (result.success) {
-        toast.success('🔔 Notifiche Push attivate!');
-      } else {
-        toast.error('❌ ' + (result.message || result.error));
-      }
-    }}
-    className={`px-3 py-1 text-xs rounded-lg font-medium transition ${
-      permission === 'granted'
-        ? 'bg-green-100 text-green-700'
-        : 'bg-blue-600 text-white hover:bg-blue-700'
-    }`}
-  >
-    {permission === 'granted' ? '✅ Attive' : '🔔 Attiva Push'}
-  </button>
-</div>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium text-gray-900">Push</p>
+            <p className="text-sm text-gray-500">Notifiche browser in tempo reale</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" className="sr-only peer"
+                checked={notificationsData.notify_push_new_tasks || false}
+                onChange={(e) => setNotificationsData({ ...notificationsData, notify_push_new_tasks: e.target.checked })}
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+            <button
+              onClick={async () => {
+                const result = await subscribe();
+                if (result.success) toast.success('🔔 Notifiche Push attivate!');
+                else toast.error('❌ ' + (result.message || result.error));
+              }}
+              className={`px-3 py-1 text-xs rounded-lg font-medium transition ${
+                permission === 'granted' ? 'bg-green-100 text-green-700' : 'bg-blue-600 text-white hover:bg-blue-700'
+              }`}
+            >
+              {permission === 'granted' ? '✅ Attive' : '🔔 Attiva Push'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* 📅 Promemoria */}
+    <div className="bg-white border border-gray-200 rounded-lg p-6">
+      <h3 className="font-semibold text-gray-900 mb-4">Promemoria</h3>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium text-gray-900">Review settimanale</p>
+            <p className="text-sm text-gray-500">Ricordati di fare la review settimanale</p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" className="sr-only peer"
+              checked={notificationsData.reminder_weekly_review || false}
+              onChange={(e) => setNotificationsData({ ...notificationsData, reminder_weekly_review: e.target.checked })}
+            />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+          </label>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium text-gray-900">Ricordati di timbrare</p>
+            <p className="text-sm text-gray-500">Promemoria timbratura giornaliera</p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" className="sr-only peer"
+              checked={notificationsData.reminder_clock_in || false}
+              onChange={(e) => setNotificationsData({ ...notificationsData, reminder_clock_in: e.target.checked })}
+            />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    {/* 👑 Sezione Admin - preferenze notifiche per utente */}
+    {isAdmin && (
+      <div className="bg-white border border-gray-200 rounded-lg p-6">
+        <h3 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
+          <Shield className="w-5 h-5 text-purple-600" />
+          Gestione Notifiche Utenti
+        </h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Configura quali eventi generano notifiche per ogni utente
+        </p>
+
+        {loadingUsers ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+          </div>
+        ) : approvedUsers.length === 0 ? (
+          <p className="text-gray-500 text-sm text-center py-4">Nessun utente approvato</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Utente</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ruolo</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Crea Campagna</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Modifica Campagna</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Elimina Campagna</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Crea Contatto</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Modifica Contatto</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Elimina Contatto</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {approvedUsers.map((u) => (
+                  <tr key={u.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                          <User className="w-4 h-4 text-blue-600" />
                         </div>
-
-                        <div className="mt-4">
-                          <label className="text-sm font-medium text-gray-700">Promemoria</label>
-                          <div className="flex gap-4 mt-2">
-                            <label htmlFor="reminder_weekly" className="flex items-center gap-2">
-                              <input
-                                id="reminder_weekly"
-                                name="reminder_weekly"
-                                type="checkbox"
-                                checked={notificationsData.reminder_weekly_review || false}
-                                onChange={(e) => setNotificationsData({ ...notificationsData, reminder_weekly_review: e.target.checked })}
-                              />
-                              <span className="ml-2">Review settimanale</span>
-                            </label>
-                            <label htmlFor="reminder_clock" className="flex items-center gap-2">
-                              <input
-                                id="reminder_clock"
-                                name="reminder_clock"
-                                type="checkbox"
-                                checked={notificationsData.reminder_clock_in || false}
-                                onChange={(e) => setNotificationsData({ ...notificationsData, reminder_clock_in: e.target.checked })}
-                              />
-                              <span className="ml-2">Ricordati di timbrare</span>
-                            </label>
-                          </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{u.full_name || u.email}</p>
+                          <p className="text-xs text-gray-500">{u.email}</p>
                         </div>
                       </div>
+                    </td>
+                    {/* ← AGGIUNGI QUI */}
+<td className="px-4 py-3">
+  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+    u.role?.name === 'super_admin' 
+      ? 'bg-purple-100 text-purple-800'
+      : u.role?.name === 'admin'
+      ? 'bg-blue-100 text-blue-800'
+      : u.role?.name === 'editor'
+      ? 'bg-green-100 text-green-800'
+      : 'bg-gray-100 text-gray-800'
+  }`}>
+    {u.role?.name || 'user'}
+  </span>
+</td>
+                    {[
+                      'notify_campaign_created',
+                      'notify_campaign_updated',
+                      'notify_campaign_deleted',
+                      'notify_contact_created',
+                      'notify_contact_updated',
+                      'notify_contact_deleted',
+                    ].map((field) => (
+                      <td key={field} className="px-4 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={u[field] ?? true}
+                          onChange={async (e) => {
+                            const updatedUsers = approvedUsers.map(usr =>
+                              usr.id === u.id ? { ...usr, [field]: e.target.checked } : usr
+                            );
+                            setApprovedUsers(updatedUsers);
+                          
+                            console.log('🔍 Aggiornamento:', u.id, field, e.target.checked);
+                          
+                            const { error } = await supabase
+                              .from('user_settings')
+                              .update({ [field]: e.target.checked })
+                              .eq('user_id', u.id);
+                          
+                            console.log('📦 Risultato:', error);
+                          
+                            if (!error) {
+                              toast.success('✅ Preferenza aggiornata');
+                              fetchApprovedUsers();
+                            } else {
+                              toast.error('❌ Errore: ' + error.message);
+                            }
+                          }}
+                          className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    )}
 
-                      <div className="flex gap-3 mt-6">
-                        <button
-                          onClick={handleClose}
-                          className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg transition-colors"
-                          disabled={saving}
-                        >
-                          Annulla
-                        </button>
-                        <button
-                          onClick={handleSaveNotifications}
-                          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition-colors disabled:opacity-50"
-                          disabled={saving}
-                        >
-                          {saving ? 'Salvataggio...' : 'Salva Modifiche'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+    {/* Pulsanti */}
+    <div className="flex gap-3">
+      <button onClick={handleClose} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg transition-colors" disabled={saving}>
+        Annulla
+      </button>
+      <button onClick={handleSaveNotifications} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition-colors disabled:opacity-50" disabled={saving}>
+        {saving ? 'Salvataggio...' : 'Salva Modifiche'}
+      </button>
+    </div>
+  </div>
+)}
 
                   {/* 🆕 TAB PRIVACY */}
                   {activeProfileTab === 'privacy' && (
@@ -23995,87 +27291,185 @@ if (loadingProfile && !user && !authUser) {
                   )}
                 </button>
 
-                {/* Dropdown notifiche */}
-                {showNotificationDropdown && (
-                  <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
-                    <div className="p-4 border-b border-gray-100 font-semibold text-gray-700">
-                      Notifiche
-                    </div>
-                    <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
-                      {notifications.length > 0 ? (
-                        notifications.map((notif) => (
-                          <div key={notif.id} className="px-4 py-3 hover:bg-gray-50 cursor-pointer">
-                            <p className="text-sm text-gray-800">{notif.title}</p>
-                            <p className="text-xs text-gray-500">{notif.date}</p>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                          Nessuna nuova notifica
-                        </div>
-                      )}
-                    </div>
-                    <div className="p-2 border-t border-gray-100 text-center">
-                      <button
-                        onClick={() => {
-                          // setActiveProfileTab("notifiche");
-                          // setShowProfileModal(true);
-                          setShowNotificationDropdown(false);
-                          setUnreadNotifications(0);
-                          setShowAllNotificationsModal(true);
-                        }}
-                        className="text-sm text-blue-600 hover:underline"
-                      >
-                        Vai a tutte le notifiche
-                      </button>
-                    </div>
-                  </div>
-                )}
+{/* Dropdown notifiche */}
+{showNotificationDropdown && (
+  <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+    <div className="p-4 border-b border-gray-100 flex justify-between items-center">
+      <span className="font-semibold text-gray-700">Notifiche</span>
+      {notifications.some(n => !n.read) && (
+        <button
+          onClick={async () => {
+            await supabase
+              .from('notifications')
+              .update({ read: true })
+              .eq('user_id', user.id)
+              .eq('read', false);
+            loadNotifications();
+          }}
+          className="text-xs text-blue-600 hover:text-blue-800"
+        >
+          Segna tutte lette
+        </button>
+      )}
+    </div>
+    <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
+      {notifications.length > 0 ? (
+        notifications.slice(0, 5).map((notif) => (
+          <div key={notif.id} className={`px-4 py-3 hover:bg-gray-50 cursor-pointer ${!notif.read ? 'bg-blue-50/30 border-l-4 border-blue-500' : ''}`}>
+            <div className="flex items-start gap-2">
+              <span className="text-sm">
+                {notif.type === 'success' ? '✅' :
+                 notif.type === 'warning' ? '⚠️' :
+                 notif.type === 'error' ? '❌' : 'ℹ️'}
+              </span>
+              <div>
+                <p className={`text-sm ${!notif.read ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>
+                  {notif.title}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {new Date(notif.created_at).toLocaleString('it-IT')}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="px-4 py-6 text-sm text-gray-500 text-center">
+          <div className="text-2xl mb-2">🔔</div>
+          Nessuna nuova notifica
+        </div>
+      )}
+    </div>
+    <div className="p-2 border-t border-gray-100 text-center">
+      <button
+        onClick={() => {
+          setShowNotificationDropdown(false);
+          setShowAllNotificationsModal(true);
+        }}
+        className="text-sm text-blue-600 hover:underline"
+      >
+        Vai a tutte le notifiche
+      </button>
+    </div>
+  </div>
+)}
           </div>
         
-              {showAllNotificationsModal && (
-                <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black bg-opacity-40">
-                  <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg shadow-lg relative">
-                    {/* Header */}
-                    <div className="flex justify-between items-center p-4 border-b border-gray-200">
-                      <h2 className="text-xl font-bold text-gray-900">Tutte le notifiche</h2>
-                      <button
-                        onClick={() => setShowAllNotificationsModal(false)}
-                        className="text-gray-400 hover:text-gray-600"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
+          {showAllNotificationsModal && (
+  <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black bg-opacity-40">
+    <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg shadow-lg relative">
+      {/* Header */}
+      <div className="flex justify-between items-center p-4 border-b border-gray-200">
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-bold text-gray-900">Tutte le notifiche</h2>
+          {notifications.filter(n => !n.read).length > 0 && (
+            <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+              {notifications.filter(n => !n.read).length}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Segna tutte come lette */}
+          {notifications.some(n => !n.read) && (
+            <button
+              onClick={async () => {
+                await supabase
+                  .from('notifications')
+                  .update({ read: true })
+                  .eq('user_id', user.id)
+                  .eq('read', false);
+                loadNotifications();
+              }}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+            >
+              Segna tutte lette
+            </button>
+          )}
+          <button
+            onClick={() => setShowAllNotificationsModal(false)}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
 
-                    {/* Lista notifiche */}
-                    <div className="divide-y divide-gray-100">
-                      {notifications.length > 0 ? (
-                        notifications.map((notif) => (
-                          <div key={notif.id} className="p-4 hover:bg-gray-50 transition">
-                            <p className="text-gray-800 font-medium">{notif.title}</p>
-                            <p className="text-gray-500 text-sm">{notif.date}</p>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="p-6 text-center text-gray-500">
-                          Nessuna notifica disponibile.
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Footer */}
-                    <div className="flex justify-end p-4 border-t border-gray-200">
-                      <button
-                        onClick={() => setShowAllNotificationsModal(false)}
-                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg"
-                      >
-                        Chiudi
-                      </button>
-                    </div>
+      {/* Lista notifiche */}
+      <div className="divide-y divide-gray-100">
+        {notifications.length > 0 ? (
+          notifications.map((notif) => (
+            <div
+              key={notif.id}
+              className={`p-4 hover:bg-gray-50 transition ${
+                !notif.read ? 'border-l-4 border-blue-500 bg-blue-50/30' : ''
+              }`}
+            >
+              <div className="flex justify-between items-start gap-4">
+                <div className="flex items-start gap-3">
+                  {/* Icona tipo */}
+                  <div className={`mt-0.5 w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                    notif.type === 'success' ? 'bg-green-100 text-green-600' :
+                    notif.type === 'warning' ? 'bg-yellow-100 text-yellow-600' :
+                    notif.type === 'error' ? 'bg-red-100 text-red-600' :
+                    'bg-blue-100 text-blue-600'
+                  }`}>
+                    {notif.type === 'success' ? '✅' :
+                     notif.type === 'warning' ? '⚠️' :
+                     notif.type === 'error' ? '❌' : 'ℹ️'}
+                  </div>
+                  <div>
+                    <p className={`font-medium ${!notif.read ? 'text-gray-900' : 'text-gray-700'}`}>
+                      {notif.title}
+                    </p>
+                    {notif.description && (
+                      <p className="text-gray-500 text-sm mt-0.5">{notif.description}</p>
+                    )}
+                    <p className="text-gray-400 text-xs mt-1">
+                      {new Date(notif.created_at).toLocaleString('it-IT')}
+                    </p>
                   </div>
                 </div>
-              )}
+                {!notif.read && (
+                  <button
+                    onClick={async () => {
+                      await supabase
+                        .from('notifications')
+                        .update({ read: true })
+                        .eq('id', notif.id);
+                      loadNotifications();
+                    }}
+                    className="text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap flex-shrink-0"
+                  >
+                    Segna letta
+                  </button>
+                )}
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="p-12 text-center text-gray-500">
+            <div className="text-4xl mb-3">🔔</div>
+            <p className="font-medium">Nessuna notifica</p>
+            <p className="text-sm mt-1">Le notifiche appariranno qui dopo ogni invio</p>
+          </div>
+        )}
+      </div>
 
+      {/* Footer */}
+      <div className="flex justify-between items-center p-4 border-t border-gray-200">
+        <p className="text-xs text-gray-400">
+          {notifications.length} notifiche totali
+        </p>
+        <button
+          onClick={() => setShowAllNotificationsModal(false)}
+          className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm"
+        >
+          Chiudi
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
               {/* Menu Utente */}
               <div className="relative user-menu">
@@ -24186,6 +27580,7 @@ if (loadingProfile && !user && !authUser) {
           </div>
         </div>
       </header>
+      
 {/* 🎨 Modale Conferma Aggiornamento */}
 {showRefreshConfirm && (
   <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
@@ -24950,6 +28345,7 @@ if (loadingProfile && !user && !authUser) {
    saveCampaignProp={saveCampaignHook}
    updateCampaignAfterSendProp={updateCampaignAfterSend}
    getCampaignProp={getCampaign}
+   loadNotifications={loadNotifications}
  />
   )}
 
@@ -24974,6 +28370,7 @@ if (loadingProfile && !user && !authUser) {
     coperturaCanaleProp={coperturaCanale}
     testateProp={testate}
     contactLabelsProp={contactLabels}
+    loadNotifications={loadNotifications}
   />
 )}
 {activeTab === "logs" && (
@@ -25005,6 +28402,174 @@ if (loadingProfile && !user && !authUser) {
   fetchApprovedUsers={fetchApprovedUsers}
   fetchRejectedUsers={fetchRejectedUsers}
 />
+    
+    {/* FOOTER */}
+<footer className="bg-white border-t border-gray-200 mt-auto">
+  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+      
+      {/* Info Azienda */}
+      <div className="text-center md:text-left">
+        <p className="text-sm font-semibold text-gray-700">Promotergroup Spa</p>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Via del Carrubo, snc — 97019 Vittoria (RG)
+        </p>
+        <p className="text-xs text-gray-500">
+          P.IVA 13178771005
+        </p>
+      </div>
+
+      {/* Link legali */}
+      <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-gray-500">
+        <button
+          onClick={() => setShowPrivacyModal(true)}
+          className="hover:text-blue-600 hover:underline transition-colors"
+        >
+          Privacy Policy
+        </button>
+        <span className="text-gray-300">|</span>
+        <button
+          onClick={() => setShowTermsModal(true)}
+          className="hover:text-blue-600 hover:underline transition-colors"
+        >
+          Termini di Servizio
+        </button>
+        <span className="text-gray-300">|</span>
+        <button
+          onClick={() => setShowCookieModal(true)}
+          className="hover:text-blue-600 hover:underline transition-colors"
+        >
+          Preferenze Cookie
+        </button>
+      </div>
+
+      {/* Copyright */}
+      <div className="text-xs text-gray-400 text-center md:text-right">
+        © {new Date().getFullYear()} Promotergroup Spa<br />
+        Tutti i diritti riservati
+      </div>
+
+    </div>
+  </div>
+</footer>
+{/* MODAL PRIVACY */}
+{showPrivacyModal && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 z-[9999] flex items-center justify-center p-4">
+    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+      <div className="flex justify-between items-center p-6 border-b border-gray-200 sticky top-0 bg-white">
+        <h2 className="text-xl font-bold text-gray-900">Privacy Policy</h2>
+        <button onClick={() => setShowPrivacyModal(false)} className="text-gray-400 hover:text-gray-600">
+          <X className="w-6 h-6" />
+        </button>
+      </div>
+      <div className="p-6 space-y-4 text-sm text-gray-600 leading-relaxed">
+        <h3 className="font-semibold text-gray-900 text-base">Titolare del Trattamento</h3>
+        <p>Promotergroup Spa — Via del Carrubo, snc — 97019 Vittoria (RG) — P.IVA 13178771005</p>
+        <h3 className="font-semibold text-gray-900 text-base">Dati Raccolti</h3>
+        <p>La presente applicazione raccoglie dati personali necessari per il funzionamento del servizio, tra cui: dati di accesso, preferenze utente, dati di utilizzo della piattaforma.</p>
+        <h3 className="font-semibold text-gray-900 text-base">Finalità del Trattamento</h3>
+        <p>I dati vengono trattati per: erogazione del servizio, gestione degli account utente, invio di comunicazioni di servizio, miglioramento della piattaforma.</p>
+        <h3 className="font-semibold text-gray-900 text-base">Conservazione dei Dati</h3>
+        <p>I dati vengono conservati per il tempo strettamente necessario alle finalità per cui sono stati raccolti, nel rispetto della normativa vigente (GDPR 679/2016).</p>
+        <h3 className="font-semibold text-gray-900 text-base">Diritti dell'Utente</h3>
+        <p>L'utente ha diritto di accedere, rettificare, cancellare i propri dati e opporsi al trattamento. Per esercitare tali diritti: <span className="text-blue-600">privacy@promotergroup.eu</span></p>
+      </div>
+      <div className="p-4 border-t border-gray-200 flex justify-end">
+        <button onClick={() => setShowPrivacyModal(false)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm">
+          Chiudi
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{/* MODAL TERMINI */}
+{showTermsModal && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 z-[9999] flex items-center justify-center p-4">
+    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+      <div className="flex justify-between items-center p-6 border-b border-gray-200 sticky top-0 bg-white">
+        <h2 className="text-xl font-bold text-gray-900">Termini di Servizio</h2>
+        <button onClick={() => setShowTermsModal(false)} className="text-gray-400 hover:text-gray-600">
+          <X className="w-6 h-6" />
+        </button>
+      </div>
+      <div className="p-6 space-y-4 text-sm text-gray-600 leading-relaxed">
+        <h3 className="font-semibold text-gray-900 text-base">Accettazione dei Termini</h3>
+        <p>Utilizzando la piattaforma MailMassProm, l'utente accetta integralmente i presenti Termini di Servizio. In caso di mancata accettazione, l'utente è tenuto a cessare immediatamente l'utilizzo.</p>
+        <h3 className="font-semibold text-gray-900 text-base">Descrizione del Servizio</h3>
+        <p>MailMassProm è una piattaforma di email marketing fornita da Promotergroup Spa. Il servizio include la gestione di campagne email, contatti e template.</p>
+        <h3 className="font-semibold text-gray-900 text-base">Obblighi dell'Utente</h3>
+        <p>L'utente si impegna a: utilizzare il servizio in conformità alle leggi vigenti, non inviare comunicazioni non richieste (spam), mantenere riservate le credenziali di accesso.</p>
+        <h3 className="font-semibold text-gray-900 text-base">Limitazione di Responsabilità</h3>
+        <p>Promotergroup Spa non è responsabile per danni diretti o indiretti derivanti dall'utilizzo della piattaforma, salvo dolo o colpa grave.</p>
+        <h3 className="font-semibold text-gray-900 text-base">Legge Applicabile</h3>
+        <p>I presenti termini sono regolati dalla legge italiana. Per qualsiasi controversia è competente il Foro di Ragusa.</p>
+      </div>
+      <div className="p-4 border-t border-gray-200 flex justify-end">
+        <button onClick={() => setShowTermsModal(false)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm">
+          Chiudi
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{/* MODAL COOKIE */}
+{showCookieModal && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 z-[9999] flex items-center justify-center p-4">
+    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+      <div className="flex justify-between items-center p-6 border-b border-gray-200 sticky top-0 bg-white">
+        <h2 className="text-xl font-bold text-gray-900">Preferenze Cookie</h2>
+        <button onClick={() => setShowCookieModal(false)} className="text-gray-400 hover:text-gray-600">
+          <X className="w-6 h-6" />
+        </button>
+      </div>
+      <div className="p-6 space-y-4">
+        <p className="text-sm text-gray-600">Gestisci le tue preferenze sui cookie. I cookie necessari non possono essere disabilitati in quanto essenziali per il funzionamento della piattaforma.</p>
+
+        {[
+  { id: 'necessary', label: 'Cookie Necessari', desc: 'Essenziali per il funzionamento della piattaforma.', locked: true },
+  { id: 'analytics', label: 'Cookie Analitici', desc: 'Ci aiutano a capire come viene utilizzata la piattaforma.', locked: false },
+  { id: 'marketing', label: 'Cookie di Marketing', desc: 'Utilizzati per mostrare contenuti personalizzati.', locked: false },
+].map(({ id, label, desc, locked }) => (
+  <div key={id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+    <div className="flex-1 mr-4">
+      <p className="text-sm font-semibold text-gray-900">{label}</p>
+      <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
+    </div>
+    <label className={`relative inline-flex items-center ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+      <input
+        type="checkbox"
+        checked={id === 'necessary' ? true : cookiePrefs[id] ?? false}
+        disabled={locked}
+        onChange={(e) => {
+          if (!locked) setCookiePrefs(prev => ({ ...prev, [id]: e.target.checked }));
+        }}
+        className="sr-only peer"
+      />
+      <div className={`w-11 h-6 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 ${locked ? 'bg-gray-400' : 'bg-gray-200'}`}></div>
+    </label>
+  </div>
+))}
+      </div>
+      <div className="p-4 border-t border-gray-200 flex justify-between">
+        <button onClick={() => setShowCookieModal(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm">
+          Annulla
+        </button>
+        <button
+  onClick={() => {
+    localStorage.setItem('cookie_preferences', JSON.stringify(cookiePrefs));
+    toast.success('✅ Preferenze cookie salvate');
+    setShowCookieModal(false);
+  }}
+  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm"
+>
+  Salva Preferenze
+</button>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 };

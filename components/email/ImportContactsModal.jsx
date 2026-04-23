@@ -365,6 +365,20 @@ const ImportContactsModal = ({ show, onClose, onImport, existingContacts }) => {
       }
   
       onImport(insertedContacts);
+
+      // ✅ Notifica importazione contatti
+try {
+  await supabase.from('notifications').insert({
+    user_id: user.id,
+    title: `👥 ${insertedContacts.length} contatti importati`,
+    description: `Importati da CSV: ${insertedContacts.length} nuovi contatti`,
+    type: 'success',
+    read: false,
+    visible_to: 'all',
+  });
+} catch (notifError) {
+  console.warn('⚠️ Notifica fallita:', notifError.message);
+}
   
       setImportProgress({
         show: true,
@@ -631,7 +645,7 @@ const ImportContactsModal = ({ show, onClose, onImport, existingContacts }) => {
               {importProgress.status === 'importing' && (
                 <button onClick={() => { setImportProgress(prev => ({ ...prev, show: false })); setStep(3); toast.error('❌ Importazione annullata'); }}
                   className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg font-medium">
-                  Annulla importazione
+                  Annulla importazioneonImport(insertedContacts);onImport(insertedContacts);
                 </button>
               )}
               {(importProgress.status === 'completed' || importProgress.status === 'error') && (
