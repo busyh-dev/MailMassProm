@@ -141,116 +141,82 @@ if (missingApiKey.length > 0) {
   
 
   // 🔄 Verifica singolo mittente - versione finale con gestione toast uniforme
-const verifySingleSender = async (email) => {
-
-  const account = accounts.find(a => a.email === email);
-  const accountApiKey = account?.api_key; // ✅ era resend_api_key
-
-  if (!accountApiKey) {
-    toast.error("⚠️ Configura prima la API key per questo mittente.");
-    return;
-  }
-
-  // if (!apiKey) {
-  //   toast.error("⚠️ Inserisci una chiave API prima di verificare.");
-  //   return;
-  // }
-
-  // if (isTestKey) {
-  //   toast.error("🚫 Non puoi verificare mittenti con una chiave di test.");
-  //   return;
-  // }
-
-  setVerifyingEmail(email);
-console.log(`🔍 Verifica dominio per ${email}`);
-
-  try {
-    const res = await fetch("/api/resend/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: accountApiKey }), // ✅ API key del singolo account
-    });
-
-    console.log("📡 Stato risposta:", res.status);
-    const textResponse = await res.text();
-    console.log("📦 Risposta RAW:", textResponse);
-
-    let result;
-    try {
-      result = JSON.parse(textResponse);
-      console.log("✅ JSON interpretato:", result);
-    } catch (parseError) {
-      console.error("❌ Errore parsing JSON:", parseError);
-      toast.error("❌ Risposta API non valida o corrotta.");
+  const verifySingleSender = async (email) => {
+    const account = accounts.find(a => a.email === email);
+    const accountApiKey = account?.api_key;
+  
+    if (!accountApiKey) {
+      toast.error("⚠️ Configura prima la API key per questo mittente.");
       return;
     }
-
-    // 🔴 Gestione errori chiara e coerente
-    if (!result.success) {
-      console.error("❌ Verifica fallita:", result);
-
-      let icon = "⚠️";
-      if (result.code === "INVALID_API_KEY") icon = "🔑";
-      else if (result.code === "FORBIDDEN") icon = "🚫";
-      else if (result.code === "NETWORK_ERROR") icon = "🌐";
-
-      toast.error(`${icon} ${result.message || "Errore durante la verifica del dominio."}`);
-      return;
-    }
-
-    // ✅ Se la risposta è positiva
-    const domains = result.data || [];
+  
     const senderDomain = email.split("@")[1];
-    const domainInfo = domains.find((d) => d.name === senderDomain);
-
-    console.log("🌐 Domini ricevuti:", domains);
-    console.log("📋 Dominio corrispondente:", domainInfo);
-
-    // Aggiorna solo l’account corrispondente
-    const updatedAccounts = accounts.map((acc) => {
-      if (acc.email === email) {
-        const records = domainInfo?.records || [];
-        const dkimRecord = records.find((r) => r.record === "DKIM");
-        const spfRecord = records.find((r) => r.record === "SPF");
-
-        const updated = {
-          ...acc,
-          verified: domainInfo?.status === "verified",
-          dkimStatus: dkimRecord?.status || "unknown",
-          spfStatus: spfRecord?.status || "unknown",
-        };
-
-        console.log("✏️ Account aggiornato:", updated);
-        return updated;
+    setVerifyingEmail(email);
+  
+    try {
+      const res = await fetch("/api/resend/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: accountApiKey }),
+      });
+  
+      const textResponse = await res.text();
+      let result;
+      try {
+        result = JSON.parse(textResponse);
+      } catch {
+        toast.error("❌ Risposta API non valida.");
+        return;
       }
-      return acc;
-    });
-
-    setAccounts(updatedAccounts);
-    localStorage.setItem("emailAccounts", JSON.stringify(updatedAccounts));
-
-    // 🎯 Mostra il toast appropriato
-    if (domainInfo?.status === "verified") {
-      toast.success(`✅ ${email} verificato correttamente!`);
-    } else {
-      toast.custom((t) => (
-        <div
-          className={`${
-            t.visible ? "animate-enter" : "animate-leave"
-          } bg-yellow-100 text-yellow-800 px-4 py-3 rounded-lg shadow-md font-medium border border-yellow-300`}
-        >
-          ⚠️ {email} non è ancora verificato. Controlla i record DNS.
-        </div>
-      ));
+  
+      if (!result.success) {
+        let icon = "⚠️";
+        if (result.code === "INVALID_API_KEY") icon = "🔑";
+        else if (result.code === "FORBIDDEN") icon = "🚫";
+        toast.error(`${icon} ${result.message || "Errore durante la verifica."}`);
+        return;
+      }
+  
+      const domains = result.data || [];
+      const domainInfo = domains.find((d) => d.name === senderDomain);
+  
+      if (!domainInfo) {
+        toast.error(`❌ Dominio ${senderDomain} non trovato su Resend.`);
+        return;
+      }
+  
+      const records = domainInfo.records || [];
+      const dkimRecord = records.find((r) => r.record === "DKIM");
+      const spfRecord = records.find((r) => r.record === "SPF");
+      const dkimStatus = dkimRecord?.status || (domainInfo.status === "verified" ? "valid" : "unknown");
+      const spfStatus = spfRecord?.status || (domainInfo.status === "verified" ? "valid" : "unknown");
+  
+      // ✅ Stesso pattern di refreshSenderStatus
+      const updatedAccount = { ...account, verified: domainInfo.status === "verified", dkimStatus, spfStatus };
+      const updatedAccounts = accounts.map((a) => a.email === email ? updatedAccount : a);
+      setAccounts(updatedAccounts);
+      localStorage.setItem("emailAccounts", JSON.stringify(updatedAccounts));
+  
+      // ✅ Salva nel database
+      await updateSingleAccount(email, updatedAccount);
+  
+      if (domainInfo.status === "verified") {
+        toast.success(`✅ ${email} verificato correttamente!`);
+      } else {
+        toast.custom((t) => (
+          <div className={`${t.visible ? "animate-enter" : "animate-leave"} bg-yellow-100 text-yellow-800 px-4 py-3 rounded-lg shadow-md font-medium border border-yellow-300`}>
+            ⚠️ {email} non è ancora verificato. Controlla i record DNS.
+          </div>
+        ));
+      }
+  
+    } catch (err) {
+      console.error("💥 Errore:", err);
+      toast.error(`❌ ${err.message || "Errore imprevisto."}`);
+    } finally {
+      setVerifyingEmail(null);
     }
-  } catch (err) {
-    console.error("💥 Errore completo:", err);
-    toast.error(`❌ ${err.message || "Errore imprevisto durante la verifica."}`);
-  } finally {
-    
-    setVerifyingEmail(null);
-  }
-};
+  };
 
 
 const refreshDomainStatus = async (email) => {
@@ -735,15 +701,23 @@ const getStatusBadge = (type, status) => {
          </span>
        ) : (
          <button
-           onClick={() => {
-             const updated = accounts.map((acc) => ({ ...acc, is_default: acc.email === a.email }));
-             setAccounts(updated);
-             localStorage.setItem("emailAccounts", JSON.stringify(updated));
-             setDefaultSender(a.email);
-             localStorage.setItem("defaultSender", a.email);
-             updateSingleAccount(a.email, { ...a, is_default: true });
-             toast.success("✅ Mittente predefinito aggiornato!");
-           }}
+         onClick={async () => {
+          // ✅ Aggiorna stato locale
+          const updated = accounts.map((acc) => ({ ...acc, is_default: acc.email === a.email }));
+          setAccounts(updated);
+          localStorage.setItem("emailAccounts", JSON.stringify(updated));
+          setDefaultSender(a.email);
+          localStorage.setItem("defaultSender", a.email);
+        
+          // ✅ Resetta is_default=false su TUTTI gli account nel DB
+          await Promise.all(
+            accounts.map(acc =>
+              updateSingleAccount(acc.email, { ...acc, is_default: acc.email === a.email })
+            )
+          );
+        
+          toast.success("✅ Mittente predefinito aggiornato!");
+        }}
            className="text-blue-600 hover:text-blue-800 text-sm px-2 py-1"
          >
            Imposta

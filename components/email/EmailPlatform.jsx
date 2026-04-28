@@ -14,6 +14,7 @@ import { Loader2 } from "lucide-react";
 import EmailLogs from "./EmailLogs";
 import EmailSettings from "../settings/EmailSettings";
 import { supabase } from '../../lib/supabaseClient';
+import SessionTimeoutSettings from '../SessionTimeoutSettings';
 import { motion, AnimatePresence } from "framer-motion";
 import { useCampaigns } from '../../hooks/useCampaigns';
 import { EditCampaignModal } from "./EditCampaignModal";
@@ -23,6 +24,8 @@ import RecipientSelect from './RecipientSelect';
 import AddTagModal from "../modals/AddTagModal";
 import { useUserSettings } from '../../hooks/useUserSettings';
 import { useTags } from "../../hooks/useTags";
+// 1. IMPORT in cima al file (insieme agli altri import)
+import { useAutoLogout } from '../../hooks/useAutoLogout';
 import Papa from "papaparse";
   // ✅ Aggiungi in cima al componente Dashboard
   import * as XLSX from 'xlsx';
@@ -838,6 +841,10 @@ const EmailPlatform = () => {
     updateCampaignAfterSend,
     getCampaign,
   } = useCampaigns();
+  const { user } = useAuth();
+  // Aggiungi questo ref vicino agli altri ref
+const _platformUsersLoaded = useRef(false);
+
   console.log('📦 campaigns in EmailPlatform:', campaigns?.length, campaigns);
    // 1. Inizializzazione dello stato dell'editor (recuperato dal localStorage)
    const [editorState, setEditorState] = useState({});
@@ -857,13 +864,13 @@ const EmailPlatform = () => {
       localStorage.setItem('editorState', JSON.stringify(editorState));
     }
   }, [editorState]); // Triggera ogni volta che editorState cambia
-  
+  const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
+  const [showTimeoutLogout, setShowTimeoutLogout] = useState(false);
   
   // ========================================
   // 1️⃣ HOOKS (SEMPRE PER PRIMI)
   // ========================================
-  const router = useRouter();
-  const { user } = useAuth();
+ 
   const { 
     isAdmin, 
     isSuperAdmin, 
@@ -894,6 +901,10 @@ const isEditingImgTextTitleRef = useRef(false);
 const isEditingImgTextParaRef = useRef(false);
 const [imgTextTitleFormats, setImgTextTitleFormats] = useState({});
 const [imgTextParaFormats, setImgTextParaFormats] = useState({});
+// Aggiungi questo vicino agli altri useState/useCallback
+const stableSetCurrentUserProfile = useCallback((value) => {
+  setCurrentUserProfile(value);
+}, []);
 // In cima al componente
 const [cookiePrefs, setCookiePrefs] = useState(() => {
   try {
@@ -1028,6 +1039,22 @@ const loadNotifications = useCallback(async () => {
     setNotifications(data || []);
   }
 }, [user?.id]);
+
+// ── AGGIUNGI QUI l'hook ──
+useAutoLogout({
+  timeoutMinutes: profile?.session_timeout_minutes || 30,
+  enabled: profile?.session_timeout_enabled !== false,
+  onWarning: () => setShowTimeoutWarning(true),
+  onLogout: () => {
+    setShowTimeoutWarning(false);
+    setShowTimeoutLogout(true);
+    setTimeout(() => {
+      setShowTimeoutLogout(false);
+      sessionStorage.setItem('logout_reason', 'inactivity');
+      window.location.href = '/login';
+    }, 4000);
+  }
+});
 
 useEffect(() => {
   loadNotifications();
@@ -1180,12 +1207,7 @@ useEffect(() => {
   fetchContacts();
 }, [user?.id]);
 // ✅ AGGIUNGI in EmailPlatform
-useEffect(() => {
-  if (!user?.id) return;
-  fetchPendingUsers();
-  fetchApprovedUsers();
-  fetchRejectedUsers();
-}, [user?.id]);
+
 
 // Lista prefissi internazionali - mettila FUORI dal componente
 const PHONE_PREFIXES = [
@@ -1228,42 +1250,38 @@ const PHONE_PREFIXES = [
 
 
 // Aggiungi queste funzioni per gestire utenti e ruoli
-const fetchPendingUsers = async () => {
-  console.log('🔄 fetchPendingUsers chiamata, user?.id:', user?.id);
-  setLoadingUsers(true);
-    
-  try {
+const fetchPendingUsers = useCallback(async () => {
+  // ✅ Blocca se già in caricamento
+  setLoadingUsers(prev => {
+    if (prev) return prev; // già in caricamento, non fare nulla
+    return true;
+  });
 
-   // ✅ Usa getSession invece di user direttamente
+  try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) {
-      console.log('⚠️ Sessione non disponibile');
       setLoadingUsers(false);
       return;
     }
+
     const { data, error } = await supabase
       .from('profiles')
-      .select('*')
+      .select('*, role:roles(name)')
       .in('status', ['pending', 'approved', 'rejected'])
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    console.log('✅ Dati ricevuti:', data);
-    console.log('📊 Status degli utenti:', data?.map(u => ({ name: u.full_name, status: u.status })));
-    console.log('✅ Utenti caricati:', data?.length);
-    setPendingUsers(data?.filter(u => u.status === 'pending' || u.status === 'approved') || []);
+    setPendingUsers(data?.filter(u => u.status === 'pending') || []);
     setRejectedUsers(data?.filter(u => u.status === 'rejected') || []);
     setApprovedUsers(data?.filter(u => u.status === 'approved') || []);
-    
-    // setPendingUsers(data || []);
+
   } catch (error) {
-    console.error('❌ Errore:', error);
-    toast.error('Errore nel caricamento');
+    console.error('❌ Errore fetchPendingUsers:', error);
   } finally {
     setLoadingUsers(false);
   }
-};
+}, []); // ✅ dipendenze vuote — funzione stabile, non si ricrea mai
 
 // Fetch Areas
 const fetchAreas = async () => {
@@ -1455,39 +1473,64 @@ const fetchCoperturaCanale = async () => {
   }
 };
 // Aggiungi questa funzione
-const fetchRejectedUsers = async () => {
-  console.log('🔄 INIZIO - Caricamento utenti rifiutati...');
-  setLoadingUsers(true);
-  
+const fetchRejectedUsers = useCallback(async () => {
   try {
-    // ✅ Usa getSession invece di user?.id
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) {
-      setLoadingUsers(false);
-      return;
-    }
+    if (!session?.user) return;
+
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('status', 'rejected')
       .order('updated_at', { ascending: false });
 
-    console.log('📋 DATA ricevuta:', data);
-    console.log('❌ ERROR:', error);
+    if (error) throw error;
+
+    setRejectedUsers(data || []);
+  } catch (error) {
+    console.error('❌ Errore caricamento utenti rifiutati:', error);
+  }
+}, []); // ✅ stabile
+const fetchApprovedUsers = useCallback(async () => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select(`
+        *,
+        role:roles (
+          id,
+          name,
+          description
+        )
+      `)
+      .in('status', ['approved', 'active'])
+      .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    console.log('✅ Setting rejectedUsers con:', data);
-    setRejectedUsers(data || []);
-    console.log('✅ FINE - rejectedUsers aggiornato');
-  } catch (error) {
-    console.error('❌ Errore caricamento utenti rifiutati:', error);
-    toast.error('Errore nel caricamento degli utenti rifiutati');
-  } finally {
-    setLoadingUsers(false);
-  }
-};
+    const userIds = (data || []).map(u => u.id);
+    const { data: settings } = await supabase
+      .from('user_settings')
+      .select('user_id, notify_campaign_created, notify_campaign_updated, notify_campaign_deleted, notify_contact_created, notify_contact_updated, notify_contact_deleted')
+      .in('user_id', userIds);
 
+    const settingsMap = Object.fromEntries(
+      (settings || []).map(s => [s.user_id, s])
+    );
+
+    const merged = (data || []).map(u => ({
+      ...u,
+      ...settingsMap[u.id],
+    }));
+
+    setApprovedUsers(merged);
+  } catch (error) {
+    console.error('❌ Errore caricamento utenti approvati:', error);
+  }
+}, []); // ✅ stabile, non si ricrea mai
 // Nel componente EmailPlatform principale
 const fetchTestate = async () => {
   try {
@@ -1734,57 +1777,23 @@ useEffect(() => {
   fetchCoperturaCanale();     // ✅
 }, []); // 🔥 RIMOSSO user?.id dalla dependency array
 
-const fetchApprovedUsers = async () => {
-  setLoadingUsers(true);
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) {
-      setLoadingUsers(false);
-      return;
-    }
+useEffect(() => {
+  if (!user?.id) return;
+  if (_platformUsersLoaded.current) return;
+  _platformUsersLoaded.current = true;
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .select(`
-        *,
-        role:roles (
-          id,
-          name,
-          description
-        )
-      `)
-      .in('status', ['approved', 'active'])
-      .order('created_at', { ascending: false });
+  // ✅ Carica tutto in parallelo una sola volta
+  Promise.all([
+    fetchPendingUsers(),
+    fetchApprovedUsers(),
+    fetchRejectedUsers()
+  ]);
+}, [user?.id, fetchPendingUsers, fetchApprovedUsers, fetchRejectedUsers]);
 
-    if (error) throw error;
-
-    // ✅ Carica user_settings per ogni utente
-    const userIds = (data || []).map(u => u.id);
-    const { data: settings } = await supabase
-      .from('user_settings')
-      .select('user_id, notify_campaign_created, notify_campaign_updated, notify_campaign_deleted, notify_contact_created, notify_contact_updated, notify_contact_deleted')
-      .in('user_id', userIds);
-
-    // ✅ Merge profili con settings
-    const settingsMap = Object.fromEntries(
-      (settings || []).map(s => [s.user_id, s])
-    );
-
-    const merged = (data || []).map(u => ({
-      ...u,
-      ...settingsMap[u.id],
-    }));
-    console.log('🔍 settings:', settings);
-    console.log('🔍 settingsMap:', settingsMap);
-    console.log('🔍 merged[0]:', merged[0]);
-    setApprovedUsers(merged);
-  } catch (error) {
-    console.error('❌ Errore caricamento utenti approvati:', error);
-    toast.error('Errore nel caricamento degli utenti approvati');
-  } finally {
-    setLoadingUsers(false);
-  }
-};
+// ✅ DEBUG TEMPORANEO
+useEffect(() => {
+  console.log('🟡 EmailPlatform RE-RENDER');
+});
 
 // const fetchRoles = async () => {
 //   try {
@@ -7075,8 +7084,6 @@ setTimeout(() => {
   );
 };
 
-  
- // --------------------- MODALE MODIFICA CONTATTO ---------------------
  // --------------------- MODALE MODIFICA CONTATTO ---------------------
 const EditContactModal = ({ 
   show, 
@@ -7319,6 +7326,14 @@ useEffect(() => {
         name_contact: editingContact.name_contact || '',
         email: editingContact.email,
         email_2: editingContact.email_2 || '',
+        email_3: editingContact.email_3 || '',           // ← NUOVO
+        email_4: editingContact.email_4 || '',           // ← NUOVO
+        indirizzo: editingContact.indirizzo || '',        // ← NUOVO
+        cap: editingContact.cap || '',                   // ← NUOVO
+        citta: editingContact.citta || '',               // ← NUOVO
+        provincia: editingContact.provincia || '',       // ← NUOVO
+        regione: editingContact.regione || '',           // ← NUOVO
+        paese: editingContact.paese || '',               // ← NUOVO
         status: editingContact.status || 'active',
         sector_id: editingContact.sector_id || null,
         channel_id: editingContact.channel_id || null,
@@ -7330,10 +7345,9 @@ useEffect(() => {
         testata_id: editingContact.testata_id || null,
         contact_label_id: editingContact.contact_label_id || null,
         note: editingContact.note || '',
-        phones: phonesData,  // ✅ deve esserci
+        phones: phonesData,
         updated_at: new Date().toISOString()
       };
-
       console.log('📱 phonesData da salvare:', phonesData);
 console.log('📱 editingContact.phones:', editingContact.phones);
   
@@ -7586,6 +7600,115 @@ console.log('🎯 selectedTags finale:', selectedTags);
                   placeholder="email.secondaria@email.com"
                 />
               </div>
+              {/* EMAIL 3 */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">Email 3</label>
+  <input
+    type="email"
+    value={editingContact.email_3 || ''}
+    onChange={(e) => setEditingContact({ ...editingContact, email_3: e.target.value })}
+    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+    placeholder="email3@email.com"
+  />
+</div>
+
+{/* EMAIL 4 */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">Email 4</label>
+  <input
+    type="email"
+    value={editingContact.email_4 || ''}
+    onChange={(e) => setEditingContact({ ...editingContact, email_4: e.target.value })}
+    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+    placeholder="email4@email.com"
+  />
+</div>
+
+{/* NOME EDITORE */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">Nome Editore / Contatto</label>
+  <input
+    type="text"
+    value={editingContact.name_contact || ''}
+    onChange={(e) => setEditingContact({ ...editingContact, name_contact: e.target.value })}
+    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+    placeholder="Es. Editore SpA"
+  />
+</div>
+
+{/* INDIRIZZO — larghezza piena */}
+<div className="md:col-span-2">
+  <label className="block text-sm font-medium text-gray-700 mb-2">Indirizzo</label>
+  <input
+    type="text"
+    value={editingContact.indirizzo || ''}
+    onChange={(e) => setEditingContact({ ...editingContact, indirizzo: e.target.value })}
+    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+    placeholder="Via Roma 1"
+  />
+</div>
+
+{/* CAP */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">CAP</label>
+  <input
+    type="text"
+    value={editingContact.cap || ''}
+    onChange={(e) => setEditingContact({ ...editingContact, cap: e.target.value })}
+    maxLength={5}
+    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+    placeholder="00100"
+  />
+</div>
+
+{/* CITTÀ */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">Città</label>
+  <input
+    type="text"
+    value={editingContact.citta || ''}
+    onChange={(e) => setEditingContact({ ...editingContact, citta: e.target.value })}
+    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+    placeholder="Roma"
+  />
+</div>
+
+{/* PROVINCIA */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">Provincia</label>
+  <input
+    type="text"
+    value={editingContact.provincia || ''}
+    onChange={(e) => setEditingContact({ ...editingContact, provincia: e.target.value })}
+    maxLength={2}
+    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+    placeholder="RM"
+  />
+</div>
+
+{/* REGIONE */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">Regione</label>
+  <input
+    type="text"
+    value={editingContact.regione || ''}
+    onChange={(e) => setEditingContact({ ...editingContact, regione: e.target.value })}
+    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+    placeholder="Lazio"
+  />
+</div>
+
+{/* PAESE */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-2">Paese</label>
+  <input
+    type="text"
+    value={editingContact.paese || ''}
+    onChange={(e) => setEditingContact({ ...editingContact, paese: e.target.value })}
+    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+    placeholder="Italia"
+  />
+</div>
 
               {/* Status */}
               <div>
@@ -23800,12 +23923,41 @@ const ContactModal = ({
 const [filteredContacts, setFilteredContacts] = useState([]);
 const [contactLabelId, setContactLabelId] = useState('');  // ✅ AGGIUNGI QUESTO
 const [showContactLabelsModal, setShowContactLabelsModal] = useState(false);  // ✅ AGGIUNGI QUESTO
+const [showExtraFields, setShowExtraFields] = useState(false);
+// Nuovo stato per i telefoni
+const [phones, setPhones] = useState([]);
 // ✅ Aggiungi questo stato
 const [fileContent, setFileContent] = useState(null);
 // ✅ Aggiungi questo stato in ContactModal
 const [showContactLabelsModalLocal, setShowContactLabelsModalLocal] = useState(false);
 const [localContactLabels, setLocalContactLabels] = useState(contactLabelsData || []);
 const [rawTags, setRawTags] = useState([]);
+// ── Nuovi campi contatto ──
+const [email2, setEmail2] = useState('');
+const [email3, setEmail3] = useState('');
+const [email4, setEmail4] = useState('');
+const [nomeEditore, setNomeEditore] = useState('');
+const [indirizzo, setIndirizzo] = useState('');
+const [cap, setCap] = useState('');
+const [citta, setCitta] = useState('');
+const [provincia, setProvincia] = useState('');
+const [regione, setRegione] = useState('');
+const [paese, setPaese] = useState('');
+const [note, setNote] = useState('');
+// Aggiungi questo ref in cima al componente
+const extraFieldsRef = useRef(null);
+
+// Aggiungi questo useEffect
+useEffect(() => {
+  if (showExtraFields && extraFieldsRef.current) {
+    setTimeout(() => {
+      extraFieldsRef.current.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'start' 
+      });
+    }, 50); // piccolo delay per aspettare il render
+  }
+}, [showExtraFields]);
 // ✅ Aggiorna quando arrivano nuove props
 useEffect(() => {
   setLocalContactLabels(contactLabelsData || []);
@@ -23915,18 +24067,30 @@ const handleAdd = async () => {
   try {
     // ✅ 1. Inserisci il contatto
     const { data: savedContact, error: contactError } = await supabase
-      .from('contacts')
-      .insert({
-        user_id: user.id,
-        name: name.trim(),
-        email: email.trim(),
-        contact_label_id: contactLabelId || null,  // ✅ Etichetta contatto
-        status: 'active',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
+  .from('contacts')
+  .insert({
+    user_id: user.id,
+    name: name.trim(),
+    name_contact: nomeEditore.trim() || null,   // ← nome editore va qui
+    email: email.trim(),
+    email_2: email2.trim() || null,
+    email_3: email3.trim() || null,              // ← colonna dedicata
+    email_4: email4.trim() || null,              // ← colonna dedicata
+    contact_label_id: contactLabelId || null,
+    indirizzo: indirizzo.trim() || null,         // ← colonna dedicata
+    cap: cap.trim() || null,                     // ← colonna dedicata
+    citta: citta.trim() || null,                 // ← colonna dedicata
+    provincia: provincia.trim() || null,         // ← colonna dedicata
+    regione: regione.trim() || null,             // ← colonna dedicata
+    paese: paese.trim() || null,                 // ← colonna dedicata
+    note: note.trim() || null,
+    phones: phones.length > 0 ? phones : null,  // ← solo array telefoni
+    status: 'active',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  })
+  .select()
+  .single();
 
     if (contactError) throw contactError;
 
@@ -23971,11 +24135,23 @@ const handleAdd = async () => {
   // ✅ Reset form
   const resetForm = () => {
     setName('');
-    setEmail('');
-    setContactLabelId('');  // ✅ Reset etichetta contatto
-    setSelectedTags([]);
-    setSelectedTagLabels([]);
-    setError('');
+  setEmail('');
+  setEmail2('');
+  setEmail3('');
+  setEmail4('');
+  setNomeEditore('');
+  setIndirizzo('');
+  setCap('');
+  setCitta('');
+  setProvincia('');
+  setRegione('');
+  setPaese('');
+  setNote('');
+  setPhones([]);
+  setContactLabelId('');
+  setSelectedTags([]);
+  setSelectedTagLabels([]);
+  setError('');
   };
 
   // ❌ Gestione Annulla
@@ -24006,379 +24182,439 @@ const cancelConfirm = () => {
   console.log('🔍 tagOptions:', tagOptions.map(t => ({ label: t.label, subLabelsCount: t.subLabelsCount })));
 console.log('🔍 tagLabels length:', tagLabels.length);
 
-  return (
-    <div 
-    className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
-      {/* Modale principale */}
-      <div
-      className={`relative bg-white rounded-xl p-6 w-full max-w-lg mx-4 shadow-xl transition-all duration-300 animate-fadeIn ${
-        shake
-          ? "animate-shake border-2 border-red-500 glow-red"
-          : error
-          ? "border-2 border-red-400 glow-red"
-          : "border-2 border-blue-200 glow-blue"
+return (
+  <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    
+    {/* MODALE — flex column con altezza fissa per permettere lo scroll */}
+    <div
+      className={`relative bg-white rounded-2xl w-full max-w-2xl flex flex-col shadow-2xl transition-all duration-300 ${
+        shake ? 'animate-shake border-2 border-red-500 glow-red' : error ? 'border-2 border-red-400 glow-red' : 'border-2 border-blue-200 glow-blue'
       }`}
-      onClick={(e) => e.stopPropagation()}  // ✅ AGGIUNGI ANCHE QUESTO
+      style={{ maxHeight: '90vh' }}
+      onClick={(e) => e.stopPropagation()}
     >
-        <h3 className="text-xl font-bold mb-6">Nuovo Contatto</h3>
+
+      {/* ── HEADER fisso ── */}
+      <div className="flex-shrink-0 px-6 py-4 border-b border-gray-200 bg-white rounded-t-2xl">
+        <h3 className="text-xl font-bold text-gray-900">Nuovo Contatto</h3>
+      </div>
+
+      {/* ── BODY scrollabile ── */}
+      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
 
         {/* ⚠️ Messaggio errore inline */}
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg animate-fadeIn">
+          <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg animate-fadeIn">
             {error}
           </div>
         )}
 
-     {/* Etichetta Contatto */}
-<div>
-  <label className="block text-sm font-medium text-gray-700 mb-2">
-    Etichetta Contatto <span className="text-red-500">*</span>
-  </label>
-  <div className="flex gap-2">
-    <Select
-      value={
-        contactLabelId
-          ? {
-              value: contactLabelId,
-              label: localContactLabels.find(cl => cl.id === contactLabelId)?.nome
-            }
-          : null
-      }
-      onChange={(selectedOption) => setContactLabelId(selectedOption?.value || '')}
-      options={localContactLabels.map(cl => ({
-        value: cl.id,
-        label: cl.nome,
-        color: cl.color  // ✅ color non colore
-      }))}
-      isClearable
-      placeholder="Seleziona etichetta..."
-      className="flex-1"
-      styles={{
-        control: (base) => ({
-          ...base,
-          minHeight: '48px',
-          borderRadius: '0.5rem',
-          borderColor: '#d1d5db',
-        }),
-        option: (base, { data }) => ({
-          ...base,
-          display: 'flex',
-          alignItems: 'center',
-          '&:before': {
-            content: '""',
-            display: 'inline-block',
-            width: '12px',
-            height: '12px',
-            borderRadius: '50%',
-            backgroundColor: data.color || '#3B82F6',
-            marginRight: '8px'
-          }
-        })
-      }}
-    />
-    <button
-      type="button"
-      onClick={() => setShowContactLabelsModalLocal(true)}
-      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition flex-shrink-0"
-      title="Gestisci Etichette"
-    >
-      <Tag className="w-4 h-4" />
-    </button>
-  </div>
-  <p className="text-xs text-gray-500 mt-1">
-    Categorizza il contatto (es: Mailing Lista Nazionale, Contatti Sicilia)
-  </p>
-</div>
-        <div className="space-y-4">
-          {/* Nome */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Nome <span className="text-red-500">*</span></label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
-              placeholder="Es. Mario Rossi"
+        {/* Etichetta Contatto */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Etichetta Contatto <span className="text-red-500">*</span>
+          </label>
+          <div className="flex gap-2">
+            <Select
+              value={
+                contactLabelId
+                  ? { value: contactLabelId, label: localContactLabels.find(cl => cl.id === contactLabelId)?.nome }
+                  : null
+              }
+              onChange={(selectedOption) => setContactLabelId(selectedOption?.value || '')}
+              options={localContactLabels.map(cl => ({ value: cl.id, label: cl.nome, color: cl.color }))}
+              isClearable
+              placeholder="Seleziona etichetta..."
+              className="flex-1"
+              styles={{
+                control: (base) => ({ ...base, minHeight: '48px', borderRadius: '0.5rem', borderColor: '#d1d5db' }),
+                option: (base, { data }) => ({
+                  ...base, display: 'flex', alignItems: 'center',
+                  '&:before': { content: '""', display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', backgroundColor: data.color || '#3B82F6', marginRight: '8px' }
+                })
+              }}
             />
+            <button type="button" onClick={() => setShowContactLabelsModalLocal(true)}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition flex-shrink-0">
+              <Tag className="w-4 h-4" />
+            </button>
           </div>
+          <p className="text-xs text-gray-500 mt-1">Categorizza il contatto (es: Mailing Lista Nazionale, Contatti Sicilia)</p>
+        </div>
 
-          {/* Email */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Email <span className="text-red-500">*</span></label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
-              placeholder="mario.rossi@email.com"
-            />
-          </div>
+        {/* Nome */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Nome <span className="text-red-500">*</span></label>
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
+            placeholder="Es. Mario Rossi" />
+        </div>
 
-{/* Tags con selezione automatica sotto-etichette */}
-<div className="md:col-span-2">
-  <label className="block text-sm font-medium text-gray-700 mb-2">Tag <span className="text-red-500">*</span></label>
-  <div className="flex gap-2">
-    <div className="flex-1">
-      {loadingTags ? (
-        <div className="text-gray-500 text-sm">Caricamento tag...</div>
-      ) : (
-<Select
-  isMulti
-  options={tagOptions}
-  value={selectedTags}
-  menuPortalTarget={document.body}
-  menuPosition="fixed"
-  formatOptionLabel={(opt) => (
-    <div className="flex flex-col gap-0.5">
-      <div className="flex items-center gap-2">
-        <div
-          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-          style={{ backgroundColor: opt.color || '#6366f1' }}
-        />
-        <span>{opt.label}</span>
-      </div>
-      {opt.subLabelsCount > 0 && (
-        <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full w-fit ml-4">
-          🏷️ {opt.subLabelsCount} sotto-etichette
-        </span>
-      )}
-    </div>
-  )}
-  styles={{
-    menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-    option: (base) => ({ ...base, padding: '8px 12px' }),
-  }}
-          onChange={(newValue) => {
-            const newTags = newValue || [];
-            const oldTagIds = selectedTags.map(t => t.value);
-            const newTagIds = newTags.map(t => t.value);
-            
-            const addedTags = newTagIds.filter(tagId => !oldTagIds.includes(tagId));
-            const removedTags = oldTagIds.filter(tagId => !newTagIds.includes(tagId));
-            
-            let currentLabels = [...selectedTagLabels];
-            
-            const labelsToAdd = tagLabels
-              .filter(label => addedTags.includes(label.tag_id))
-              .map(label => label.id);
-            
-            const labelsToRemove = tagLabels
-              .filter(label => removedTags.includes(label.tag_id))
-              .map(label => label.id);
-            
-            currentLabels = [
-              ...currentLabels.filter(labelId => !labelsToRemove.includes(labelId)),
-              ...labelsToAdd
-            ];
-            currentLabels = [...new Set(currentLabels)];
-            
-            setSelectedTags(newTags);
-            setSelectedTagLabels(currentLabels);
-          }}
-          placeholder="Seleziona tag..."
-          className="text-sm"
-        />
-      )}
-    </div>
-    <button
-      type="button"
-      onClick={() => setShowTagModal(true)}
-      className="flex items-center justify-center bg-blue-100 hover:bg-blue-200 text-blue-700 p-2 rounded-lg transition"
-      title="Crea nuovo tag"
-    >
-      <Plus className="w-4 h-4" />
-    </button>
-  </div>
-  <p className="mt-1 text-xs text-gray-500">
-    ℹ️ Aggiungendo un tag verranno selezionate automaticamente tutte le sue sotto-etichette
-  </p>
-</div>
+        {/* Email */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Email <span className="text-red-500">*</span></label>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
+            placeholder="mario.rossi@email.com" />
+        </div>
 
-{/* SOTTO-ETICHETTE TAG - Raggruppate per tag */}
-<div className="md:col-span-2">
-  <div className="flex items-center justify-between mb-2">
-    <label className="block text-sm font-medium text-gray-700">
-      Sotto-etichette Tag
-      {selectedTags.length > 0 && (
-        <span className="ml-2 text-xs text-gray-500">
-          ({selectedTags.length} tag selezionati)
-        </span>
-      )}
-    </label>
-    <button
-      type="button"
-      onClick={() => {
-        console.log('🔥 Cliccato! Apertura modale sotto-etichette'); // ✅ DEBUG
-        setShowTagLabelsModal(true);
-      }}
-      className="text-xs text-amber-600 hover:text-amber-700 font-medium flex items-center gap-1"
-    >
-      <Plus className="w-3 h-3" />
-      Gestisci sotto-etichette
-    </button>
-  </div>
-  
-  {selectedTags.length > 0 ? (
-    <div className="space-y-3 border border-gray-200 rounded-lg p-4 bg-gray-50 max-h-80 overflow-y-auto">
-      {selectedTags.map(selectedTag => {
-        const labelsForThisTag = tagLabels.filter(tl => tl.tag_id === selectedTag.value);
-        
-        if (labelsForThisTag.length === 0) {
-          return (
-            <div key={selectedTag.value} className="bg-white rounded-lg p-3 border border-gray-200">
-              <div className="flex items-center gap-2">
-                <div 
-                  className="w-3 h-3 rounded-full" 
-                  style={{ backgroundColor: selectedTag.color || '#6366f1' }}
-                />
-                <span className="text-sm font-semibold text-gray-900">
-                  {selectedTag.label}
-                </span>
-                <span className="text-xs text-gray-400 italic">
-                  (nessuna sotto-etichetta disponibile)
-                </span>
+        {/* ── PULSANTE MOSTRA CAMPI AGGIUNTIVI ── */}
+        <div ref={extraFieldsRef}>
+          <button type="button" onClick={() => setShowExtraFields(prev => !prev)}
+            className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl transition group">
+            <div className="flex items-center gap-2 text-sm font-medium text-gray-600 group-hover:text-gray-800">
+              <div className="w-5 h-5 bg-blue-100 rounded-full flex items-center justify-center">
+                <Plus className={`w-3 h-3 text-blue-600 transition-transform duration-200 ${showExtraFields ? 'rotate-45' : ''}`} />
+              </div>
+              {showExtraFields ? 'Nascondi campi aggiuntivi' : 'Mostra campi aggiuntivi'}
+              <span className="text-xs text-gray-400 font-normal">(email secondarie, indirizzo, telefoni...)</span>
+            </div>
+            <svg className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${showExtraFields ? 'rotate-180' : ''}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        </div>
+
+        {/* ── CAMPI AGGIUNTIVI COLLASSABILI ── */}
+        {showExtraFields && (
+          <div className="space-y-4 border border-blue-100 rounded-xl p-4 bg-blue-50/30">
+
+            {/* EMAIL 2 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Email 2</label>
+              <input type="email" value={email2} onChange={(e) => setEmail2(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition bg-white"
+                placeholder="email.secondaria@email.com" />
+            </div>
+
+            {/* EMAIL 3 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Email 3</label>
+              <input type="email" value={email3} onChange={(e) => setEmail3(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition bg-white"
+                placeholder="email3@email.com" />
+            </div>
+
+            {/* EMAIL 4 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Email 4</label>
+              <input type="email" value={email4} onChange={(e) => setEmail4(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition bg-white"
+                placeholder="email4@email.com" />
+            </div>
+
+            {/* NOME EDITORE */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Nome Editore / Contatto</label>
+              <input type="text" value={nomeEditore} onChange={(e) => setNomeEditore(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition bg-white"
+                placeholder="Es. Editore SpA" />
+            </div>
+
+            {/* INDIRIZZO */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Indirizzo</label>
+              <input type="text" value={indirizzo} onChange={(e) => setIndirizzo(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition bg-white"
+                placeholder="Via Roma 1" />
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {/* CAP */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">CAP</label>
+                <input type="text" value={cap} onChange={(e) => setCap(e.target.value)} maxLength={5}
+                  className="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition bg-white"
+                  placeholder="00100" />
+              </div>
+              {/* CITTÀ */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Città</label>
+                <input type="text" value={citta} onChange={(e) => setCitta(e.target.value)}
+                  className="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition bg-white"
+                  placeholder="Roma" />
+              </div>
+              {/* PROVINCIA */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Prov.</label>
+                <input type="text" value={provincia} onChange={(e) => setProvincia(e.target.value)} maxLength={2}
+                  className="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition bg-white"
+                  placeholder="RM" />
+              </div>
+              {/* REGIONE */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Regione</label>
+                <input type="text" value={regione} onChange={(e) => setRegione(e.target.value)}
+                  className="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition bg-white"
+                  placeholder="Lazio" />
               </div>
             </div>
-          );
-        }
-        
-        return (
-          <div key={selectedTag.value} className="bg-white rounded-lg p-3 border border-gray-200">
-            <div className="flex items-center gap-2 mb-2">
-              <div 
-                className="w-3 h-3 rounded-full" 
-                style={{ backgroundColor: selectedTag.color || '#6366f1' }}
-              />
-              <span className="text-sm font-semibold text-gray-900">
-                {selectedTag.label}
-              </span>
-              <span className="text-xs text-gray-500">
-                ({labelsForThisTag.length} sotto-etichette)
-              </span>
+
+            {/* PAESE */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Paese</label>
+              <input type="text" value={paese} onChange={(e) => setPaese(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition bg-white"
+                placeholder="Italia" />
             </div>
-            
-            <div className="flex flex-wrap gap-2">
-              {labelsForThisTag.map(label => {
-                const isSelected = selectedTagLabels.includes(label.id);
-                
+
+            {/* TELEFONI */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-gray-700">Contatti Telefonici</label>
+                <button type="button"
+                  onClick={() => setPhones(prev => [...prev, { id: crypto.randomUUID(), numero: '', tipo: 'mobile', categoria: 'aziendale', prefix: '+39' }])}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
+                  <Plus className="w-3 h-3" /> Aggiungi telefono
+                </button>
+              </div>
+              <div className="space-y-2 border border-gray-200 rounded-lg p-4 bg-white">
+                {phones.length === 0 ? (
+                  <div className="text-center py-4 text-gray-500 text-sm">
+                    <Phone className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                    <p>Nessun telefono aggiunto</p>
+                    <p className="text-xs mt-1">Clicca "Aggiungi telefono" per iniziare</p>
+                  </div>
+                ) : (
+                  phones.map((phone, index) => (
+                    <div key={phone.id || index} className="flex gap-2 items-start bg-gray-50 p-3 rounded-lg border border-gray-200">
+                      <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
+                          <select value={phone.tipo || 'mobile'}
+                            onChange={(e) => { const u = [...phones]; u[index] = { ...phone, tipo: e.target.value }; setPhones(u); }}
+                            className="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 bg-white">
+                            <option value="fisso">📞 Fisso</option>
+                            <option value="mobile">📱 Mobile</option>
+                            <option value="whatsapp">💬 WhatsApp</option>
+                            <option value="fax">📠 Fax</option>
+                            <option value="altro">📋 Altro</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Categoria</label>
+                          <select value={phone.categoria || 'aziendale'}
+                            onChange={(e) => { const u = [...phones]; u[index] = { ...phone, categoria: e.target.value }; setPhones(u); }}
+                            className="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 bg-white">
+                            <option value="aziendale">🏢 Aziendale</option>
+                            <option value="personale">👤 Personale</option>
+                            <option value="ufficio">💼 Ufficio</option>
+                            <option value="casa">🏠 Casa</option>
+                            <option value="altro">📋 Altro</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Prefisso</label>
+                          <select value={phone.prefix || '+39'}
+                            onChange={(e) => { const u = [...phones]; u[index] = { ...phone, prefix: e.target.value }; setPhones(u); }}
+                            className="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 bg-white">
+                            {(typeof PHONE_PREFIXES !== 'undefined' ? PHONE_PREFIXES : [
+                              { code: '+39', flag: '🇮🇹', name: 'Italia' },
+                              { code: '+1', flag: '🇺🇸', name: 'USA' },
+                              { code: '+44', flag: '🇬🇧', name: 'UK' },
+                              { code: '+33', flag: '🇫🇷', name: 'Francia' },
+                              { code: '+49', flag: '🇩🇪', name: 'Germania' },
+                              { code: '+34', flag: '🇪🇸', name: 'Spagna' },
+                            ]).map(p => <option key={p.code} value={p.code}>{p.flag} {p.code} {p.name}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Numero</label>
+                          <input type="tel" value={phone.numero || ''}
+                            onChange={(e) => { const u = [...phones]; u[index] = { ...phone, numero: e.target.value.replace(/[^\d\s\-]/g, '') }; setPhones(u); }}
+                            placeholder="02 1234 5678" maxLength={15}
+                            className="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500" />
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => setPhones(phones.filter((_, i) => i !== index))}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition mt-5">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+              <p className="mt-2 text-xs text-gray-500">
+                {phones.length > 0 ? `${phones.length} contatto/i telefonico/i` : 'Aggiungi numeri di telefono, cellulare, WhatsApp, ecc.'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Tags con selezione automatica sotto-etichette */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Tag <span className="text-red-500">*</span></label>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              {loadingTags ? (
+                <div className="text-gray-500 text-sm">Caricamento tag...</div>
+              ) : (
+                <Select isMulti options={tagOptions} value={selectedTags}
+                  menuPortalTarget={document.body} menuPosition="fixed"
+                  formatOptionLabel={(opt) => (
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: opt.color || '#6366f1' }} />
+                        <span>{opt.label}</span>
+                      </div>
+                      {opt.subLabelsCount > 0 && (
+                        <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full w-fit ml-4">
+                          🏷️ {opt.subLabelsCount} sotto-etichette
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  styles={{ menuPortal: (base) => ({ ...base, zIndex: 9999 }), option: (base) => ({ ...base, padding: '8px 12px' }) }}
+                  onChange={(newValue) => {
+                    const newTags = newValue || [];
+                    const oldTagIds = selectedTags.map(t => t.value);
+                    const newTagIds = newTags.map(t => t.value);
+                    const addedTags = newTagIds.filter(tagId => !oldTagIds.includes(tagId));
+                    const removedTags = oldTagIds.filter(tagId => !newTagIds.includes(tagId));
+                    let currentLabels = [...selectedTagLabels];
+                    const labelsToAdd = tagLabels.filter(label => addedTags.includes(label.tag_id)).map(label => label.id);
+                    const labelsToRemove = tagLabels.filter(label => removedTags.includes(label.tag_id)).map(label => label.id);
+                    currentLabels = [...new Set([...currentLabels.filter(id => !labelsToRemove.includes(id)), ...labelsToAdd])];
+                    setSelectedTags(newTags);
+                    setSelectedTagLabels(currentLabels);
+                  }}
+                  placeholder="Seleziona tag..." className="text-sm" />
+              )}
+            </div>
+            <button type="button" onClick={() => setShowTagModal(true)}
+              className="flex items-center justify-center bg-blue-100 hover:bg-blue-200 text-blue-700 p-2 rounded-lg transition">
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-gray-500">ℹ️ Aggiungendo un tag verranno selezionate automaticamente tutte le sue sotto-etichette</p>
+        </div>
+
+        {/* SOTTO-ETICHETTE TAG */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Sotto-etichette Tag
+              {selectedTags.length > 0 && <span className="ml-2 text-xs text-gray-500">({selectedTags.length} tag selezionati)</span>}
+            </label>
+            <button type="button" onClick={() => setShowTagLabelsModal(true)}
+              className="text-xs text-amber-600 hover:text-amber-700 font-medium flex items-center gap-1">
+              <Plus className="w-3 h-3" /> Gestisci sotto-etichette
+            </button>
+          </div>
+
+          {selectedTags.length > 0 ? (
+            <div className="space-y-3 border border-gray-200 rounded-lg p-4 bg-gray-50 max-h-80 overflow-y-auto">
+              {selectedTags.map(selectedTag => {
+                const labelsForThisTag = tagLabels.filter(tl => tl.tag_id === selectedTag.value);
+                if (labelsForThisTag.length === 0) {
+                  return (
+                    <div key={selectedTag.value} className="bg-white rounded-lg p-3 border border-gray-200">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: selectedTag.color || '#6366f1' }} />
+                        <span className="text-sm font-semibold text-gray-900">{selectedTag.label}</span>
+                        <span className="text-xs text-gray-400 italic">(nessuna sotto-etichetta disponibile)</span>
+                      </div>
+                    </div>
+                  );
+                }
                 return (
-                  <button
-                    key={label.id}
-                    type="button"
-                    onClick={() => {
-                      const newLabels = isSelected
-                        ? selectedTagLabels.filter(id => id !== label.id)
-                        : [...selectedTagLabels, label.id];
-                      
-                      setSelectedTagLabels(newLabels);
-                    }}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
-                      isSelected
-                        ? 'bg-amber-100 text-amber-700 border-2 border-amber-400'
-                        : 'bg-gray-100 text-gray-600 border-2 border-transparent hover:border-gray-300'
-                    }`}
-                  >
-                    {isSelected ? '✓ ' : ''}{label.label}
-                  </button>
+                  <div key={selectedTag.value} className="bg-white rounded-lg p-3 border border-gray-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: selectedTag.color || '#6366f1' }} />
+                      <span className="text-sm font-semibold text-gray-900">{selectedTag.label}</span>
+                      <span className="text-xs text-gray-500">({labelsForThisTag.length} sotto-etichette)</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {labelsForThisTag.map(label => {
+                        const isSelected = selectedTagLabels.includes(label.id);
+                        return (
+                          <button key={label.id} type="button"
+                            onClick={() => {
+                              const newLabels = isSelected
+                                ? selectedTagLabels.filter(id => id !== label.id)
+                                : [...selectedTagLabels, label.id];
+                              setSelectedTagLabels(newLabels);
+                            }}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
+                              isSelected ? 'bg-amber-100 text-amber-700 border-2 border-amber-400' : 'bg-gray-100 text-gray-600 border-2 border-transparent hover:border-gray-300'
+                            }`}>
+                            {isSelected ? '✓ ' : ''}{label.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 );
               })}
             </div>
-          </div>
-        );
-      })}
-    </div>
-  ) : (
-    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-      <Tag className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-      <p className="text-sm text-gray-500 font-medium">
-        Seleziona prima almeno un tag
-      </p>
-    </div>
-  )}
-  
-  <p className="mt-2 text-xs text-gray-500">
-    {selectedTagLabels.length > 0 
-      ? `✅ ${selectedTagLabels.length} sotto-etichette selezionate`
-      : "Clicca sulle sotto-etichette per selezionarle/deselezionarle"
-    }
-  </p>
-</div>
+          ) : (
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+              <Tag className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+              <p className="text-sm text-gray-500 font-medium">Seleziona prima almeno un tag</p>
+            </div>
+          )}
 
-{/* ✅ Modale etichette locale */}
-{showContactLabelsModalLocal && (
-  <ContactLabelsManagementModal
-    show={showContactLabelsModalLocal}
-    onClose={() => setShowContactLabelsModalLocal(false)}
-    contactLabels={localContactLabels}
-    onRefresh={refreshContactLabels}
-  />
-)}
-
-{/* Modale gestione sotto-etichette */}
-{showTagLabelsModal && (  
-  <TagLabelsManagementModal
-    show={showTagLabelsModal}
-    tags={tags}  // ✅ Assicurati che questa riga ci sia
-    onClose={() => {
-      setShowTagLabelsModal(false);
-      fetchTagLabels();
-    }}
-  />
-)}
+          <p className="mt-2 text-xs text-gray-500">
+            {selectedTagLabels.length > 0 ? `✅ ${selectedTagLabels.length} sotto-etichette selezionate` : 'Clicca sulle sotto-etichette per selezionarle/deselezionarle'}
+          </p>
         </div>
 
-        {/* Pulsanti */}
-        <div className="flex gap-3 mt-6">
-          <button
-            onClick={handleCancel}
-            className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg transition-colors"
-          >
-            Annulla
-          </button>
-          <button
-            onClick={handleAdd}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition-colors"
-          >
-            Aggiungi Contatto
-          </button>
-        </div>
+        {/* Modali interni */}
+        {showContactLabelsModalLocal && (
+          <ContactLabelsManagementModal show={showContactLabelsModalLocal}
+            onClose={() => setShowContactLabelsModalLocal(false)}
+            contactLabels={localContactLabels} onRefresh={refreshContactLabels} />
+        )}
+        {showTagLabelsModal && (
+          <TagLabelsManagementModal show={showTagLabelsModal} tags={tags}
+            onClose={() => { setShowTagLabelsModal(false); fetchTagLabels(); }} />
+        )}
+
+      </div>
+      {/* fine BODY scrollabile */}
+
+      {/* ── FOOTER fisso ── */}
+      <div className="flex-shrink-0 flex gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-2xl">
+        <button onClick={handleCancel}
+          className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg transition-colors">
+          Annulla
+        </button>
+        <button onClick={handleAdd}
+          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg transition-colors">
+          Aggiungi Contatto
+        </button>
       </div>
 
-      {/* 🔹 Popup conferma annullamento */}
-      {showConfirm && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-[60] animate-fadeIn">
-          <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4 border border-gray-200 animate-zoomIn">
-            <h4 className="text-lg font-semibold text-gray-900 mb-3">
-              Annullare l’inserimento?
-            </h4>
-            <p className="text-sm text-gray-600 mb-6">
-              Hai inserito dei dati. Sei sicuro di voler annullare l’aggiunta del contatto?
-            </p>
+    </div>
 
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={cancelConfirm}
-                className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 transition-colors"
-              >
-                Continua Modifica
-              </button>
-              <button
-                onClick={confirmCancel}
-                className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
-              >
-                Sì, Annulla
-              </button>
-            </div>
+    {/* 🔹 Popup conferma annullamento */}
+    {showConfirm && (
+      <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-[60] animate-fadeIn">
+        <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4 border border-gray-200 animate-zoomIn">
+          <h4 className="text-lg font-semibold text-gray-900 mb-3">Annullare l'inserimento?</h4>
+          <p className="text-sm text-gray-600 mb-6">Hai inserito dei dati. Sei sicuro di voler annullare l'aggiunta del contatto?</p>
+          <div className="flex justify-end gap-3">
+            <button onClick={cancelConfirm}
+              className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 transition-colors">
+              Continua Modifica
+            </button>
+            <button onClick={confirmCancel}
+              className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors">
+              Sì, Annulla
+            </button>
           </div>
         </div>
-      )}
-    </div>
-  );
+      </div>
+    )}
+
+  </div>
+);
 };
 
 
   // Modal per profilo utente
-  const ProfileModal = ({ 
+  const ProfileModal = React.memo(({
     currentUserProfile, 
     setCurrentUserProfile,
     pendingUsers = [],        // ✅ AGGIUNGI
@@ -25134,7 +25370,7 @@ const handleCloseModal = () => {
 };
 
 // Nel JSX del modale, aggiungi il loading state
-if (!showProfileModal) return null;
+// if (!showProfileModal) return null;
 // ✅ Mostra skeleton mentre carica invece di dati vuoti
 if (loadingProfile) {
   return (
@@ -25415,6 +25651,18 @@ if (loadingProfile && !user && !authUser) {
                       >
                         Privacy
                       </button>
+                      {(isAdmin || isSuperAdmin) && (
+  <button
+    onClick={() => setActiveProfileTab('session')}
+    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+      activeProfileTab === 'session'
+        ? 'text-blue-600 bg-blue-50 border border-blue-200'
+        : 'text-gray-700 hover:bg-gray-100'
+    }`}
+  >
+    ⏱️ Sessione & Timeout
+  </button>
+)}
 
                       <div className="pt-6">
                         <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
@@ -25433,9 +25681,10 @@ if (loadingProfile && !user && !authUser) {
                       </div>
                       {/* Contenuto basato sulla selezione del tab */}
                       {activeProfileTab === 'notifiche2' && <div>Sezione Notifiche</div>}
-                      {activeProfileTab === 'lingua' && <div>Sezione Lingua</div>}
+                      {activeProfileTab === 'lingua' && <div>Sezione Lingua</div>}                     
                       {activeProfileTab === 'formato' && <div>Sezione Formato data/ora</div>}
                       {activeProfileTab === 'privacy' && <div>Sezione Privacy</div>}
+                      {activeProfileTab === 'session' && <div>Sezione Timeout</div>}
                       {activeProfileTab === 'cambia-password' && <div>Sezione Cambia password</div>}
                     </div>
                   </nav>
@@ -26087,6 +26336,11 @@ if (loadingProfile && !user && !authUser) {
                       </div>
                     </div>
                   )}
+
+                  {/* 🆕 TAB SESSION TIMEOUT */}
+                  <div style={{ display: activeProfileTab === 'session' && (isAdmin || isSuperAdmin) ? 'block' : 'none' }}>
+  <SessionTimeoutSettings />
+</div>
 
                   {/* Contenuto dinamico basato sul tab attivo */}
                   {/* 🆕 TAB CAMBIA PASSWORD */}
@@ -27253,7 +27507,7 @@ if (loadingProfile && !user && !authUser) {
     </AnimatePresence>
             </div>  
     );
-  }
+  }); // ← chiusura React.memo
   
   return (
     <div className="min-h-screen bg-gray-50">
@@ -28388,20 +28642,23 @@ if (loadingProfile && !user && !authUser) {
   </div>
 </div>
 
-    {/* Modals */}
+
+   {/* Modals */}
 <ContactModal />
-<ProfileModal 
-  currentUserProfile={currentUserProfile}
-  setCurrentUserProfile={setCurrentUserProfile}
-  pendingUsers={pendingUsers}
-  approvedUsers={approvedUsers}
-  rejectedUsers={rejectedUsers}
-  availableRoles={availableRoles}
-  loadingUsers={loadingUsers}
-  fetchPendingUsers={fetchPendingUsers}
-  fetchApprovedUsers={fetchApprovedUsers}
-  fetchRejectedUsers={fetchRejectedUsers}
-/>
+<div style={{ display: showProfileModal ? 'block' : 'none' }}>
+  <ProfileModal 
+    currentUserProfile={currentUserProfile}
+    setCurrentUserProfile={setCurrentUserProfile}
+    pendingUsers={pendingUsers}
+    approvedUsers={approvedUsers}
+    rejectedUsers={rejectedUsers}
+    availableRoles={availableRoles}
+    loadingUsers={loadingUsers}
+    fetchPendingUsers={fetchPendingUsers}
+    fetchApprovedUsers={fetchApprovedUsers}
+    fetchRejectedUsers={fetchRejectedUsers}
+  />
+</div>
     
     {/* FOOTER */}
 <footer className="bg-white border-t border-gray-200 mt-auto">

@@ -5,6 +5,14 @@ import toast from "react-hot-toast";
 import InputField from "../../components/ui/InputField";
 import ForgotPasswordModal from './ForgotPasswordModal';
 
+// Aggiungi questo import in cima
+import { AnimatePresence, motion } from 'framer-motion';
+
+// Aggiungi questo stato dentro LoginPage
+const [showInactivityMessage, setShowInactivityMessage] = useState(false);
+
+
+
 import { 
   Mail, 
   Eye, 
@@ -21,7 +29,16 @@ import {
   MailOpen
 } from 'lucide-react';
 
-
+// Aggiungi questo useEffect (dopo quelli già esistenti)
+useEffect(() => {
+  if (typeof window !== 'undefined') {
+    const reason = sessionStorage.getItem('logout_reason');
+    if (reason === 'inactivity') {
+      setShowInactivityMessage(true);
+      sessionStorage.removeItem('logout_reason');
+    }
+  }
+}, []);
 
 // ============================================
 // MODALE EMAIL NON CONFERMATA
@@ -638,6 +655,39 @@ console.log('⏰ setTimeout impostato, attendo 1 secondo...');
   };
 
   return (
+
+    <>
+    {/* 🔔 BANNER LOGOUT PER INATTIVITÀ */}
+    <AnimatePresence>
+      {showInactivityMessage && (
+        <motion.div
+          initial={{ opacity: 0, y: -60 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -60 }}
+          transition={{ type: "spring", damping: 25, stiffness: 300 }}
+          className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-between gap-4 px-6 py-4 bg-gradient-to-r from-slate-800 to-slate-900 text-white shadow-2xl"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-amber-500/20 rounded-full flex items-center justify-center shrink-0">
+              <span className="text-xl">⏱️</span>
+            </div>
+            <div>
+              <p className="font-semibold text-sm">Sessione terminata per inattività</p>
+              <p className="text-slate-400 text-xs mt-0.5">
+                Sei stato disconnesso automaticamente dopo 30 minuti senza attività. Accedi di nuovo per continuare.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowInactivityMessage(false)}
+            className="shrink-0 text-slate-400 hover:text-white p-2 hover:bg-white/10 rounded-lg transition"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
       <div className="min-h-screen flex">
         {/* Pannello sinistro - branding */}
@@ -946,6 +996,7 @@ console.log('⏰ setTimeout impostato, attendo 1 secondo...');
         }
       `}</style>
     </div>
+    </>
   );
 };
 
