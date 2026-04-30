@@ -8,8 +8,7 @@ import ForgotPasswordModal from './ForgotPasswordModal';
 // Aggiungi questo import in cima
 import { AnimatePresence, motion } from 'framer-motion';
 
-// Aggiungi questo stato dentro LoginPage
-const [showInactivityMessage, setShowInactivityMessage] = useState(false);
+
 
 
 
@@ -29,16 +28,7 @@ import {
   MailOpen
 } from 'lucide-react';
 
-// Aggiungi questo useEffect (dopo quelli già esistenti)
-useEffect(() => {
-  if (typeof window !== 'undefined') {
-    const reason = sessionStorage.getItem('logout_reason');
-    if (reason === 'inactivity') {
-      setShowInactivityMessage(true);
-      sessionStorage.removeItem('logout_reason');
-    }
-  }
-}, []);
+
 
 // ============================================
 // MODALE EMAIL NON CONFERMATA
@@ -150,7 +140,8 @@ const LoginPage = () => {
   const [showEmailNotConfirmed, setShowEmailNotConfirmed] = useState(false); // ✅ Nuovo stato
   const [isLoading, setIsLoading] = useState(false);
   const [isResending, setIsResending] = useState(false); // ✅ Per il reinvio
-  
+  // Aggiungi questo stato dentro LoginPage
+const [showInactivityMessage, setShowInactivityMessage] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -161,6 +152,16 @@ const LoginPage = () => {
   
   const [errors, setErrors] = useState({});
   const [successMessage, setSuccessMessage] = useState('');
+  // Aggiungi questo useEffect (dopo quelli già esistenti)
+useEffect(() => {
+  if (typeof window !== 'undefined') {
+    const reason = sessionStorage.getItem('logout_reason');
+    if (reason === 'inactivity') {
+      setShowInactivityMessage(true);
+      sessionStorage.removeItem('logout_reason');
+    }
+  }
+}, []);
 // ✅ In LoginPage, aggiungi questo useEffect
 useEffect(() => {
   // ✅ Azzera l'utente corrente quando sei sulla pagina di login
