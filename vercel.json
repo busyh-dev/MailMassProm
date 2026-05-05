@@ -1,0 +1,12 @@
+{
+    "redirects": [
+      {
+        "source": "/(.*)",
+        "has": [
+          { "type": "host", "value": "mail-mass-prom.vercel.app" }
+        ],
+        "destination": "https://app.promotergroup.eu/$1",
+        "permanent": true
+      }
+    ]
+  }
