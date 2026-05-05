@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import { usePushNotifications } from '../../hooks/usePushNotifications';
 import Select from 'react-select';
 import { useAuth } from '../../contexts/AuthContext';
+import ContactListsModal from '../../components/contacts/ContactListsModal';
 import { useRouter } from 'next/router'; // ✅ Cambiato qui
 import { ToolbarPlugin } from "./EditorToolbar";
 import toast, { Toaster } from "react-hot-toast";
@@ -883,6 +884,7 @@ const _platformUsersLoaded = useRef(false);
   const [contactsLoading, setContactsLoading] = useState(false);
   const [registerMessage, setRegisterMessage] = useState(null);
   const [emailLogs, setEmailLogs] = useState([]);
+  const [contactsSelected, setContactsSelected] = useState([]); // ← nuovo
 const [emailLogsLoading, setEmailLogsLoading] = useState(false);
 const [currentUserProfile, setCurrentUserProfile] = useState(null);
 const profileLoadedRef = useRef(false);
@@ -901,6 +903,8 @@ const isEditingImgTextTitleRef = useRef(false);
 const isEditingImgTextParaRef = useRef(false);
 const [imgTextTitleFormats, setImgTextTitleFormats] = useState({});
 const [imgTextParaFormats, setImgTextParaFormats] = useState({});
+const [showContactListsModal, setShowContactListsModal] = useState(false);
+// const [showEditContactModal, setShowEditContactModal] = useState(false);
 // Aggiungi questo vicino agli altri useState/useCallback
 const stableSetCurrentUserProfile = useCallback((value) => {
   setCurrentUserProfile(value);
@@ -1083,7 +1087,7 @@ const [testate, setTestate] = useState([]);
 const [contactLabels, setContactLabels] = useState([]);
   const [rejectedUsers, setRejectedUsers] = useState([]);
   const [activeTab, setActiveTab] = useState("dashboard");
-  const [showEditModal, setShowEditModal] = useState(false);
+  // const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   
   const queueCount = useQueueCount();
@@ -1123,7 +1127,7 @@ const [profileLoaded, setProfileLoaded] = useState(false);
 const [showApproveModal, setShowApproveModal] = useState(false);
 const [userToApprove, setUserToApprove] = useState(null);
 const [showAddTestataModal, setShowAddTestataModal] = useState(false);
-// const [editingContact, setEditingContact] = useState(null);
+const [editingContact, setEditingContact] = useState(null);
 
 const [showTagLabelsModal, setShowTagLabelsModal] = useState(false);
 const [selectedTagForLabels, setSelectedTagForLabels] = useState(null);
@@ -1551,18 +1555,19 @@ const fetchTestate = async () => {
 };
 
 // Aggiungi questo useEffect
+// ✅ Sostituisci con activeTab che già esiste in EmailPlatform
 useEffect(() => {
-  if (showEditModal) {
+  if (activeTab === 'contacts') {
     fetchTestate();
     fetchSectors();
-    fetchChannels();  // ✅ Aggiungi
-    fetchAreas();  // ✅ AGGIUNGI QUESTA
-    fetchTipologiaCanale();     // ✅
-  fetchPeriodicitaCanale();   // ✅
-  fetchCoperturaCanale();     // ✅
-  fetchTags();  // ✅ Aggiungi questa
+    fetchChannels();
+    fetchAreas();
+    fetchTipologiaCanale();
+    fetchPeriodicitaCanale();
+    fetchCoperturaCanale();
+    fetchTags();
   }
-}, [showEditModal]);
+}, [activeTab]);
 
 // Fetch Tags
 const fetchTags = async () => {
@@ -7128,6 +7133,7 @@ console.log('🔍 coperturaCanale ricevuta:', coperturaCanale);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showTagLabelsModal, setShowTagLabelsModal] = useState(false);
   const [tagLabels, setTagLabels] = useState([]); // ✅ Deve esserci
+  
   // 🔥 Salva in sessionStorage quando editingContact cambia
 
  // ✅ FUNZIONE PER CARICARE TAG LABELS
@@ -7157,22 +7163,22 @@ console.log('🔍 coperturaCanale ricevuta:', coperturaCanale);
     }
   }, [show]);
 // ✅ UNICO useEffect per inizializzare editingContact
-useEffect(() => {
-  if (contact && tags && tags.length > 0) {
-    // Converti tags da slug/label a UUID
-    const tagIds = (contact.tags || []).map(tagValue => {
-      const found = tags.find(t => t.value === tagValue || t.label === tagValue || t.id === tagValue);
-      return found?.id;
-    }).filter(Boolean);
+// useEffect(() => {
+//   if (contact && tags && tags.length > 0) {
+//     // Converti tags da slug/label a UUID
+//     const tagIds = (contact.tags || []).map(tagValue => {
+//       const found = tags.find(t => t.value === tagValue || t.label === tagValue || t.id === tagValue);
+//       return found?.id;
+//     }).filter(Boolean);
 
-    setEditingContact({
-      ...contact,
-      tags: tagIds,  // ✅ UUID
-      tag_labels: contact.tag_labels || [],
-      phones: Array.isArray(contact.phones) ? contact.phones : []
-    });
-  }
-}, [contact, tags]);
+//     setEditingContact({
+//       ...contact,
+//       tags: tagIds,  // ✅ UUID
+//       tag_labels: contact.tag_labels || [],
+//       phones: Array.isArray(contact.phones) ? contact.phones : []
+//     });
+//   }
+// }, [contact, tags]);
 
 // ✅ UNICO useEffect per inizializzare editingContact
 useEffect(() => {
@@ -9762,6 +9768,8 @@ const MultiSelectFilter = ({ label, options, selected, onChange, placeholder = '
     </div>
   );
 };
+
+
 // ---------------- COMPONENTE CONTATTI ----------------
 const Contacts = ({ 
   contactsProp, 
@@ -9779,24 +9787,36 @@ const Contacts = ({
   testateProp,
   contactLabelsProp,
   loadNotifications,
+  showListsModalProp,
+  setShowListsModalProp,
+  selectedContactsProp,
+  setSelectedContactsProp,
+  showEditModalProp,        // ← aggiungi
+  setShowEditModalProp,     // ← aggiungi
+  selectedContactProp,      // ← aggiungi
+  setSelectedContactProp,   // ← aggiungi
 }) => {
-  const { user } = useAuth(); // 👈 importa dal contesto auth
+  const { user } = useAuth();
   const hasLoadedRef = useRef(false);
-    // ✅ Usa props invece di stato locale
 
-  // const [contacts, setContacts] = useState([]);
- 
+  const [savedListsCount, setSavedListsCount] = useState(0);
   const [selectedTags, setSelectedTags] = useState([]);
   const [showTagFilter, setShowTagFilter] = useState(false);
-    const [hasNoTagFilter, setHasNoTagFilter] = useState(false);
-  const [selectedContacts, setSelectedContacts] = useState([]);
+  const [hasNoTagFilter, setHasNoTagFilter] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [filterContactLabel, setFilterContactLabel] = useState(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-const [showTagsModal, setShowTagsModal] = useState(false);
-const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
-const [contactToDeactivate, setContactToDeactivate] = useState(null);
-const [showContactLabelsModal, setShowContactLabelsModal] = useState(false);
+  const [showTagsModal, setShowTagsModal] = useState(false);
+  const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
+  const [contactToDeactivate, setContactToDeactivate] = useState(null);
+  const [showContactLabelsModal, setShowContactLabelsModal] = useState(false);
+
+  // ✅ USA PROPS invece di stati locali — evita reset al re-render
+  const showListsModal = showListsModalProp ?? false;
+  const setShowListsModal = setShowListsModalProp ?? (() => {});
+  const selectedContacts = selectedContactsProp ?? [];
+  const setSelectedContacts = setSelectedContactsProp ?? (() => {});
+
   // ✅ Inizializza da props
   const [loading, setLoading] = useState(contactsLoadingProp || false);
   const [tags, setTags] = useState(tagsProp || []);
@@ -9811,20 +9831,38 @@ const [showContactLabelsModal, setShowContactLabelsModal] = useState(false);
   const [testate, setTestate] = useState(testateProp || []);
   const [contactLabels, setContactLabels] = useState(contactLabelsProp || []);
   const [availableTags, setAvailableTags] = useState(tagsProp || []);
-
-// Filtri avanzati
-const [filterSectors, setFilterSectors] = useState([]);
-const [filterChannels, setFilterChannels] = useState([]);
-const [filterRoles, setFilterRoles] = useState([]);
-const [filterAreas, setFilterAreas] = useState([]);
-const [filterTestate, setFilterTestate] = useState([]);
-const [filterTipologie, setFilterTipologie] = useState([]);
-const [filterPeriodicity, setFilterPeriodicity] = useState([]);
-const [filterCoperture, setFilterCoperture] = useState([]);
-const [filterContactLabels, setFilterContactLabels] = useState([]);
-const [filterTagLabels, setFilterTagLabels] = useState([]);
-const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedContact, setSelectedContact] = useState(null);
+  // Filtri avanzati
+  const [filterSectors, setFilterSectors] = useState([]);
+  const [filterChannels, setFilterChannels] = useState([]);
+  const [filterRoles, setFilterRoles] = useState([]);
+  const [filterAreas, setFilterAreas] = useState([]);
+  const [filterTestate, setFilterTestate] = useState([]);
+  const [filterTipologie, setFilterTipologie] = useState([]);
+  const [filterPeriodicity, setFilterPeriodicity] = useState([]);
+  const [filterCoperture, setFilterCoperture] = useState([]);
+  const [filterContactLabels, setFilterContactLabels] = useState([]);
+  const [filterTagLabels, setFilterTagLabels] = useState([]);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+const handleLoadList = (list) => {
+  if (!list.filters) return;
+  const f = list.filters;
+  if (f.searchTerm !== undefined) setSearchTerm(f.searchTerm);
+  if (f.statusFilter) setStatusFilter(f.statusFilter);
+  if (f.selectedTags) setSelectedTags(f.selectedTags);
+  if (f.hasNoTagFilter !== undefined) setHasNoTagFilter(f.hasNoTagFilter);
+  if (f.filterSectors) setFilterSectors(f.filterSectors);
+  if (f.filterChannels) setFilterChannels(f.filterChannels);
+  if (f.filterRoles) setFilterRoles(f.filterRoles);
+  if (f.filterAreas) setFilterAreas(f.filterAreas);
+  if (f.filterTestate) setFilterTestate(f.filterTestate);
+  if (f.filterTipologie) setFilterTipologie(f.filterTipologie);
+  if (f.filterPeriodicity) setFilterPeriodicity(f.filterPeriodicity);
+  if (f.filterCoperture) setFilterCoperture(f.filterCoperture);
+  if (f.filterContactLabels) setFilterContactLabels(f.filterContactLabels);
+  toast.success(`Filtri di "${list.name}" applicati`);
+};
   // ✅ Sincronizza quando le props cambiano
   useEffect(() => { if (contactsProp) setContacts(contactsProp); }, [contactsProp]);
   useEffect(() => { setLoading(contactsLoadingProp); }, [contactsLoadingProp]);
@@ -9839,27 +9877,53 @@ const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   useEffect(() => { if (coperturaCanaleProp?.length) setCoperturaCanale(coperturaCanaleProp); }, [coperturaCanaleProp]);
   useEffect(() => { if (testateProp?.length) setTestate(testateProp); }, [testateProp]);
   useEffect(() => { if (contactLabelsProp?.length) setContactLabels(contactLabelsProp); }, [contactLabelsProp]);
-
+  useEffect(() => {
+    const loadCount = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { count } = await supabase
+        .from('contact_lists')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+      setSavedListsCount(count || 0);
+    };
+    loadCount();
+  }, []);
   const fetchContacts = fetchContactsProp || (() => {});
 
   // Aggiungi la funzione di eliminazione
-const handleDeleteSelected = async () => {
-  try {
-    const { error } = await supabase
-      .from('contacts')
-      .delete()
-      .in('id', selectedContacts);
+  const handleDeleteSelected = async () => {
+    // ✅ Controlla che ci siano ID validi
+    const idsToDelete = selectedContacts.filter(id => typeof id === 'string' || typeof id === 'number');
+    
+    console.log('🗑️ selectedContacts:', selectedContacts);
+    console.log('🗑️ idsToDelete:', idsToDelete);
+    
+    if (idsToDelete.length === 0) {
+      toast.error('Nessun contatto valido selezionato');
+      setSelectedContacts([]);
+      return;
+    }
+  
+    try {
+      const { error } = await supabase
+        .from('contacts')
+        .delete()
+        .in('id', idsToDelete);
+  
+      if (error) {
+        console.error('Errore Supabase:', error);
+        throw error;
+      }
+  
+      toast.success(`✅ ${idsToDelete.length} contatti eliminati`);
+      setSelectedContacts([]);
+      fetchContacts();
+    } catch (error) {
+      console.error('Errore eliminazione:', error);
+      toast.error('❌ Errore durante l\'eliminazione');
+    }
+  };
 
-    if (error) throw error;
-
-    toast.success(`✅ ${selectedContacts.length} contatti eliminati`);
-    setSelectedContacts([]);
-    fetchContacts(); // Ricarica la lista
-  } catch (error) {
-    console.error('Errore eliminazione:', error);
-    toast.error('❌ Errore durante l\'eliminazione');
-  }
-};
 
   // ✅ Sincronizza quando le props cambiano
   useEffect(() => {
@@ -10242,8 +10306,8 @@ const [currentPage, setCurrentPage] = useState(1);
 const contactsPerPage = 6;
 
 // ✅ Stati semplici, niente sessionStorage
-const [showEditModal, setShowEditModal] = useState(false);
-const [selectedContact, setSelectedContact] = useState(null);
+// const [showEditModal, setShowEditModal] = useState(false);
+// const [selectedContact, setSelectedContact] = useState(null);
 
 // ✅ Pulisci sessionStorage vecchio al mount
 useEffect(() => {
@@ -10609,6 +10673,13 @@ return (
             <Plus className="w-4 h-4" />
             Nuovo Contatto
           </button>
+          <button
+  onClick={() => setShowListsModal(true)}
+  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+>
+  <List className="w-4 h-4" />
+  Liste {savedListsCount > 0 && `(${savedListsCount})`}
+</button>
         </div>
       </div>
     </div>
@@ -10854,10 +10925,22 @@ return (
 <div className="bg-white rounded-lg shadow-sm border border-gray-200">
   {/* Barra azioni per contatti selezionati */}
   {selectedContacts.length > 0 && (
-    <div className="px-6 py-3 bg-blue-50 border-b border-blue-200 flex items-center justify-between">
-      <span className="text-sm font-medium text-blue-900">
-        {selectedContacts.length} contatti selezionati
-      </span>
+  <div className="px-6 py-3 bg-blue-50 border-b border-blue-200 flex items-center justify-between">
+    <span className="text-sm font-medium text-blue-900">
+      {selectedContacts.length} contatti selezionati
+      {selectedContacts.length === filteredContacts.length && filteredContacts.length > 0 && (
+        <span className="ml-2 text-xs text-blue-600">(tutti i risultati filtrati)</span>
+      )}
+    </span>
+    <div className="flex gap-2">
+      {/* ✅ Bottone per aggiungere alle liste */}
+      <button
+        onClick={() => setShowListsModal(true)}
+        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm"
+      >
+        <List className="w-4 h-4" />
+        Aggiungi a lista
+      </button>
       <button
         onClick={() => {
           if (confirm(`Eliminare ${selectedContacts.length} contatti selezionati?`)) {
@@ -10870,7 +10953,8 @@ return (
         Elimina selezionati
       </button>
     </div>
-  )}
+  </div>
+)}
 
   <div className="overflow-x-auto">
     <table className="min-w-full divide-y divide-gray-200">
@@ -10878,18 +10962,31 @@ return (
         <tr>
           {/* Checkbox seleziona tutti */}
           <th className="px-4 py-3 w-12 text-center">
-            <input
-              type="checkbox"
-              checked={selectedContacts.length === currentContacts.length && currentContacts.length > 0}
-              onChange={(e) => {
-                if (e.target.checked) {
-                  setSelectedContacts(currentContacts.map(c => c.id));
-                } else {
-                  setSelectedContacts([]);
-                }
-              }}
-              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
+         
+<input
+  type="checkbox"
+  checked={
+    filteredContacts.length > 0 && 
+    filteredContacts.every(c => selectedContacts.includes(c.id))
+  }
+  ref={el => {
+    if (el) {
+      // Stato indeterminate se solo alcuni selezionati
+      el.indeterminate = 
+        selectedContacts.length > 0 && 
+        !filteredContacts.every(c => selectedContacts.includes(c.id));
+    }
+  }}
+  onChange={(e) => {
+    if (e.target.checked) {
+      // ✅ Seleziona TUTTI i filtrati, non solo la pagina
+      setSelectedContacts(filteredContacts.map(c => c.id));
+    } else {
+      setSelectedContacts([]);
+    }
+  }}
+  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+/>
           </th>
           <th 
   onClick={() => requestSort("contact_label_id")} // ✅ Deve corrispondere alla chiave del DB
@@ -11217,6 +11314,23 @@ return (
 
 
       {/* MODALI */}
+      {showListsModal && (
+  <ContactListsModal
+    show={showListsModal}
+    onClose={() => setShowListsModal(false)}
+    currentFilters={{
+      searchTerm, statusFilter, selectedTags, hasNoTagFilter,
+      filterSectors, filterChannels, filterRoles, filterAreas,
+      filterTestate, filterTipologie, filterPeriodicity,
+      filterCoperture, filterContactLabels,
+    }}
+    filteredContacts={filteredContacts}
+    selectedContacts={selectedContacts}        // ✅ checkbox selezionati
+    allContacts={contacts}
+    onLoadList={handleLoadList}
+    onClearSelection={() => setSelectedContacts([])} // ✅ per pulire dopo aggiunta
+  />
+)}
       {showAddModal && (
   <ContactModal
   show={showAddModal}
@@ -11238,7 +11352,7 @@ return (
   <>
     {console.log('🟢 Rendering EditContactModal con:', selectedContact)}
     <EditContactModal
-      show={showEditModal}
+      show={showEditModal && !!selectedContact}
       contact={selectedContact}
       onClose={() => {
         setShowEditModal(false);
@@ -28609,7 +28723,6 @@ if (loadingProfile && !user && !authUser) {
 
 {activeTab === "contacts" && (
   <Contacts
-    key="contacts"
     contactsProp={contacts}
     contactsLoadingProp={contactsLoading}
     fetchContactsProp={fetchContacts}
@@ -28625,6 +28738,10 @@ if (loadingProfile && !user && !authUser) {
     testateProp={testate}
     contactLabelsProp={contactLabels}
     loadNotifications={loadNotifications}
+    showListsModalProp={showContactListsModal}
+    setShowListsModalProp={setShowContactListsModal}
+    selectedContactsProp={contactsSelected}
+    setSelectedContactsProp={setContactsSelected}
   />
 )}
 {activeTab === "logs" && (

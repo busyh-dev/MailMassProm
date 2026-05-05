@@ -21,6 +21,7 @@ export const PermissionsProvider = ({ children }) => {
   const isInitialized = useRef(false);
   const lastSignInRef = useRef(0);      // ✅ traccia ultimo SIGNED_IN
   const currentUserIdRef = useRef(null); // ✅ traccia utente già caricato
+  const profileLoadedRef = useRef(false);
 
   useEffect(() => {
     if (!isInitialized.current) {
@@ -52,7 +53,7 @@ export const PermissionsProvider = ({ children }) => {
 
         if (session?.user) {
           // ✅ Se è lo stesso utente già caricato, non ricaricare
-          if (currentUserIdRef.current === session.user.id && profile !== null) {
+          if (currentUserIdRef.current === session.user.id && profileLoadedRef.current) {
             console.log('⏭️ Stesso utente già caricato, skip');
             return;
           }
@@ -101,6 +102,7 @@ export const PermissionsProvider = ({ children }) => {
 
       // ✅ Aggiorna ref utente corrente
       currentUserIdRef.current = userId;
+      profileLoadedRef.current = true; // ← aggiungi questa riga
 
       setProfile(profileData);
       setRole(profileData.role);
@@ -143,6 +145,7 @@ export const PermissionsProvider = ({ children }) => {
     setRole(null);
     setLoading(false);
     currentUserIdRef.current = null;
+    profileLoadedRef.current = false; // ← aggiungi
   };
 
   const hasPermission = (permissionName) => {
