@@ -886,6 +886,8 @@ const _platformUsersLoaded = useRef(false);
   const [emailLogs, setEmailLogs] = useState([]);
   const [contactsSelected, setContactsSelected] = useState([]); // ← nuovo
 const [emailLogsLoading, setEmailLogsLoading] = useState(false);
+const [showQuickContacts, setShowQuickContacts] = useState(false);
+const [quickSearch, setQuickSearch] = useState('');
 const [currentUserProfile, setCurrentUserProfile] = useState(null);
 const profileLoadedRef = useRef(false);
 const [showPrivacyModal, setShowPrivacyModal] = useState(false);
@@ -904,6 +906,7 @@ const isEditingImgTextParaRef = useRef(false);
 const [imgTextTitleFormats, setImgTextTitleFormats] = useState({});
 const [imgTextParaFormats, setImgTextParaFormats] = useState({});
 const [showContactListsModal, setShowContactListsModal] = useState(false);
+const [quickContactDetail, setQuickContactDetail] = useState(null);
 // const [showEditContactModal, setShowEditContactModal] = useState(false);
 // Aggiungi questo vicino agli altri useState/useCallback
 const stableSetCurrentUserProfile = useCallback((value) => {
@@ -27634,6 +27637,15 @@ if (loadingProfile && !user && !authUser) {
               <h1 className="text-xl font-bold text-gray-900">MailMassProm</h1>
             </div>
             <div className="flex items-center gap-4">
+
+              {/* Rubrica rapida */}
+<button
+  onClick={() => setShowQuickContacts(true)}
+  className="relative p-2 text-gray-400 hover:text-gray-600 rounded transition-colors"
+  title="Rubrica contatti"
+>
+  <Users className="w-5 h-5" />
+</button>
                
 {/* Bottone Aggiorna Piattaforma */}
 <button
@@ -28940,6 +28952,286 @@ if (loadingProfile && !user && !authUser) {
 >
   Salva Preferenze
 </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{/* RUBRICA RAPIDA */}
+{showQuickContacts && (
+  <div className="fixed inset-0 z-[9999] flex justify-end">
+    <div 
+      className="absolute inset-0 bg-black bg-opacity-30 backdrop-blur-sm"
+      onClick={() => { setShowQuickContacts(false); setQuickSearch(''); }}
+    />
+    <div className="relative w-full max-w-sm bg-white h-full shadow-2xl flex flex-col">
+      
+      {/* Header */}
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-4 text-white flex-shrink-0">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Users className="w-5 h-5" />
+            <h2 className="text-lg font-bold">Rubrica</h2>
+            <span className="bg-white/20 text-white text-xs px-2 py-0.5 rounded-full">
+              {contacts.length}
+            </span>
+          </div>
+          <button
+            onClick={() => { setShowQuickContacts(false); setQuickSearch(''); }}
+            className="p-1.5 hover:bg-white/20 rounded-lg transition"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-2.5 w-4 h-4 text-blue-200" />
+          <input
+            type="text"
+            placeholder="Cerca per nome o email..."
+            value={quickSearch}
+            onChange={e => setQuickSearch(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 bg-white/20 text-white placeholder-blue-200 border border-white/30 rounded-lg text-sm focus:outline-none focus:bg-white/30"
+            autoFocus
+          />
+          {quickSearch && (
+            <button onClick={() => setQuickSearch('')} className="absolute right-2 top-2.5 text-blue-200 hover:text-white">
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Lista contatti */}
+      <div className="flex-1 overflow-y-auto">
+        {(() => {
+          const term = quickSearch.toLowerCase();
+          const filtered = contacts
+            .filter(c => c.status === 'active')
+            .filter(c => !term || c.name?.toLowerCase().includes(term) || c.email?.toLowerCase().includes(term))
+            .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+          if (filtered.length === 0) return (
+            <div className="flex flex-col items-center justify-center h-48 text-gray-400">
+              <Users className="w-10 h-10 mb-2 opacity-30" />
+              <p className="text-sm">Nessun contatto trovato</p>
+            </div>
+          );
+
+          const grouped = filtered.reduce((acc, c) => {
+            const letter = (c.name || '?')[0].toUpperCase();
+            if (!acc[letter]) acc[letter] = [];
+            acc[letter].push(c);
+            return acc;
+          }, {});
+
+          return Object.entries(grouped)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([letter, group]) => (
+              <div key={letter}>
+                <div className="px-4 py-1.5 bg-gray-50 border-y border-gray-100 sticky top-0 z-10">
+                  <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">{letter}</span>
+                </div>
+                {group.map(c => {
+                  const initials = (c.name || 'U').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+                  const colors = ['bg-blue-500', 'bg-purple-500', 'bg-green-500', 'bg-orange-500', 'bg-pink-500', 'bg-teal-500'];
+                  const color = colors[c.name?.charCodeAt(0) % colors.length] || 'bg-blue-500';
+                  return (
+                    <div key={c.id} onClick={() => setQuickContactDetail(c)} className="flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-colors border-b border-gray-50 group cursor-pointer">
+                      <div className={`w-10 h-10 ${color} rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 overflow-hidden`}>
+                        {c.avatar_url 
+                          ? <img src={c.avatar_url} alt={c.name} className="w-full h-full object-cover" />
+                          : initials
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 truncate">{c.name}</p>
+                        <p className="text-xs text-gray-500 truncate">{c.email}</p>
+                        {c.tags?.length > 0 && (
+                          <div className="flex gap-1 mt-0.5 flex-wrap">
+                            {c.tags.slice(0, 2).map((tag, i) => (
+                              <span key={i} className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">{tag}</span>
+                            ))}
+                            {c.tags.length > 2 && <span className="text-[10px] text-gray-400">+{c.tags.length - 2}</span>}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                        {/* ✅ Tag <a> corretto */}
+                        
+                        <a href={`mailto:${c.email}`}
+                          onClick={e => e.stopPropagation()}
+                          className="p-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition"
+                          title={`Invia email a ${c.name}`}
+                        >
+                          <Mail className="w-3.5 h-3.5" />
+                        </a>
+                        <button
+                          onClick={() => { setShowQuickContacts(false); setQuickSearch(''); setActiveTab('contacts'); }}
+                          className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition"
+                          title="Vai ai contatti"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ));
+        })()}
+      </div>
+
+      {/* Footer */}
+      <div className="p-4 border-t border-gray-100 bg-gray-50 flex-shrink-0">
+        <button
+          onClick={() => { setShowQuickContacts(false); setActiveTab('contacts'); }}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium transition"
+        >
+          <Users className="w-4 h-4" />
+          Vai alla sezione Contatti
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+{/* Modal dettaglio contatto */}
+{quickContactDetail && (
+  <div 
+    className="absolute inset-0 bg-black bg-opacity-50 z-10 flex items-end sm:items-center justify-center p-4"
+    onClick={() => setQuickContactDetail(null)}
+  >
+    <div 
+      className="bg-white rounded-2xl w-full max-w-sm max-h-[85vh] overflow-y-auto shadow-2xl"
+      onClick={e => e.stopPropagation()}
+    >
+      {/* Header contatto */}
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-5 rounded-t-2xl text-white relative">
+        <button
+          onClick={() => setQuickContactDetail(null)}
+          className="absolute top-3 right-3 p-1.5 hover:bg-white/20 rounded-lg transition"
+        >
+          <X className="w-4 h-4" />
+        </button>
+        <div className="flex items-center gap-4">
+          {(() => {
+            const c = quickContactDetail;
+            const initials = (c.name || 'U').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+            const colors = ['bg-blue-400', 'bg-purple-400', 'bg-green-400', 'bg-orange-400', 'bg-pink-400', 'bg-teal-400'];
+            const color = colors[c.name?.charCodeAt(0) % colors.length] || 'bg-blue-400';
+            return (
+              <div className={`w-16 h-16 ${color} rounded-full flex items-center justify-center text-white text-xl font-bold shrink-0 overflow-hidden border-2 border-white/30`}>
+                {c.avatar_url 
+                  ? <img src={c.avatar_url} alt={c.name} className="w-full h-full object-cover" />
+                  : initials
+                }
+              </div>
+            );
+          })()}
+          <div className="min-w-0">
+            <h3 className="text-lg font-bold truncate">{quickContactDetail.name}</h3>
+            <p className="text-blue-100 text-sm truncate">{quickContactDetail.email}</p>
+            <span className={`inline-flex items-center gap-1 mt-1 text-xs px-2 py-0.5 rounded-full font-medium ${
+              quickContactDetail.status === 'active' 
+                ? 'bg-green-400/30 text-green-100' 
+                : 'bg-red-400/30 text-red-100'
+            }`}>
+              {quickContactDetail.status === 'active' ? '● Attivo' : '● Inattivo'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Corpo info */}
+      <div className="p-4 space-y-3">
+
+        {/* Email secondarie */}
+        {(quickContactDetail.email_2 || quickContactDetail.email_3 || quickContactDetail.email_4) && (
+          <div className="bg-gray-50 rounded-xl p-3 space-y-1">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Email aggiuntive</p>
+            {quickContactDetail.email_2 && <p className="text-sm text-gray-700 flex items-center gap-2"><Mail className="w-3.5 h-3.5 text-gray-400" />{quickContactDetail.email_2}</p>}
+            {quickContactDetail.email_3 && <p className="text-sm text-gray-700 flex items-center gap-2"><Mail className="w-3.5 h-3.5 text-gray-400" />{quickContactDetail.email_3}</p>}
+            {quickContactDetail.email_4 && <p className="text-sm text-gray-700 flex items-center gap-2"><Mail className="w-3.5 h-3.5 text-gray-400" />{quickContactDetail.email_4}</p>}
+          </div>
+        )}
+
+        {/* Dettagli professionali */}
+        {(quickContactDetail.sector_id || quickContactDetail.channel_id || quickContactDetail.contact_role_id) && (
+          <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Informazioni</p>
+            {quickContactDetail.sector_name && (
+              <div className="flex items-center gap-2 text-sm text-gray-700">
+                <span className="text-gray-400 text-xs w-16 shrink-0">Settore</span>
+                <span className="font-medium">{quickContactDetail.sector_name}</span>
+              </div>
+            )}
+            {quickContactDetail.channel_name && (
+              <div className="flex items-center gap-2 text-sm text-gray-700">
+                <span className="text-gray-400 text-xs w-16 shrink-0">Canale</span>
+                <span className="font-medium">{quickContactDetail.channel_name}</span>
+              </div>
+            )}
+            {quickContactDetail.role_name && (
+              <div className="flex items-center gap-2 text-sm text-gray-700">
+                <span className="text-gray-400 text-xs w-16 shrink-0">Ruolo</span>
+                <span className="font-medium">{quickContactDetail.role_name}</span>
+              </div>
+            )}
+            {quickContactDetail.area_nome && (
+              <div className="flex items-center gap-2 text-sm text-gray-700">
+                <span className="text-gray-400 text-xs w-16 shrink-0">Area</span>
+                <span className="font-medium">{quickContactDetail.area_nome}</span>
+              </div>
+            )}
+            {quickContactDetail.testata_nome && (
+              <div className="flex items-center gap-2 text-sm text-gray-700">
+                <span className="text-gray-400 text-xs w-16 shrink-0">Testata</span>
+                <span className="font-medium">{quickContactDetail.testata_nome}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tags */}
+        {quickContactDetail.tags?.length > 0 && (
+          <div className="bg-gray-50 rounded-xl p-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tag</p>
+            <div className="flex flex-wrap gap-1.5">
+              {quickContactDetail.tags.map((tag, i) => (
+                <span key={i} className="text-xs bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full font-medium">{tag}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Note */}
+        {quickContactDetail.note && (
+          <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
+            <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-1">Note</p>
+            <p className="text-sm text-gray-700 leading-relaxed">{quickContactDetail.note}</p>
+          </div>
+        )}
+
+        {/* Azioni */}
+        <div className="flex gap-2 pt-1">
+          
+            <a href={`mailto:${quickContactDetail.email}`}
+            className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium transition"
+          >
+            <Mail className="w-4 h-4" />
+            Invia email
+          </a>
+          <button
+            onClick={() => { 
+              setQuickContactDetail(null); 
+              setShowQuickContacts(false); 
+              setActiveTab('contacts'); 
+            }}
+            className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition"
+          >
+            <ExternalLink className="w-4 h-4" />
+            Vai ai contatti
+          </button>
+        </div>
       </div>
     </div>
   </div>
