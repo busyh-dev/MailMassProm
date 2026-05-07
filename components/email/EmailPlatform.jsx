@@ -2218,7 +2218,11 @@ if (!accountData) {
         html: campaignToSend.email_content,
         attachments: campaignToSend.attachments || [],
         smtp: accountData.smtp,
-        campaign_id: campaignToSend.id, // ✅ AGGIUNGI
+        campaign_id: campaignToSend.id, // ✅ AGGIUNGI7
+        // ✅ AGGIUNGI
+  contacts: contacts
+  .filter(c => recipients.includes(c.email))
+  .map(c => ({ id: c.id, email: c.email })),
       };
 
       const response = await fetch("/api/send-campaign", {
@@ -2253,6 +2257,10 @@ if (!accountData) {
         html: campaignToSend.email_content,
         attachments: campaignToSend.attachments || [],
         campaign_id: campaignToSend.id, // ✅ AGGIUNGI
+        // ✅ AGGIUNGI
+  contacts: contacts
+  .filter(c => recipients.includes(c.email))
+  .map(c => ({ id: c.id, email: c.email })),
       };
 
       const response = await fetch("/api/resend/send", {
@@ -2432,6 +2440,10 @@ const confirmSend = async () => {
         attachments: [],
         smtp: accountObj.smtp,
         campaign_id: campaignToSend.id, // ✅ AGGIUNGI
+        // ✅ AGGIUNGI
+  contacts: contacts
+  .filter(c => recipients.includes(c.email))
+  .map(c => ({ id: c.id, email: c.email })),
       };
 
       const response = await fetch("/api/send-campaign", {
@@ -2464,6 +2476,10 @@ const confirmSend = async () => {
         html: content,
          attachments: [],
         campaign_id: campaignToSend.id, // ✅ AGGIUNGI
+        // ✅ AGGIUNGI
+  contacts: contacts
+  .filter(c => recipients.includes(c.email))
+  .map(c => ({ id: c.id, email: c.email })),
       };
 
       const response = await fetch("/api/resend/send", {
@@ -2530,6 +2546,10 @@ const handleDuplicateCampaign = async (campaign) => {
       clickTracking: campaign.click_tracking !== false,
       
       campaign_id: campaignToSend.id, // ✅ AGGIUNGI
+      // ✅ AGGIUNGI
+  contacts: contacts
+  .filter(c => recipients.includes(c.email))
+  .map(c => ({ id: c.id, email: c.email })),
     };
 
     const res = await saveCampaign(payload, true); // true = BOZZA
@@ -4738,7 +4758,10 @@ useEffect(() => {
         trackingEnabled: campaign.tracking_enabled !== false,
         openTracking: campaign.open_tracking !== false,
         clickTracking: campaign.click_tracking !== false,
-        
+        // ✅ AGGIUNGI
+  contacts: contacts
+  .filter(c => recipients.includes(c.email))
+  .map(c => ({ id: c.id, email: c.email })),
         campaign_id: campaignToSend.id, // ✅ AGGIUNGI
       };
   
@@ -12145,6 +12168,11 @@ const isEditingTextParaRef = useRef(false);
 const [textTitleFormats, setTextTitleFormats] = useState({});
 const [textParaFormats, setTextParaFormats] = useState({});
 const [col3ParaFormats, setCol3ParaFormats] = useState({});
+const [savedFooters, setSavedFooters] = useState([]);
+const [showFooterLibrary, setShowFooterLibrary] = useState(false);
+const [footerSaveName, setFooterSaveName] = useState('');
+const [savingFooter, setSavingFooter] = useState(false);
+const [loadingFooters, setLoadingFooters] = useState(false);
   const saveSelection = () => {
     const sel = window.getSelection();
     if (sel.rangeCount > 0) {
@@ -12207,6 +12235,53 @@ const safeSessionSet = (key, value) => {
   }
 };
 
+
+const loadSavedFooters = async () => {
+  setLoadingFooters(true);
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data } = await supabase
+      .from('email_footers')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false });
+    setSavedFooters(data || []);
+  } catch (err) {
+    toast.error('Errore caricamento footer');
+  } finally {
+    setLoadingFooters(false);
+  }
+};
+
+const saveFooter = async () => {
+  if (!footerSaveName.trim()) { toast.error('Inserisci un nome'); return; }
+  setSavingFooter(true);
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = editingSingleBlock.html;
+    const firstP = wrapper.querySelector("p");
+    const preview = firstP?.textContent?.slice(0, 50) || '';
+    
+    await supabase.from('email_footers').insert({
+      user_id: user.id,
+      name: footerSaveName.trim(),
+      html: editingSingleBlock.html,
+      preview_text: preview,
+    });
+    toast.success(`✅ Footer "${footerSaveName}" salvato`);
+    setFooterSaveName('');
+    loadSavedFooters();
+  } catch { toast.error('Errore salvataggio'); }
+  finally { setSavingFooter(false); }
+};
+
+const deleteFooter = async (id, name) => {
+  if (!confirm(`Eliminare il footer "${name}"?`)) return;
+  await supabase.from('email_footers').delete().eq('id', id);
+  toast.success('Footer eliminato');
+  loadSavedFooters();
+};
 
 
   useEffect(() => {
@@ -15785,6 +15860,9 @@ const proceedWithSend = async (accountObj) => {
       
 
       for (let i = 0; i < recipients.length; i++) {
+        // Trova il contatto con ID corrispondente
+        const contactObj = localContacts.find(c => c.email === recipients[i]);
+      
         const payload = {
           apiKey: resendApiKey,
           from: accountObj.email,
@@ -15795,6 +15873,8 @@ const proceedWithSend = async (accountObj) => {
           bcc: bcc ? bcc.split(",").map((e) => e.trim()).filter(Boolean) : [],
           attachments: attachmentsData,
           campaign_id: campaignId,
+          // ✅ Passa il contatto per generare token disiscrizione univoco
+          contacts: contactObj ? [{ id: contactObj.id, email: contactObj.email }] : undefined,
         };
 
         try {
@@ -21409,10 +21489,124 @@ if (campaignMode === 'builder') {
     </div>
   )}
 
+
+
   {/* 📄 FOOTER EDITOR */}
   {editingSingleBlock?.id === "footer" && (
     <div className="space-y-4">
       <h3 className="text-lg font-semibold text-gray-800">📄 Editor Footer</h3>
+
+      {/* Toolbar salva/carica footer */}
+<div className="flex gap-2 mb-4 pb-4 border-b border-gray-200">
+  {/* Salva footer corrente */}
+  <div className="flex-1 flex gap-2">
+    <input
+      type="text"
+      placeholder="Nome footer da salvare..."
+      value={footerSaveName}
+      onChange={e => setFooterSaveName(e.target.value)}
+      onKeyDown={e => e.key === 'Enter' && saveFooter()}
+      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+    />
+    <button
+      onClick={saveFooter}
+      disabled={savingFooter || !footerSaveName.trim()}
+      className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
+    >
+      {savingFooter ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+      Salva
+    </button>
+  </div>
+
+  {/* Carica footer salvato */}
+  <button
+    onClick={() => { setShowFooterLibrary(true); loadSavedFooters(); }}
+    className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition"
+  >
+    <List className="w-4 h-4" />
+    Libreria
+  </button>
+</div>
+
+{/* Modal libreria footer */}
+{showFooterLibrary && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 z-[9999] flex items-center justify-center p-4">
+    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
+      
+      {/* Header */}
+      <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-5 text-white flex-shrink-0">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <List className="w-5 h-5" />
+            <h3 className="text-lg font-bold">Libreria Footer</h3>
+            <span className="bg-white/20 text-xs px-2 py-0.5 rounded-full">{savedFooters.length}</span>
+          </div>
+          <button onClick={() => setShowFooterLibrary(false)} className="p-1.5 hover:bg-white/20 rounded-lg transition">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Lista footer */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {loadingFooters ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
+          </div>
+        ) : savedFooters.length === 0 ? (
+          <div className="text-center py-12 text-gray-400">
+            <List className="w-10 h-10 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">Nessun footer salvato</p>
+            <p className="text-xs mt-1">Salva il footer corrente per iniziare</p>
+          </div>
+        ) : (
+          savedFooters.map(footer => (
+            <div key={footer.id} className="border border-gray-200 rounded-xl overflow-hidden hover:border-indigo-300 transition group">
+              {/* Preview HTML */}
+              <div className="bg-gray-100 p-2 max-h-24 overflow-hidden pointer-events-none">
+                <div 
+                  className="transform scale-50 origin-top-left w-[200%]"
+                  dangerouslySetInnerHTML={{ __html: footer.html }} 
+                />
+              </div>
+              
+              <div className="p-3 bg-white flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{footer.name}</p>
+                  {footer.preview_text && (
+                    <p className="text-xs text-gray-500 truncate">{footer.preview_text}</p>
+                  )}
+                  <p className="text-xs text-gray-400">
+                    {new Date(footer.updated_at).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => {
+                      setEditingSingleBlock({ ...editingSingleBlock, html: footer.html });
+                      setShowFooterLibrary(false);
+                      toast.success(`Footer "${footer.name}" caricato`);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-medium transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Usa
+                  </button>
+                  <button
+                    onClick={() => deleteFooter(footer.id, footer.name)}
+                    className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  </div>
+)}
       
       {/* Nome Azienda */}
       <div>
@@ -21502,6 +21696,376 @@ if (campaignMode === 'builder') {
           className="w-full h-10 border rounded"
         />
       </div>
+
+      {/* Link Footer */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-1">Link Footer</label>
+  <div className="space-y-2">
+    
+    {/* Visualizza nel browser */}
+    <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg border border-gray-200">
+      <input
+        type="checkbox"
+        id="link-browser"
+        defaultChecked
+        onChange={(e) => {
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = editingSingleBlock.html;
+          let linkDiv = wrapper.querySelector(".footer-links");
+          if (!linkDiv) {
+            linkDiv = document.createElement("div");
+            linkDiv.className = "footer-links";
+            linkDiv.style.textAlign = "center";
+            linkDiv.style.marginTop = "12px";
+            linkDiv.style.fontSize = "11px";
+            wrapper.querySelector("td")?.appendChild(linkDiv);
+          }
+          const existing = linkDiv.querySelector(".link-browser");
+          if (e.target.checked && !existing) {
+            const a = document.createElement("a");
+            a.className = "link-browser";
+            a.href = "{{BROWSER_LINK}}";
+            a.textContent = "Visualizza nel browser";
+            a.style.color = "#aaaaaa";
+            a.style.marginRight = "12px";
+            a.style.textDecoration = "underline";
+            linkDiv.insertBefore(a, linkDiv.firstChild);
+          } else if (!e.target.checked && existing) {
+            existing.remove();
+          }
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        className="rounded border-gray-300 text-blue-600"
+      />
+      <label htmlFor="link-browser" className="text-sm text-gray-700 flex-1 cursor-pointer">
+        Visualizza nel browser
+      </label>
+      <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">{"{{BROWSER_LINK}}"}</span>
+    </div>
+
+    {/* Aggiorna preferenze */}
+    <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg border border-gray-200">
+      <input
+        type="checkbox"
+        id="link-preferences"
+        defaultChecked
+        onChange={(e) => {
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = editingSingleBlock.html;
+          let linkDiv = wrapper.querySelector(".footer-links");
+          if (!linkDiv) {
+            linkDiv = document.createElement("div");
+            linkDiv.className = "footer-links";
+            linkDiv.style.textAlign = "center";
+            linkDiv.style.marginTop = "12px";
+            linkDiv.style.fontSize = "11px";
+            wrapper.querySelector("td")?.appendChild(linkDiv);
+          }
+          const existing = linkDiv.querySelector(".link-preferences");
+          if (e.target.checked && !existing) {
+            const sep = document.createElement("span");
+            sep.className = "link-sep-pref";
+            sep.textContent = " | ";
+            sep.style.color = "#aaaaaa";
+            const a = document.createElement("a");
+            a.className = "link-preferences";
+            a.href = "{{PREFERENCES_LINK}}";
+            a.textContent = "Aggiorna le preferenze";
+            a.style.color = "#aaaaaa";
+            a.style.marginRight = "12px";
+            a.style.textDecoration = "underline";
+            linkDiv.appendChild(sep);
+            linkDiv.appendChild(a);
+          } else if (!e.target.checked && existing) {
+            linkDiv.querySelector(".link-sep-pref")?.remove();
+            existing.remove();
+          }
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        className="rounded border-gray-300 text-blue-600"
+      />
+      <label htmlFor="link-preferences" className="text-sm text-gray-700 flex-1 cursor-pointer">
+        Aggiorna le preferenze
+      </label>
+      <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">{"{{PREFERENCES_LINK}}"}</span>
+    </div>
+
+    {/* Disiscriviti */}
+    <div className="flex items-center gap-2 p-2 bg-red-50 rounded-lg border border-red-200">
+      <input
+        type="checkbox"
+        id="link-unsubscribe"
+        defaultChecked
+        onChange={(e) => {
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = editingSingleBlock.html;
+          let linkDiv = wrapper.querySelector(".footer-links");
+          if (!linkDiv) {
+            linkDiv = document.createElement("div");
+            linkDiv.className = "footer-links";
+            linkDiv.style.textAlign = "center";
+            linkDiv.style.marginTop = "12px";
+            linkDiv.style.fontSize = "11px";
+            wrapper.querySelector("td")?.appendChild(linkDiv);
+          }
+          const existing = linkDiv.querySelector(".link-unsubscribe");
+          if (e.target.checked && !existing) {
+            const sep = document.createElement("span");
+            sep.className = "link-sep-unsub";
+            sep.textContent = " | ";
+            sep.style.color = "#aaaaaa";
+            const a = document.createElement("a");
+            a.className = "link-unsubscribe";
+            a.href = "{{UNSUBSCRIBE_LINK}}";
+            a.textContent = "Disiscriviti";
+            a.style.color = "#ff6b6b";
+            a.style.fontWeight = "bold";
+            a.style.textDecoration = "underline";
+            linkDiv.appendChild(sep);
+            linkDiv.appendChild(a);
+          } else if (!e.target.checked && existing) {
+            linkDiv.querySelector(".link-sep-unsub")?.remove();
+            existing.remove();
+          }
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }}
+        className="rounded border-red-300 text-red-600"
+      />
+      <label htmlFor="link-unsubscribe" className="text-sm text-red-700 flex-1 cursor-pointer font-medium">
+        Disiscriviti
+        <span className="ml-1 text-xs font-normal text-red-500">(obbligatorio per GDPR)</span>
+      </label>
+      <span className="text-xs text-red-400 bg-red-100 px-2 py-0.5 rounded">{"{{UNSUBSCRIBE_LINK}}"}</span>
+    </div>
+
+    {/* Colore link */}
+    <div className="grid grid-cols-2 gap-2 pt-1">
+      <div>
+        <label className="block text-xs font-medium text-gray-500 mb-1">Colore link</label>
+        <input
+          type="color"
+          defaultValue="#aaaaaa"
+          onChange={(e) => {
+            const wrapper = document.createElement("div");
+            wrapper.innerHTML = editingSingleBlock.html;
+            wrapper.querySelectorAll(".footer-links a:not(.link-unsubscribe)").forEach(a => {
+              a.style.color = e.target.value;
+            });
+            wrapper.querySelectorAll(".link-sep-pref, .link-sep-unsub").forEach(s => {
+              s.style.color = e.target.value;
+            });
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full h-8 border rounded cursor-pointer"
+        />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-gray-500 mb-1">Colore disiscriviti</label>
+        <input
+          type="color"
+          defaultValue="#ff6b6b"
+          onChange={(e) => {
+            const wrapper = document.createElement("div");
+            wrapper.innerHTML = editingSingleBlock.html;
+            const unsub = wrapper.querySelector(".link-unsubscribe");
+            if (unsub) unsub.style.color = e.target.value;
+            setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+          }}
+          className="w-full h-8 border rounded cursor-pointer"
+        />
+      </div>
+    </div>
+  </div>
+</div>
+
+      {/* Logo/Immagine */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-1">Logo / Immagine</label>
+  
+  {/* Upload immagine */}
+  <div className="border-2 border-dashed border-gray-300 rounded-lg p-3 text-center hover:border-blue-400 transition cursor-pointer"
+    onClick={() => document.getElementById('footer-img-upload').click()}
+  >
+    <input
+      id="footer-img-upload"
+      type="file"
+      accept="image/*"
+      className="hidden"
+      onChange={(e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = editingSingleBlock.html;
+          
+          // Cerca img esistente o creane una nuova
+          let img = wrapper.querySelector("img.footer-logo");
+          if (!img) {
+            img = document.createElement("img");
+            img.className = "footer-logo";
+            img.style.display = "block";
+            img.style.marginBottom = "12px";
+            // Inserisci prima del primo paragrafo
+
+const td = wrapper.querySelector("td");
+if (td) {
+  const firstChild = td.firstChild;
+  if (firstChild) {
+    td.insertBefore(img, firstChild);
+  } else {
+    td.appendChild(img);
+  }
+}
+          }
+          img.src = ev.target.result;
+          img.style.width = img.style.width || "120px";
+          img.style.margin = img.style.margin || "0 auto 12px auto";
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        };
+        reader.readAsDataURL(file);
+      }}
+    />
+    {(() => {
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = editingSingleBlock.html;
+      const img = wrapper.querySelector("img.footer-logo");
+      return img ? (
+        <div className="flex items-center justify-center gap-2">
+          <img src={img.src} alt="logo" className="h-8 object-contain" />
+          <span className="text-xs text-green-600 font-medium">✓ Immagine caricata</span>
+        </div>
+      ) : (
+        <div>
+          <ImageIcon className="w-6 h-6 text-gray-400 mx-auto mb-1" />
+          <p className="text-xs text-gray-500">Clicca per caricare un logo</p>
+        </div>
+      );
+    })()}
+  </div>
+
+  {/* Rimuovi immagine */}
+  {(() => {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = editingSingleBlock.html;
+    return wrapper.querySelector("img.footer-logo");
+  })() && (
+    <button
+      onClick={() => {
+        const wrapper = document.createElement("div");
+        wrapper.innerHTML = editingSingleBlock.html;
+        const img = wrapper.querySelector("img.footer-logo");
+        if (img) img.remove();
+        setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+      }}
+      className="mt-1 text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+    >
+      <X className="w-3 h-3" /> Rimuovi immagine
+    </button>
+  )}
+</div>
+
+{/* Allineamento immagine */}
+{/* Allineamento immagine */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-1">Allineamento Immagine</label>
+  <div className="flex gap-2">
+    {[
+      { value: 'left', label: 'Sinistra', icon: '⬅️', margin: '0 auto 12px 0' },
+      { value: 'center', label: 'Centro', icon: '↔️', margin: '0 auto 12px auto' },
+      { value: 'right', label: 'Destra', icon: '➡️', margin: '0 0 12px auto' },
+    ].map(opt => {
+      // Controlla quale allineamento è attivo leggendo il margin dell'immagine
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = editingSingleBlock.html;
+      const img = wrapper.querySelector("img.footer-logo");
+      const currentMargin = img?.style.margin || '0 auto 12px auto';
+      const isActive = currentMargin === opt.margin;
+
+      return (
+        <button
+          key={opt.value}
+          onClick={() => {
+            const wrapper = document.createElement("div");
+            wrapper.innerHTML = editingSingleBlock.html;
+            const img = wrapper.querySelector("img.footer-logo");
+            if (img) {
+              img.style.margin = opt.margin;
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }
+          }}
+          className={`flex-1 flex flex-col items-center gap-1 p-2 border-2 rounded-lg transition text-xs font-medium ${
+            isActive
+              ? 'border-blue-500 bg-blue-50 text-blue-700'
+              : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50 text-gray-600'
+          }`}
+        >
+          <span className="text-base">{opt.icon}</span>
+          <span>{opt.label}</span>
+          {isActive && <span className="text-[10px] text-blue-500">✓</span>}
+        </button>
+      );
+    })}
+  </div>
+</div>
+
+{/* Dimensione immagine */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-1">
+    Dimensione Immagine
+    <span className="text-gray-400 font-normal ml-1">
+      ({(() => {
+        const wrapper = document.createElement("div");
+        wrapper.innerHTML = editingSingleBlock.html;
+        return wrapper.querySelector("img.footer-logo")?.style.width || "120px";
+      })()})
+    </span>
+  </label>
+  <div className="flex items-center gap-3">
+    <input
+      type="range"
+      min="40"
+      max="300"
+      step="10"
+      value={parseInt((() => {
+        const wrapper = document.createElement("div");
+        wrapper.innerHTML = editingSingleBlock.html;
+        return wrapper.querySelector("img.footer-logo")?.style.width || "120";
+      })()) || 120}
+      onChange={(e) => {
+        const wrapper = document.createElement("div");
+        wrapper.innerHTML = editingSingleBlock.html;
+        const img = wrapper.querySelector("img.footer-logo");
+        if (img) {
+          img.style.width = `${e.target.value}px`;
+          img.style.height = "auto";
+          setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+        }
+      }}
+      className="flex-1"
+    />
+    <div className="flex gap-1">
+      {[60, 120, 180, 240].map(size => (
+        <button
+          key={size}
+          onClick={() => {
+            const wrapper = document.createElement("div");
+            wrapper.innerHTML = editingSingleBlock.html;
+            const img = wrapper.querySelector("img.footer-logo");
+            if (img) {
+              img.style.width = `${size}px`;
+              img.style.height = "auto";
+              setEditingSingleBlock({ ...editingSingleBlock, html: wrapper.innerHTML });
+            }
+          }}
+          className="px-1.5 py-1 text-[10px] bg-gray-100 hover:bg-gray-200 rounded text-gray-600 transition"
+        >
+          {size}
+        </button>
+      ))}
+    </div>
+  </div>
+</div>
     </div>
   )}
 
@@ -28899,7 +29463,184 @@ if (loadingProfile && !user && !authUser) {
     </div>
   </div>
 )}
+{/* MODAL DETTAGLIO CONTATTO RUBRICA - fuori dal drawer */}
+{quickContactDetail && (
+  <div 
+    className="fixed inset-0 bg-black bg-opacity-60 z-[10000] flex items-center justify-center p-4"
+    onClick={() => setQuickContactDetail(null)}
+  >
+    <div 
+      className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl"
+      onClick={e => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-5 rounded-t-2xl text-white relative">
+        <button
+          onClick={() => setQuickContactDetail(null)}
+          className="absolute top-3 right-3 p-1.5 hover:bg-white/20 rounded-lg transition"
+        >
+          <X className="w-4 h-4" />
+        </button>
+        <div className="flex items-center gap-4">
+          {(() => {
+            const c = quickContactDetail;
+            const initials = (c.name || 'U').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+            const colors = ['bg-blue-400','bg-purple-400','bg-green-400','bg-orange-400','bg-pink-400','bg-teal-400'];
+            const color = colors[c.name?.charCodeAt(0) % colors.length] || 'bg-blue-400';
+            return (
+              <div className={`w-16 h-16 ${color} rounded-full flex items-center justify-center text-white text-xl font-bold shrink-0 overflow-hidden border-2 border-white/30`}>
+                {c.avatar_url 
+                  ? <img src={c.avatar_url} alt={c.name} className="w-full h-full object-cover" />
+                  : initials}
+              </div>
+            );
+          })()}
+          <div className="min-w-0 flex-1">
+            <h3 className="text-lg font-bold truncate">{quickContactDetail.name}</h3>
+            {quickContactDetail.name_contact && (
+              <p className="text-blue-200 text-xs truncate">{quickContactDetail.name_contact}</p>
+            )}
+            <p className="text-blue-100 text-sm truncate">{quickContactDetail.email}</p>
+            <span className={`inline-flex items-center gap-1 mt-1 text-xs px-2 py-0.5 rounded-full font-medium ${
+              quickContactDetail.status === 'active' 
+                ? 'bg-green-400/30 text-green-100' 
+                : 'bg-red-400/30 text-red-100'
+            }`}>
+              {quickContactDetail.status === 'active' ? '● Attivo' : '● Inattivo'}
+            </span>
+          </div>
+        </div>
+      </div>
 
+      <div className="p-4 space-y-3">
+
+        {/* Email */}
+        <div className="bg-gray-50 rounded-xl p-3 space-y-1.5">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</p>
+          <p className="text-sm text-gray-700 flex items-center gap-2">
+            <Mail className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            <a href={`mailto:${quickContactDetail.email}`} className="text-blue-600 hover:underline truncate">{quickContactDetail.email}</a>
+          </p>
+          {quickContactDetail.email_2 && (
+            <p className="text-sm text-gray-700 flex items-center gap-2">
+              <Mail className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              <a href={`mailto:${quickContactDetail.email_2}`} className="text-blue-600 hover:underline truncate">{quickContactDetail.email_2}</a>
+            </p>
+          )}
+          {quickContactDetail.email_3 && (
+            <p className="text-sm text-gray-700 flex items-center gap-2">
+              <Mail className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              <a href={`mailto:${quickContactDetail.email_3}`} className="text-blue-600 hover:underline truncate">{quickContactDetail.email_3}</a>
+            </p>
+          )}
+          {quickContactDetail.email_4 && (
+            <p className="text-sm text-gray-700 flex items-center gap-2">
+              <Mail className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              <a href={`mailto:${quickContactDetail.email_4}`} className="text-blue-600 hover:underline truncate">{quickContactDetail.email_4}</a>
+            </p>
+          )}
+        </div>
+
+        {/* Telefoni */}
+        {quickContactDetail.phones?.length > 0 && (
+          <div className="bg-gray-50 rounded-xl p-3 space-y-1.5">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Telefoni</p>
+            {quickContactDetail.phones.map((phone, i) => (
+              <div key={i} className="flex items-center gap-2 text-sm text-gray-700">
+                <span className="text-base shrink-0">
+                  {phone.tipo === 'mobile' ? '📱' : phone.tipo === 'whatsapp' ? '💬' : phone.tipo === 'fax' ? '📠' : '📞'}
+                </span>
+                <a href={`tel:${phone.prefix || ''}${phone.numero}`} className="text-blue-600 hover:underline">
+                  {phone.prefix} {phone.numero}
+                </a>
+                <span className="text-xs text-gray-400 capitalize">{phone.categoria}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Indirizzo */}
+        {(quickContactDetail.indirizzo || quickContactDetail.citta) && (
+          <div className="bg-gray-50 rounded-xl p-3 space-y-1">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Indirizzo</p>
+            {quickContactDetail.indirizzo && <p className="text-sm text-gray-700">{quickContactDetail.indirizzo}</p>}
+            <p className="text-sm text-gray-700">
+              {[quickContactDetail.cap, quickContactDetail.citta, quickContactDetail.provincia].filter(Boolean).join(' ')}
+              {quickContactDetail.regione && ` — ${quickContactDetail.regione}`}
+              {quickContactDetail.paese && `, ${quickContactDetail.paese}`}
+            </p>
+          </div>
+        )}
+
+        {/* Info professionali */}
+        {(quickContactDetail.sector_name || quickContactDetail.channel_name || 
+          quickContactDetail.role_name || quickContactDetail.testata_nome || 
+          quickContactDetail.area_nome) && (
+          <div className="bg-gray-50 rounded-xl p-3 space-y-1.5">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Profilo</p>
+            {[
+              { label: 'Settore', value: quickContactDetail.sector_name },
+              { label: 'Canale', value: quickContactDetail.channel_name },
+              { label: 'Ruolo', value: quickContactDetail.role_name },
+              { label: 'Testata', value: quickContactDetail.testata_nome },
+              { label: 'Area', value: quickContactDetail.area_nome },
+              { label: 'Tipologia', value: quickContactDetail.tipologia_canale_nome },
+              { label: 'Periodicità', value: quickContactDetail.periodicita_canale_nome },
+              { label: 'Copertura', value: quickContactDetail.copertura_canale_nome },
+            ].filter(f => f.value).map(f => (
+              <div key={f.label} className="flex items-center gap-2 text-sm">
+                <span className="text-gray-400 text-xs w-20 shrink-0">{f.label}</span>
+                <span className="text-gray-800 font-medium">{f.value}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Tags */}
+        {quickContactDetail.tags?.length > 0 && (
+          <div className="bg-gray-50 rounded-xl p-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tag</p>
+            <div className="flex flex-wrap gap-1.5">
+              {quickContactDetail.tags.map((tag, i) => (
+                <span key={i} className="text-xs bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full font-medium">{tag}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Note */}
+        {quickContactDetail.note && (
+          <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
+            <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-1">Note</p>
+            <p className="text-sm text-gray-700 leading-relaxed">{quickContactDetail.note}</p>
+          </div>
+        )}
+
+        {/* Azioni */}
+        <div className="flex gap-2 pt-1">
+          
+          <a  href={`mailto:${quickContactDetail.email}`}
+            className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium transition"
+          >
+            <Mail className="w-4 h-4" />
+            Invia email
+          </a>
+          <button
+            onClick={() => { 
+              setQuickContactDetail(null); 
+              setShowQuickContacts(false); 
+              setActiveTab('contacts'); 
+            }}
+            className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition"
+          >
+            <ExternalLink className="w-4 h-4" />
+            Dettaglio completo
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 {/* MODAL COOKIE */}
 {showCookieModal && (
   <div className="fixed inset-0 bg-black bg-opacity-50 z-[9999] flex items-center justify-center p-4">
@@ -29090,148 +29831,6 @@ if (loadingProfile && !user && !authUser) {
           <Users className="w-4 h-4" />
           Vai alla sezione Contatti
         </button>
-      </div>
-    </div>
-  </div>
-)}
-{/* Modal dettaglio contatto */}
-{quickContactDetail && (
-  <div 
-    className="absolute inset-0 bg-black bg-opacity-50 z-10 flex items-end sm:items-center justify-center p-4"
-    onClick={() => setQuickContactDetail(null)}
-  >
-    <div 
-      className="bg-white rounded-2xl w-full max-w-sm max-h-[85vh] overflow-y-auto shadow-2xl"
-      onClick={e => e.stopPropagation()}
-    >
-      {/* Header contatto */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-5 rounded-t-2xl text-white relative">
-        <button
-          onClick={() => setQuickContactDetail(null)}
-          className="absolute top-3 right-3 p-1.5 hover:bg-white/20 rounded-lg transition"
-        >
-          <X className="w-4 h-4" />
-        </button>
-        <div className="flex items-center gap-4">
-          {(() => {
-            const c = quickContactDetail;
-            const initials = (c.name || 'U').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
-            const colors = ['bg-blue-400', 'bg-purple-400', 'bg-green-400', 'bg-orange-400', 'bg-pink-400', 'bg-teal-400'];
-            const color = colors[c.name?.charCodeAt(0) % colors.length] || 'bg-blue-400';
-            return (
-              <div className={`w-16 h-16 ${color} rounded-full flex items-center justify-center text-white text-xl font-bold shrink-0 overflow-hidden border-2 border-white/30`}>
-                {c.avatar_url 
-                  ? <img src={c.avatar_url} alt={c.name} className="w-full h-full object-cover" />
-                  : initials
-                }
-              </div>
-            );
-          })()}
-          <div className="min-w-0">
-            <h3 className="text-lg font-bold truncate">{quickContactDetail.name}</h3>
-            <p className="text-blue-100 text-sm truncate">{quickContactDetail.email}</p>
-            <span className={`inline-flex items-center gap-1 mt-1 text-xs px-2 py-0.5 rounded-full font-medium ${
-              quickContactDetail.status === 'active' 
-                ? 'bg-green-400/30 text-green-100' 
-                : 'bg-red-400/30 text-red-100'
-            }`}>
-              {quickContactDetail.status === 'active' ? '● Attivo' : '● Inattivo'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Corpo info */}
-      <div className="p-4 space-y-3">
-
-        {/* Email secondarie */}
-        {(quickContactDetail.email_2 || quickContactDetail.email_3 || quickContactDetail.email_4) && (
-          <div className="bg-gray-50 rounded-xl p-3 space-y-1">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Email aggiuntive</p>
-            {quickContactDetail.email_2 && <p className="text-sm text-gray-700 flex items-center gap-2"><Mail className="w-3.5 h-3.5 text-gray-400" />{quickContactDetail.email_2}</p>}
-            {quickContactDetail.email_3 && <p className="text-sm text-gray-700 flex items-center gap-2"><Mail className="w-3.5 h-3.5 text-gray-400" />{quickContactDetail.email_3}</p>}
-            {quickContactDetail.email_4 && <p className="text-sm text-gray-700 flex items-center gap-2"><Mail className="w-3.5 h-3.5 text-gray-400" />{quickContactDetail.email_4}</p>}
-          </div>
-        )}
-
-        {/* Dettagli professionali */}
-        {(quickContactDetail.sector_id || quickContactDetail.channel_id || quickContactDetail.contact_role_id) && (
-          <div className="bg-gray-50 rounded-xl p-3 space-y-2">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Informazioni</p>
-            {quickContactDetail.sector_name && (
-              <div className="flex items-center gap-2 text-sm text-gray-700">
-                <span className="text-gray-400 text-xs w-16 shrink-0">Settore</span>
-                <span className="font-medium">{quickContactDetail.sector_name}</span>
-              </div>
-            )}
-            {quickContactDetail.channel_name && (
-              <div className="flex items-center gap-2 text-sm text-gray-700">
-                <span className="text-gray-400 text-xs w-16 shrink-0">Canale</span>
-                <span className="font-medium">{quickContactDetail.channel_name}</span>
-              </div>
-            )}
-            {quickContactDetail.role_name && (
-              <div className="flex items-center gap-2 text-sm text-gray-700">
-                <span className="text-gray-400 text-xs w-16 shrink-0">Ruolo</span>
-                <span className="font-medium">{quickContactDetail.role_name}</span>
-              </div>
-            )}
-            {quickContactDetail.area_nome && (
-              <div className="flex items-center gap-2 text-sm text-gray-700">
-                <span className="text-gray-400 text-xs w-16 shrink-0">Area</span>
-                <span className="font-medium">{quickContactDetail.area_nome}</span>
-              </div>
-            )}
-            {quickContactDetail.testata_nome && (
-              <div className="flex items-center gap-2 text-sm text-gray-700">
-                <span className="text-gray-400 text-xs w-16 shrink-0">Testata</span>
-                <span className="font-medium">{quickContactDetail.testata_nome}</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Tags */}
-        {quickContactDetail.tags?.length > 0 && (
-          <div className="bg-gray-50 rounded-xl p-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tag</p>
-            <div className="flex flex-wrap gap-1.5">
-              {quickContactDetail.tags.map((tag, i) => (
-                <span key={i} className="text-xs bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full font-medium">{tag}</span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Note */}
-        {quickContactDetail.note && (
-          <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
-            <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-1">Note</p>
-            <p className="text-sm text-gray-700 leading-relaxed">{quickContactDetail.note}</p>
-          </div>
-        )}
-
-        {/* Azioni */}
-        <div className="flex gap-2 pt-1">
-          
-            <a href={`mailto:${quickContactDetail.email}`}
-            className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium transition"
-          >
-            <Mail className="w-4 h-4" />
-            Invia email
-          </a>
-          <button
-            onClick={() => { 
-              setQuickContactDetail(null); 
-              setShowQuickContacts(false); 
-              setActiveTab('contacts'); 
-            }}
-            className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition"
-          >
-            <ExternalLink className="w-4 h-4" />
-            Vai ai contatti
-          </button>
-        </div>
       </div>
     </div>
   </div>
