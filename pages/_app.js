@@ -13,14 +13,24 @@ import "leaflet/dist/leaflet.css";
 
 export default function App({ Component, pageProps }) {
   useEffect(() => {
-    console.log('🛡️ Error handlers registrati');
-    
+    // ✅ Sopprimi AuthSessionMissingError dalla console
+    const originalConsoleError = console.error;
+    console.error = (...args) => {
+      const msg = args[0]?.message || args[0] || '';
+      if (
+        msg.includes?.('Auth session missing') ||
+        String(msg).includes('Auth session missing')
+      ) {
+        return; // ✅ ignora silenziosamente
+      }
+      originalConsoleError(...args);
+    };
+  
     const handleUnhandledRejection = (event) => {
       if (
         event.reason?.message?.includes('Auth session missing') || 
         event.reason?.message?.includes('session_not_found')
       ) {
-        console.log('ℹ️ _app: Auth session missing (promise rejection prevenuta)');
         event.preventDefault();
       }
     };
@@ -30,7 +40,6 @@ export default function App({ Component, pageProps }) {
         event.error?.message?.includes('Auth session missing') ||
         event.message?.includes('Auth session missing')
       ) {
-        console.log('ℹ️ _app: Auth session missing (error prevenuto)');
         event.preventDefault();
       }
     };
@@ -39,12 +48,12 @@ export default function App({ Component, pageProps }) {
     window.addEventListener('error', handleError);
     
     return () => {
-      console.log('🛡️ Error handlers rimossi');
+      console.error = originalConsoleError; // ✅ ripristina al cleanup
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
       window.removeEventListener('error', handleError);
     };
   }, []);
-
+  
   return (
     <AuthProvider>
        {/* ✅ Aggiungi PermissionsProvider qui */}

@@ -3,6 +3,7 @@ import { Paperclip, FileText, Download, ExternalLink, X } from "lucide-react";
 import Select from "react-select";
 import { TiptapEditor } from "./TiptapEditor";
 import { ConfirmModal } from "./ConfirmModal";
+import { supabase } from '../../lib/supabaseClient';
 
 /* 🧩 Hook per animazioni fluide */
 const useAnimatedUnmount = (isMounted, delay = 250) => {
@@ -174,6 +175,23 @@ export const EditCampaignModal = ({ campaign, onClose, onSave, loadNotifications
     };
     await new Promise((r) => setTimeout(r, 800));
     onSave(updatedCampaign);
+  
+    // ✅ Notifica modifica campagna
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      await supabase.from('notifications').insert({
+        user_id: user.id,
+        title: `✏️ Campagna "${campaignName}" modificata`,
+        description: `Oggetto: ${subject}`,
+        type: 'info',
+        read: false,
+        visible_to: 'all',
+      });
+      if (loadNotifications) loadNotifications();
+    } catch (notifError) {
+      console.warn('⚠️ Notifica fallita:', notifError.message);
+    }
+  
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 2500);
     onClose();

@@ -9905,11 +9905,13 @@ const handleLoadList = (list) => {
   useEffect(() => { if (contactLabelsProp?.length) setContactLabels(contactLabelsProp); }, [contactLabelsProp]);
   useEffect(() => {
     const loadCount = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return; // ✅ Esci se non c'è sessione
+      
       const { count } = await supabase
         .from('contact_lists')
         .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id);
+        .eq('user_id', session.user.id);
       setSavedListsCount(count || 0);
     };
     loadCount();

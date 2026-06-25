@@ -28,31 +28,32 @@ export const PermissionsProvider = ({ children }) => {
       checkSession();
       isInitialized.current = true;
     }
-
+  
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('🔐 Auth event in PermissionsContext:', event);
         
         if (event === 'INITIAL_SESSION') return;
+        if (event === 'TOKEN_REFRESHED') return;
+  
+        // ✅ Gestisci logout
+        if (event === 'SIGNED_OUT') {
+          currentUserIdRef.current = null;
+          profileLoadedRef.current = false;
+          clearPermissions();
+          return;
+        }
         
-        // ✅ Ignora SIGNED_IN duplicati entro 10 secondi
         if (event === 'SIGNED_IN') {
           const now = Date.now();
           if (now - lastSignInRef.current < 10000) {
-            console.log('🚫 SIGNED_IN duplicato ignorato in PermissionsContext');
+            console.log('🚫 SIGNED_IN duplicato ignorato');
             return;
           }
           lastSignInRef.current = now;
         }
-
-        // ✅ Ignora TOKEN_REFRESHED — non ricaricare permessi
-        if (event === 'TOKEN_REFRESHED') {
-          console.log('⏭️ TOKEN_REFRESHED ignorato');
-          return;
-        }
-
+  
         if (session?.user) {
-          // ✅ Se è lo stesso utente già caricato, non ricaricare
           if (currentUserIdRef.current === session.user.id && profileLoadedRef.current) {
             console.log('⏭️ Stesso utente già caricato, skip');
             return;
@@ -60,78 +61,93 @@ export const PermissionsProvider = ({ children }) => {
           await fetchProfileAndPermissions(session.user.id);
         } else {
           currentUserIdRef.current = null;
+          profileLoadedRef.current = false;
           clearPermissions();
         }
       }
     );
-
+  
     return () => subscription?.unsubscribe();
   }, []);
 
   const checkSession = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        await fetchProfileAndPermissions(session.user.id);
-      } else {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error || !session) {
         clearPermissions();
+        return;
       }
+      await fetchProfileAndPermissions(session.user.id);
     } catch (error) {
+      if (error.message?.includes('Auth session missing')) {
+        clearPermissions();
+        return;
+      }
       console.error('❌ Errore controllo sessione:', error);
       clearPermissions();
     }
   };
-
+  
   const fetchProfileAndPermissions = async (userId) => {
     try {
-      // ✅ Non mostrare loading se abbiamo già i dati per questo utente
       if (currentUserIdRef.current !== userId) {
         setLoading(true);
       }
-
+  
+      // ✅ Verifica sessione prima di fare query al DB
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        clearPermissions();
+        return;
+      }
+  
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select(`*, role:roles (id, name, description)`)
         .eq('id', userId)
         .single();
-
+  
       if (profileError || !profileData) {
         clearPermissions();
         return;
       }
-
-      // ✅ Aggiorna ref utente corrente
+  
       currentUserIdRef.current = userId;
-      profileLoadedRef.current = true; // ← aggiungi questa riga
-
+      profileLoadedRef.current = true;
+  
       setProfile(profileData);
       setRole(profileData.role);
-
+  
       if (!profileData.role_id) {
         setPermissions([]);
         return;
       }
-
+  
       const { data: permissionsData, error: permissionsError } = await supabase
         .from('role_permissions')
         .select(`permission:permissions (id, name, description, module, action)`)
         .eq('role_id', profileData.role_id);
-
+  
       if (permissionsError) {
         setPermissions([]);
         return;
       }
-
+  
       const perms = permissionsData.map(item => item.permission).filter(Boolean);
       setPermissions(perms);
-
+  
       console.log('✅ Permessi caricati:', {
         profile: profileData.full_name || profileData.email,
         role: profileData.role?.name,
         permissions_count: perms.length
       });
-
+  
     } catch (error) {
+      // ✅ Ignora silenziosamente AuthSessionMissingError
+      if (error.message?.includes('Auth session missing')) {
+        clearPermissions();
+        return;
+      }
       console.error('❌ Errore caricamento permessi:', error);
       clearPermissions();
     } finally {
