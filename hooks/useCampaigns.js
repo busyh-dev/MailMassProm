@@ -28,7 +28,7 @@ export const useCampaigns = () => {
     };
   
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
         loadCampaigns();
       }
       if (event === 'SIGNED_OUT') {
@@ -79,45 +79,6 @@ export const useCampaigns = () => {
       setLoading(false);
     }
   };
-  // ✅ Carica campagne al mount
-  useEffect(() => {
-    let retryCount = 0;
-    const maxRetries = 3;
-  
-    const tryLoad = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (session?.user) {
-        loadCampaigns();
-        return;
-      }
-  
-      if (retryCount < maxRetries) {
-        retryCount++;
-        console.log(`⏳ Sessione non pronta, retry ${retryCount}/${maxRetries}...`);
-        setTimeout(tryLoad, 1500 * retryCount);
-      } else {
-        console.warn('⚠️ Sessione non disponibile dopo 3 tentativi');
-        setLoading(false);
-      }
-    };
-  
-    // ✅ Ascolta anche il SIGNED_IN per ricaricare
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        loadCampaigns();
-      }
-      if (event === 'SIGNED_OUT') {
-        setCampaigns([]);
-        setLoading(false);
-      }
-    });
-  
-    tryLoad();
-  
-    return () => subscription.unsubscribe();
-  }, []);
-
 
   // 💾 Salva campagna (crea o aggiorna)
   const saveCampaign = async (campaignData, isDraft = true) => {

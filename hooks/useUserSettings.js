@@ -29,18 +29,16 @@ export const useUserSettings = () => {
         .from('user_settings')
         .select('*')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
-      if (error) {
-        // Se non esistono impostazioni, crea record con valori default
-        if (error.code === 'PGRST116') {
-          await createDefaultSettings();
-          return;
-        }
-        throw error;
+      if (error) throw error;
+
+      if (data) {
+        setSettings(data);
+        return;
       }
 
-      setSettings(data);
+      await createDefaultSettings();
     } catch (error) {
       console.error('❌ Errore caricamento impostazioni:', error);
       toast.error('Errore nel caricamento delle impostazioni');
@@ -74,7 +72,18 @@ export const useUserSettings = () => {
         .from('user_settings')
         .insert([defaultSettings])
         .select()
-        .single();
+        .maybeSingle();
+
+      if (error?.code === '23505') {
+        const { data: existing, error: fetchError } = await supabase
+          .from('user_settings')
+          .select('*')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (fetchError) throw fetchError;
+        setSettings(existing);
+        return;
+      }
 
       if (error) throw error;
 

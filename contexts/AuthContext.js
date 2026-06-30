@@ -111,9 +111,6 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
-      // ✅ Ignora INITIAL_SESSION
-      if (event === 'INITIAL_SESSION') return;
-
       // ✅ SIGNED_IN
       if (event === 'SIGNED_IN') {
         const now = Date.now();

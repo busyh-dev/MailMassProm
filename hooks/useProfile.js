@@ -9,16 +9,26 @@ export const useProfile = () => {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    loadProfile();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user && (event === 'INITIAL_SESSION' || event === 'SIGNED_IN')) {
+        loadProfile(session.user);
+      }
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setProfile(null);
+        setLoading(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const loadProfile = async () => {
+  const loadProfile = async (knownUser) => {
     try {
       setLoading(true);
 
-      const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      if (!currentUser) throw new Error('Utente non autenticato');
+      const currentUser = knownUser ?? (await supabase.auth.getUser()).data?.user;
+      if (!currentUser) return;
 
       setUser(currentUser);
 
@@ -26,51 +36,61 @@ export const useProfile = () => {
         .from('user_settings')
         .select('*')
         .eq('user_id', currentUser.id)
-        .single();
+        .maybeSingle();
 
-      if (profileError && profileError.code !== 'PGRST116') throw profileError;
+      if (profileError) throw profileError;
 
-      if (!profileData) {
-        const newProfile = {
-          user_id: currentUser.id,
-          email: currentUser.email,
-          name: currentUser.user_metadata?.name || currentUser.user_metadata?.full_name || '',
-          role: 'user',
-          language: 'it',
-          timezone: 'Europe/Rome',
-          date_format: 'DD/MM/YYYY',
-          time_format: '24h',
-          notify_new_campaigns: true,
-          notify_campaign_results: true,
-          notify_urgent_updates: true,
-          notify_push_new_tasks: true,
-          notify_push_mentions: true,
-          notify_push_reminders: true,
-          reminder_weekly_review: true,
-          notify_report_weekly: true,
-          notify_new_contacts: true,
-          reminder_clock_in: true,
-          accept_offers: false,
-          smtp_server: '',
-          smtp_port: 587,
-          sender_email: '',
-          two_factor_enabled: false,
-          auto_login: true,
-        };
-
-        const { data: createdProfile, error: createError } = await supabase
-          .from('user_settings')
-          .insert([newProfile])
-          .select()
-          .single();
-
-        if (createError) throw createError;
-        setProfile(createdProfile);
-      } else {
-        if (JSON.stringify(profileData) !== JSON.stringify(profile)) {
-          setProfile(profileData);
-        }
+      if (profileData) {
+        setProfile(profileData);
+        return;
       }
+
+      const newProfile = {
+        user_id: currentUser.id,
+        email: currentUser.email,
+        name: currentUser.user_metadata?.name || currentUser.user_metadata?.full_name || '',
+        role: 'user',
+        language: 'it',
+        timezone: 'Europe/Rome',
+        date_format: 'DD/MM/YYYY',
+        time_format: '24h',
+        notify_new_campaigns: true,
+        notify_campaign_results: true,
+        notify_urgent_updates: true,
+        notify_push_new_tasks: true,
+        notify_push_mentions: true,
+        notify_push_reminders: true,
+        reminder_weekly_review: true,
+        notify_report_weekly: true,
+        notify_new_contacts: true,
+        reminder_clock_in: true,
+        accept_offers: false,
+        smtp_server: '',
+        smtp_port: 587,
+        sender_email: '',
+        two_factor_enabled: false,
+        auto_login: true,
+      };
+
+      const { data: createdProfile, error: createError } = await supabase
+        .from('user_settings')
+        .insert([newProfile])
+        .select()
+        .maybeSingle();
+
+      if (createError?.code === '23505') {
+        const { data: existingProfile, error: fetchError } = await supabase
+          .from('user_settings')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .maybeSingle();
+        if (fetchError) throw fetchError;
+        setProfile(existingProfile);
+        return;
+      }
+
+      if (createError) throw createError;
+      setProfile(createdProfile);
     } catch (error) {
       console.error('❌ Errore nel caricamento del profilo:', error);
     } finally {

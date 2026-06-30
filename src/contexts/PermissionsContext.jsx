@@ -33,7 +33,6 @@ export const PermissionsProvider = ({ children }) => {
       async (event, session) => {
         console.log('🔐 Auth event in PermissionsContext:', event);
         
-        if (event === 'INITIAL_SESSION') return;
         if (event === 'TOKEN_REFRESHED') return;
   
         // ✅ Gestisci logout
