@@ -90,56 +90,56 @@ const monthlyData = Object.values(
       <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
 
       {/* Statistiche */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
 
         {/* Campagne */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
+        <div className="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700">
           <div className="flex items-center">
-            <div className="p-3 rounded-full bg-blue-100 text-blue-600">
+            <div className="p-3 rounded-xl bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400">
               <Mail className="w-6 h-6" />
             </div>
             <div className="ml-4">
-              <p className="text-sm text-gray-600">Campagne Totali</p>
-              <p className="text-2xl font-bold">{totalCampaigns}</p>
+              <p className="text-sm font-medium text-gray-500 dark:text-slate-400">Campagne Totali</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalCampaigns}</p>
             </div>
           </div>
         </div>
 
         {/* Contatti */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
+        <div className="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700">
           <div className="flex items-center">
-            <div className="p-3 rounded-full bg-green-100 text-green-600">
+            <div className="p-3 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400">
               <Users className="w-6 h-6" />
             </div>
             <div className="ml-4">
-              <p className="text-sm text-gray-600">Contatti Attivi</p>
-              <p className="text-2xl font-bold">{activeContacts}</p>
+              <p className="text-sm font-medium text-gray-500 dark:text-slate-400">Contatti Attivi</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{activeContacts}</p>
             </div>
           </div>
         </div>
 
         {/* Email Inviate */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
+        <div className="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700">
           <div className="flex items-center">
-            <div className="p-3 rounded-full bg-orange-100 text-orange-600">
+            <div className="p-3 rounded-xl bg-orange-100 dark:bg-orange-900/50 text-orange-600 dark:text-orange-400">
               <Send className="w-6 h-6" />
             </div>
             <div className="ml-4">
-              <p className="text-sm text-gray-600">Email Inviate</p>
-              <p className="text-2xl font-bold">{totalEmailsSent}</p>
+              <p className="text-sm font-medium text-gray-500 dark:text-slate-400">Email Inviate</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalEmailsSent}</p>
             </div>
           </div>
         </div>
 
         {/* Open Rate */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
+        <div className="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700">
           <div className="flex items-center">
-            <div className="p-3 rounded-full bg-purple-100 text-purple-600">
+            <div className="p-3 rounded-xl bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400">
               <BarChart3 className="w-6 h-6" />
             </div>
             <div className="ml-4">
-              <p className="text-sm text-gray-600">Tasso Apertura</p>
-              <p className="text-2xl font-bold">
+              <p className="text-sm font-medium text-gray-500 dark:text-slate-400">Tasso Apertura</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">
                 {avgOpenRate ? avgOpenRate.toFixed(1) + "%" : "-"}
               </p>
             </div>
@@ -148,15 +148,16 @@ const monthlyData = Object.values(
       </div>
 
       {/* Campagne Recenti */}
-      <div className="bg-white rounded-lg shadow-sm border">
-        <div className="p-6 border-b flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Campagne Recenti</h3>
-          <a href="/campagne" className="text-blue-600 hover:text-blue-800 text-sm font-medium">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
+        <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
+          <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">Campagne Recenti</h3>
+          <a href="/campagne" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium">
             Vedi tutte →
           </a>
         </div>
 
-        <table className="min-w-full divide-y divide-gray-200">
+        <div className="overflow-x-auto no-scrollbar">
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-700">
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-3 text-left text-xs text-gray-500 uppercase tracking-wider">

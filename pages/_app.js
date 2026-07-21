@@ -13,15 +13,16 @@ import "leaflet/dist/leaflet.css";
 
 export default function App({ Component, pageProps }) {
   useEffect(() => {
-    // ✅ Sopprimi AuthSessionMissingError dalla console
+    // Sopprimi AuthSessionMissingError dalla console (è normale senza sessione attiva)
     const originalConsoleError = console.error;
     console.error = (...args) => {
       const msg = args[0]?.message || args[0] || '';
       if (
         msg.includes?.('Auth session missing') ||
-        String(msg).includes('Auth session missing')
+        String(msg).includes('Auth session missing') ||
+        args[0]?.name === 'AuthSessionMissingError'
       ) {
-        return; // ✅ ignora silenziosamente
+        return;
       }
       originalConsoleError(...args);
     };
@@ -29,7 +30,8 @@ export default function App({ Component, pageProps }) {
     const handleUnhandledRejection = (event) => {
       if (
         event.reason?.message?.includes('Auth session missing') || 
-        event.reason?.message?.includes('session_not_found')
+        event.reason?.message?.includes('session_not_found') ||
+        event.reason?.name === 'AuthSessionMissingError'
       ) {
         event.preventDefault();
       }
@@ -38,7 +40,8 @@ export default function App({ Component, pageProps }) {
     const handleError = (event) => {
       if (
         event.error?.message?.includes('Auth session missing') ||
-        event.message?.includes('Auth session missing')
+        event.message?.includes('Auth session missing') ||
+        event.error?.name === 'AuthSessionMissingError'
       ) {
         event.preventDefault();
       }
@@ -48,7 +51,7 @@ export default function App({ Component, pageProps }) {
     window.addEventListener('error', handleError);
     
     return () => {
-      console.error = originalConsoleError; // ✅ ripristina al cleanup
+      console.error = originalConsoleError;
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
       window.removeEventListener('error', handleError);
     };

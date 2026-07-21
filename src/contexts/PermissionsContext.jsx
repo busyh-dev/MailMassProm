@@ -163,9 +163,14 @@ export const PermissionsProvider = ({ children }) => {
     profileLoadedRef.current = false; // ← aggiungi
   };
 
+  const isSuperAdminRole = (r) => {
+    const name = r?.name || r;
+    return name === 'super_admin' || name === 'SuperAdmin' || name?.toLowerCase() === 'super_admin';
+  };
+
   const hasPermission = (permissionName) => {
     if (!profile || !permissions.length) return false;
-    if (role?.name === 'super_admin') return true;
+    if (isSuperAdminRole(role)) return true;
     return permissions.some(p => p.name === permissionName);
   };
 
@@ -181,7 +186,7 @@ export const PermissionsProvider = ({ children }) => {
 
   const canAccessModule = (moduleName) => {
     if (!profile || !permissions.length) return false;
-    if (role?.name === 'super_admin') return true;
+    if (isSuperAdminRole(role)) return true;
     return permissions.some(p => p.module === moduleName);
   };
 
@@ -190,7 +195,7 @@ export const PermissionsProvider = ({ children }) => {
   };
 
   const canAccessResource = (resourceType, resourceId, action = 'read') => {
-    if (role?.name === 'super_admin') return true;
+    if (isSuperAdminRole(role)) return true;
     return hasPermission(`${resourceType}.${action}`);
   };
 
@@ -206,8 +211,8 @@ export const PermissionsProvider = ({ children }) => {
     profile, permissions, role, loading,
     hasPermission, hasAnyPermission, hasAllPermissions,
     canAccessModule, canPerformAction, canAccessResource,
-    isSuperAdmin: role?.name === 'super_admin',
-    isAdmin: role?.name === 'admin' || role?.name === 'super_admin',
+    isSuperAdmin: isSuperAdminRole(role),
+    isAdmin: role?.name === 'admin' || isSuperAdminRole(role),
     isEditor: role?.name === 'editor',
     isViewer: role?.name === 'viewer',
     isUser: role?.name === 'user',

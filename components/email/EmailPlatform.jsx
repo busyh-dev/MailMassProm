@@ -4,6 +4,7 @@ import { useEditorState } from '../../contexts/EditorContext';
 import React, { useState, useEffect, useRef, useMemo, memo, useCallback  } from 'react';
 import { createPortal } from 'react-dom';
 import { usePushNotifications } from '../../hooks/usePushNotifications';
+import { useDarkMode } from '../../hooks/useDarkMode';
 import Select from 'react-select';
 import { useAuth } from '../../contexts/AuthContext';
 import ContactListsModal from '../../components/contacts/ContactListsModal';
@@ -131,7 +132,7 @@ import {
   Sun,
   Building2,
   Save,
-  GripVertical, // 👈 AGGIUNGILA QUI
+  GripVertical,
   UserPlus
 } from 'lucide-react';
 
@@ -831,6 +832,33 @@ const useAnimatedUnmount = (isMounted, delay = 250) => {
   return { shouldRender, animationClass };
 };
 const _usersLoaded = { current: false };
+
+const DarkModeToggle = () => {
+  const { isDark, toggle, mounted } = useDarkMode();
+
+  if (!mounted) return null;
+
+  return (
+    <button
+      onClick={toggle}
+      className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200 group"
+      title={isDark ? "Passa alla modalità Chiara" : "Passa alla modalità Scura"}
+    >
+      {isDark ? (
+        <>
+          <Sun className="w-4 h-4 text-amber-400 group-hover:rotate-45 transition-transform duration-300" />
+          <span className="text-sm font-medium hidden md:inline">Chiaro</span>
+        </>
+      ) : (
+        <>
+          <Moon className="w-4 h-4 text-indigo-600 group-hover:-rotate-12 transition-transform duration-300" />
+          <span className="text-sm font-medium hidden md:inline">Scuro</span>
+        </>
+      )}
+    </button>
+  );
+};
+
 const EmailPlatform = () => {
   // ✅ useCampaigns QUI - con nomi diversi per evitare conflitti
   const {
@@ -1183,10 +1211,15 @@ const fetchContacts = useCallback(async () => {
     const pageSize = 1000;
     
     while (true) {
-      const { data, error } = await supabase
+      let query = supabase
         .from('contacts_full')
-        .select('*')
-        .eq('user_id', user.id)
+        .select('*');
+
+      if (!isSuperAdmin) {
+        query = query.eq('user_id', user.id);
+      }
+
+      const { data, error } = await query
         .order('created_at', { ascending: true })
         .range(page * pageSize, (page + 1) * pageSize - 1);
 
@@ -1206,7 +1239,7 @@ const fetchContacts = useCallback(async () => {
   } finally {
     setContactsLoading(false);
   }
-}, [user?.id]);
+}, [user?.id, isSuperAdmin]);
 
 // ✅ Carica contatti al mount
 useEffect(() => {
@@ -1783,7 +1816,7 @@ useEffect(() => {
   fetchTipologiaCanale();     // ✅
   fetchPeriodicitaCanale();   // ✅
   fetchCoperturaCanale();     // ✅
-}, []); // 🔥 RIMOSSO user?.id dalla dependency array
+}, []); 
 
 useEffect(() => {
   if (!user?.id) return;
@@ -1802,21 +1835,6 @@ useEffect(() => {
 useEffect(() => {
   console.log('🟡 EmailPlatform RE-RENDER');
 });
-
-// const fetchRoles = async () => {
-//   try {
-//     const { data, error } = await supabase
-//       .from('roles')
-//       .select('*')
-//       .order('name');
-
-//     if (error) throw error;
-//     setAvailableRoles(data || []);
-//   } catch (error) {
-//     console.error('❌ Errore caricamento ruoli:', error);
-//     toast.error('Errore nel caricamento dei ruoli');
-//   }
-// };
 
 const handleApproveUser = (userId, userName, userEmail) => {
   setUserToApprove({ id: userId, name: userName, email: userEmail });
@@ -1903,20 +1921,73 @@ useEffect(() => {
   loadCurrentUser();
 }, []);
 
-const handleChangeUserRole = async (userId, newRoleId, userName) => {
+const handleChangeUserRole = async (userId, newRoleValue, userName) => {
   try {
-    const { error } = await supabase
-      .from('profiles')
-      .update({ role_id: newRoleId, updated_at: new Date().toISOString() })
-      .eq('id', userId);
+    if (!newRoleValue) return;
 
-    if (error) throw error;
+    let targetRoleId = null;
 
-    toast.success(`✅ Ruolo aggiornato per ${userName}`);
-    fetchApprovedUsers();
+    // 1. Se è un valore numerico (ID del ruolo nel DB)
+    if (!isNaN(newRoleValue) && !isNaN(parseInt(newRoleValue))) {
+      targetRoleId = parseInt(newRoleValue, 10);
+    } else {
+      // 2. Cerca nella tabella 'roles' in Supabase per far combaciare il nome
+      const { data: allRoles, error: rolesErr } = await supabase
+        .from('roles')
+        .select('id, name');
+
+      if (!rolesErr && allRoles && allRoles.length > 0) {
+        setAvailableRoles(allRoles);
+
+        const cleanSearch = String(newRoleValue).toLowerCase().replace(/[^a-z0-9]/g, '');
+        const matched = allRoles.find(r => {
+          const cleanName = String(r.name).toLowerCase().replace(/[^a-z0-9]/g, '');
+          return cleanName === cleanSearch || r.name.toLowerCase() === String(newRoleValue).toLowerCase();
+        });
+
+        if (matched) {
+          targetRoleId = matched.id;
+        }
+      }
+
+      // 3. Se il ruolo non esiste ancora nella tabella 'roles', inseriscilo al volo per ottenere un ID numerico valido
+      if (targetRoleId === null) {
+        console.log(`📌 Creazione del ruolo '${newRoleValue}' nella tabella roles...`);
+        const { data: newRole, error: insertErr } = await supabase
+          .from('roles')
+          .insert([{ name: newRoleValue, description: `Ruolo ${newRoleValue}` }])
+          .select()
+          .maybeSingle();
+
+        if (newRole?.id) {
+          targetRoleId = newRole.id;
+        }
+      }
+    }
+
+    // 4. Aggiorna il profilo utente con l'ID del ruolo numerico
+    if (targetRoleId !== null && !isNaN(targetRoleId)) {
+      const { error: updateErr } = await supabase
+        .from('profiles')
+        .update({ role_id: targetRoleId, updated_at: new Date().toISOString() })
+        .eq('id', userId);
+
+      if (updateErr) throw updateErr;
+    } else {
+      // Fallback per tabella con colonna testuale 'role'
+      const { error: textErr } = await supabase
+        .from('profiles')
+        .update({ role: newRoleValue, updated_at: new Date().toISOString() })
+        .eq('id', userId);
+
+      if (textErr) throw textErr;
+    }
+
+    toast.success(`✅ Ruolo aggiornato per ${userName || 'Utente'}`);
+    if (fetchApprovedUsers) fetchApprovedUsers();
   } catch (error) {
     console.error('❌ Errore cambio ruolo:', error);
-    toast.error('Errore durante l\'aggiornamento del ruolo');
+    toast.error(`❌ Errore cambio ruolo: ${error.message || 'Errore aggiornamento database'}`);
   }
 };
 
@@ -1953,7 +2024,7 @@ useEffect(() => {
 
 useEffect(() => {
   const loadLatestLogs = async () => {
-    const { data } = await supabase
+    let query = supabase
       .from("email_logs")
       .select(`
         campaign_id,
@@ -1961,15 +2032,19 @@ useEffect(() => {
         sent_at,
         total_recipients,
         opened_count
-      `)
-      .eq("user_id", user.id)
-      .order("sent_at", { ascending: false });
+      `);
+
+    if (!isSuperAdmin) {
+      query = query.eq("user_id", user.id);
+    }
+
+    const { data } = await query.order("sent_at", { ascending: false });
 
     setLogsFromDb(data || []);
   };
 
   if (user?.id) loadLatestLogs();
-}, [user?.id]);
+}, [user?.id, isSuperAdmin]);
 // Funzione che apre il modal di conferma rifiuto
 const handleRejectUser = (userId, userName, userEmail) => {
   setUserToReject({ id: userId, name: userName, email: userEmail });
@@ -3483,11 +3558,11 @@ const printReport = () => {
       Panoramica delle tue campagne email · {new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
     </p>
   </div>
-  <div className="flex items-center gap-2 flex-wrap">
+  <div className="flex items-center gap-2.5 flex-wrap">
     {/* Export Excel */}
     <button
       onClick={exportToExcel}
-      className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+      className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200"
     >
       <Download className="w-4 h-4" />
       Esporta Excel
@@ -3496,7 +3571,7 @@ const printReport = () => {
     {/* Stampa/PDF */}
     <button
       onClick={printReport}
-      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+      className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm shadow-indigo-500/20 hover:shadow-md hover:shadow-indigo-500/30 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200"
     >
       <FileText className="w-4 h-4" />
       Stampa/PDF
@@ -3505,7 +3580,7 @@ const printReport = () => {
     {/* Nuova Campagna */}
     <button
       onClick={() => setActiveTab('campaigns')}
-      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+      className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm shadow-blue-500/20 hover:shadow-md hover:shadow-blue-500/30 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200"
     >
       <Mail className="w-4 h-4" />
       Nuova Campagna
@@ -15215,13 +15290,22 @@ useEffect(() => {
     if (hasChanges) {
       setShowConfirmExit(true);
     } else {
-      // ✅ Pulizia session storage
+      // Nessuna modifica: torna alla schermata di selezione modalità
       sessionStorage.removeItem('isBuilderTemplate');
       sessionStorage.removeItem('builderTemplate');
       sessionStorage.removeItem('builderBlocks');
       sessionStorage.removeItem('currentEmailContent');
       setIsBuilderTemplate(false);
-      setShowCampaignModal(false);
+      setCampaignMode(null);
+      setCampaignName("");
+      setSubject("");
+      setEmailContent("<p></p>");
+      setRecipientList([]);
+      setAttachments([]);
+      setCc("");
+      setBcc("");
+      setCcError("");
+      setBccError("");
     }
   };
 
@@ -16054,19 +16138,18 @@ try {
 
   const confirmExit = () => {
     setShowConfirmExit(false);
-    setShowCampaignModal(false);
-    setShowConfirmExit(false);
-  setCampaignMode(null);
-  setCampaignName("");
-  setSubject("");
-  setEmailContent("<p></p>");
-  setRecipientList([]);
-  setAttachments([]);
-  setCc("");
-  setBcc("");
-  setCcError("");
-  setBccError("");
-  setIsBuilderTemplate(false);
+    // Torna alla schermata di selezione modalità (NON chiudere il modal)
+    setCampaignMode(null);
+    setCampaignName("");
+    setSubject("");
+    setEmailContent("<p></p>");
+    setRecipientList([]);
+    setAttachments([]);
+    setCc("");
+    setBcc("");
+    setCcError("");
+    setBccError("");
+    setIsBuilderTemplate(false);
   };
 
   const fileToBase64 = (file) => {
@@ -17153,38 +17236,94 @@ if (campaignMode === 'builder') {
   }`}
 />
                 
-                      {/* ❌ ELIMINA BLOCCO */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCanvasBlocks(canvasBlocks.filter((_, i) => i !== index));
-                          toast.success(`🗑️ Blocco "${block.name}" rimosso`);
-                        }}
-                        className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                
-                      {/* 📄 DUPLICA BLOCCO */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const clone = {
-                            ...block,
-                            id: block.id, // 👈 FONDAMENTALE: garantisce che l’ID non si perda MAI
-                            html: block.html,
-                            instanceId: `${block.id || "block"}-${Date.now()}`,
-                          };
-                          
-                          const updated = [...canvasBlocks];
-                          updated.splice(index + 1, 0, clone);
-                          setCanvasBlocks(updated);
-                          toast.success("📄 Blocco duplicato!");
-                        }}
-                        className="absolute top-2 right-10 bg-blue-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </button>
+                      {/* 🛠️ BARRA CONTROLLI BLOCCO IN STILE MAILCHIMP */}
+                      <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200 bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm border border-slate-200 dark:border-slate-700 shadow-lg p-1 rounded-xl z-30">
+                        {/* Sposta Su */}
+                        {index > 0 && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const updated = [...canvasBlocks];
+                              const temp = updated[index];
+                              updated[index] = updated[index - 1];
+                              updated[index - 1] = temp;
+                              setCanvasBlocks(updated);
+                              toast.success("⬆️ Blocco spostato in alto");
+                            }}
+                            className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg transition"
+                            title="Sposta in alto"
+                          >
+                            <ChevronUp className="w-4 h-4" />
+                          </button>
+                        )}
+
+                        {/* Sposta Giù */}
+                        {index < canvasBlocks.length - 1 && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const updated = [...canvasBlocks];
+                              const temp = updated[index];
+                              updated[index] = updated[index + 1];
+                              updated[index + 1] = temp;
+                              setCanvasBlocks(updated);
+                              toast.success("⬇️ Blocco spostato in basso");
+                            }}
+                            className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg transition"
+                            title="Sposta in basso"
+                          >
+                            <ChevronDown className="w-4 h-4" />
+                          </button>
+                        )}
+
+                        {/* Modifica */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveStyleBlock({ ...block, index });
+                            setEditingSingleBlock({ ...block, index });
+                            setShowSingleBlockEditor(true);
+                          }}
+                          className="p-1.5 hover:bg-blue-50 dark:hover:bg-blue-950 text-blue-600 dark:text-blue-400 rounded-lg transition"
+                          title="Modifica contenuto e stile"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+
+                        {/* Duplica */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const clone = {
+                              ...block,
+                              id: block.id,
+                              html: block.html,
+                              instanceId: `${block.id || "block"}-${Date.now()}`,
+                            };
+                            const updated = [...canvasBlocks];
+                            updated.splice(index + 1, 0, clone);
+                            setCanvasBlocks(updated);
+                            toast.success("📄 Blocco duplicato!");
+                          }}
+                          className="p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-lg transition"
+                          title="Duplica blocco"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+
+                        {/* Rimuovi */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCanvasBlocks(canvasBlocks.filter((_, i) => i !== index));
+                            toast.success(`🗑️ Blocco rimosso`);
+                          }}
+                          className="p-1.5 hover:bg-red-50 dark:hover:bg-red-950 text-red-600 dark:text-red-400 rounded-lg transition"
+                          title="Elimina blocco"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                 
                       {/* 🟢 BADGE LIVE SUL BLOCCO ATTIVO */}
                       {activeStyleBlock?.index === index && (
@@ -17262,7 +17401,7 @@ if (campaignMode === 'builder') {
               // Avvia l'editing inline direttamente sul canvas
               handleInlineStart(activeStyleBlock, activeStyleBlock.index);
               setActiveStyleBlock(null); // Chiude il pannello laterale per dare spazio
-              toast.info("✏️ Modifica il testo direttamente nel template");
+              toast("✏️ Modifica il testo direttamente nel template");
             }}
             className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-2 font-bold shadow-md"
           >
@@ -26131,6 +26270,25 @@ if (loadingProfile && !user && !authUser) {
 {/* Solo per admin e super_admin */}
 {isAdmin && (
   <>
+{/* 👥 TAB TOTALE UTENTI (ATTIVI ED APPROVATI) */}
+<button
+  onClick={() => setActiveProfileTab('totale-utenti')}
+  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+    activeProfileTab === 'totale-utenti'
+      ? 'bg-blue-600 text-white'
+      : 'text-gray-700 hover:bg-gray-100'
+  }`}
+>
+  <Users className="w-5 h-5" />
+  <div className="flex-1 text-left">
+    <div className="font-medium">Totale Utenti</div>
+    <div className="text-xs opacity-75">Panoramica ed utenti attivi</div>
+  </div>
+  <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded-full">
+    {approvedUsers.length}
+  </span>
+</button>
+
 <button
   onClick={() => setActiveProfileTab('gestione-utenti')}
   className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
@@ -26625,6 +26783,23 @@ if (loadingProfile && !user && !authUser) {
     <p className="text-red-600 text-sm mt-1">⚠️ Le password non coincidono</p>
   )}
 </div>
+
+        {/* Selezione Ruolo Utente */}
+        <div>
+          <label htmlFor="register_role" className="block text-sm font-medium text-gray-700 mb-1">
+            Ruolo Utente *
+          </label>
+          <select
+            id="register_role"
+            value={registerData.role || 'User'}
+            onChange={(e) => setRegisterData({ ...registerData, role: e.target.value })}
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium"
+          >
+            <option value="super_admin">👑 SuperAdmin</option>
+            <option value="superUser">⚡ superUser</option>
+            <option value="User">👤 User</option>
+          </select>
+        </div>
 
         {/* Messaggio di info */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
@@ -27594,6 +27769,162 @@ if (loadingProfile && !user && !authUser) {
   </div>
 )}
 
+{/* 👥 TAB TOTALE UTENTI (PANORAMICA E UTENTI ATTIVI) */}
+{activeProfileTab === 'totale-utenti' && (
+  <div className="space-y-6">
+    {/* KPI Dashboard Utenti */}
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-2xs">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-blue-100 text-blue-600 rounded-lg">
+            <Users className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 font-medium">Totale Registrati</p>
+            <p className="text-xl font-bold text-gray-900">
+              {approvedUsers.length + pendingUsers.filter(u => u.status === 'pending').length + (rejectedUsers?.length || 0)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white border border-emerald-200 bg-emerald-50/20 rounded-xl p-4 shadow-2xs">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-emerald-100 text-emerald-600 rounded-lg">
+            <UserCheck className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-xs text-emerald-700 font-medium">Attivi / Approvati</p>
+            <p className="text-xl font-bold text-emerald-800">{approvedUsers.length}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white border border-amber-200 bg-amber-50/20 rounded-xl p-4 shadow-2xs">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-amber-100 text-amber-600 rounded-lg">
+            <Clock className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-xs text-amber-700 font-medium">In Attesa</p>
+            <p className="text-xl font-bold text-amber-800">
+              {pendingUsers.filter(u => u.status === 'pending').length}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white border border-red-200 bg-red-50/20 rounded-xl p-4 shadow-2xs">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-red-100 text-red-600 rounded-lg">
+            <XCircle className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-xs text-red-700 font-medium">Rifiutati</p>
+            <p className="text-xl font-bold text-red-800">{rejectedUsers?.length || 0}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* Header Sezione */}
+    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <Users className="w-6 h-6 text-blue-600" />
+        <div>
+          <h3 className="font-bold text-gray-900">Elenco Utenti Attivi ({approvedUsers.length})</h3>
+          <p className="text-xs text-gray-600">Visualizza, assegna ruoli e gestisci le autorizzazioni degli utenti attivi</p>
+        </div>
+      </div>
+      <button
+        onClick={() => setActiveProfileTab('registra-utente')}
+        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition"
+      >
+        <UserPlus className="w-4 h-4" />
+        Nuovo Utente
+      </button>
+    </div>
+
+    {/* Tabella Utenti Approvati */}
+    {loadingUsers && approvedUsers.length === 0 ? (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      </div>
+    ) : approvedUsers.length === 0 ? (
+      <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
+        <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+        <p className="text-gray-500">Nessun utente attivo presente</p>
+      </div>
+    ) : (
+      <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm overflow-hidden">
+        <table className="w-full text-left border-collapse">
+          <thead className="bg-slate-50/70 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            <tr>
+              <th className="py-3.5 px-4 sm:px-5">Utente</th>
+              <th className="py-3.5 px-4 hidden md:table-cell">Data Registrazione</th>
+              <th className="py-3.5 px-4">Ruolo</th>
+              <th className="py-3.5 px-4 hidden sm:table-cell">Stato</th>
+              <th className="py-3.5 px-4 sm:px-5 text-right">Azioni</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
+            {approvedUsers.map((user) => (
+              <tr key={user.id} className="hover:bg-slate-50/60 transition-colors">
+                <td className="py-3 px-4 sm:px-5">
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 shrink-0 bg-blue-100/80 text-blue-600 rounded-full flex items-center justify-center font-bold text-xs shadow-xs">
+                      {user?.display_name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || 'U'}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-800 truncate max-w-[130px] sm:max-w-[200px]">
+                        {user?.display_name || user?.full_name || 'Utente'}
+                      </div>
+                      <div className="text-xs text-slate-400 truncate max-w-[130px] sm:max-w-[200px]">{user.email}</div>
+                    </div>
+                  </div>
+                </td>
+                <td className="py-3 px-4 hidden md:table-cell text-xs text-slate-500 font-medium whitespace-nowrap">
+                  {user.created_at ? new Date(user.created_at).toLocaleDateString('it-IT') : '—'}
+                </td>
+                <td className="py-3 px-4">
+                  <select
+                    value={
+                      user.role?.name === 'super_admin' || user.role_id === 1 || user.role === 'super_admin' ? 'super_admin' :
+                      user.role?.name === 'superUser' || user.role_id === 2 || user.role === 'superUser' ? 'superUser' :
+                      'User'
+                    }
+                    onChange={(e) => handleChangeUserRole(user.id, e.target.value, user.full_name || user.display_name)}
+                    className="text-xs font-semibold border border-slate-200 rounded-lg px-2.5 py-1.5 bg-slate-50/50 hover:bg-white text-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none cursor-pointer transition"
+                  >
+                    <option value="super_admin">👑 SuperAdmin</option>
+                    <option value="superUser">⚡ superUser</option>
+                    <option value="User">👤 User</option>
+                  </select>
+                </td>
+                <td className="py-3 px-4 hidden sm:table-cell whitespace-nowrap">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Attivo
+                  </span>
+                </td>
+                <td className="py-3 px-4 sm:px-5 text-right whitespace-nowrap">
+                  <button
+                    onClick={() => handleRejectUser(user.id, user.full_name, user.email)}
+                    className="px-2.5 py-1 text-xs font-medium bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg transition border border-rose-200/50"
+                    title="Sospendi / Rifiuta accesso"
+                  >
+                    Sospendi
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </div>
+)}
+
 {/* 🆕 TAB GESTIONE UTENTI IN ATTESA */}
 {activeProfileTab === 'gestione-utenti' && (
   <div className="space-y-6">
@@ -27617,99 +27948,80 @@ if (loadingProfile && !user && !authUser) {
         <p className="text-gray-500">Nessun utente in attesa di approvazione</p>
       </div>
     ) : (
-                      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                Utente
-                              </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                Data Registrazione
-                              </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                Stato
-                              </th>
-                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase w-48">
-                                Azioni
-                              </th>
-                            </tr>
-                          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+      <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm overflow-hidden">
+        <table className="w-full text-left border-collapse">
+          <thead className="bg-slate-50/70 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            <tr>
+              <th className="py-3.5 px-4 sm:px-5">Utente</th>
+              <th className="py-3.5 px-4 hidden md:table-cell">Data Registrazione</th>
+              <th className="py-3.5 px-4">Stato</th>
+              <th className="py-3.5 px-4 sm:px-5 text-right">Azioni</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
             {pendingUsers.map((user) => (
-              <tr key={user.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center">
-                    <div className={`flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center ${
-                      user.status === 'approved' 
-                        ? 'bg-green-100' 
-                        : user.status === 'rejected'
-                        ? 'bg-red-100'
-                        : 'bg-yellow-100'
+              <tr key={user.id} className="hover:bg-slate-50/60 transition-colors">
+                <td className="py-3 px-4 sm:px-5">
+                  <div className="flex items-center gap-3">
+                    <div className={`h-9 w-9 shrink-0 rounded-full flex items-center justify-center font-bold text-xs shadow-xs ${
+                      user.status === 'approved' ? 'bg-emerald-100 text-emerald-700' :
+                      user.status === 'rejected' ? 'bg-rose-100 text-rose-700' :
+                      'bg-amber-100 text-amber-700'
                     }`}>
-                      <User className={`w-5 h-5 ${
-                        user.status === 'approved'
-                          ? 'text-green-600'
-                          : user.status === 'rejected'
-                          ? 'text-red-600'
-                          : 'text-yellow-600'
-                      }`} />
+                      <User className="w-4 h-4" />
                     </div>
-                    <div className="ml-4">
-                      <div className="text-sm font-medium text-gray-900">
-                      {user?.display_name || user?.full_name || 'N/A'}
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-800 truncate max-w-[130px] sm:max-w-[200px]">
+                        {user?.display_name || user?.full_name || 'Utente'}
                       </div>
-                      <div className="text-sm text-gray-500">{user.email}</div>
+                      <div className="text-xs text-slate-400 truncate max-w-[130px] sm:max-w-[200px]">{user.email}</div>
                     </div>
                   </div>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center text-sm text-gray-500">
-                    <Calendar className="w-4 h-4 mr-2" />
+                <td className="py-3 px-4 hidden md:table-cell text-xs text-slate-500 font-medium whitespace-nowrap">
+                  <div className="flex items-center gap-1.5 text-slate-500">
+                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
                     {new Date(user.created_at).toLocaleDateString('it-IT')}
                   </div>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            {user.status === 'approved' ? (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                <td className="py-3 px-4 whitespace-nowrap">
+                  {user.status === 'approved' ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60">
                       <CheckCircle className="w-3 h-3" />
                       Approvato
                     </span>
                   ) : user.status === 'rejected' ? (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-50 text-rose-700 border border-rose-200/60">
                       <XCircle className="w-3 h-3" />
                       Rifiutato
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200/60">
                       <Clock className="w-3 h-3" />
                       In Attesa
                     </span>
                   )}
-                         </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                </td>
+                <td className="py-3 px-4 sm:px-5 text-right whitespace-nowrap">
                   <div className="flex justify-end gap-2">
-                    {/* Mostra Approva per pending e rejected */}
                     {user.status !== 'approved' && (
                       <button
                         onClick={() => handleApproveUser(user.id, user.full_name, user.email)}
-                        className="flex items-center gap-1 px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 transition"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg transition border border-emerald-200/50"
                         title={user.status === 'rejected' ? 'Riapprova' : 'Approva'}
                       >
-                        <CheckCircle className="w-3 h-3" />
-                        <span className="hidden xl:inline">{user.status === 'rejected' ? 'Riapprova' : 'Approva'}</span>
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        <span>{user.status === 'rejected' ? 'Riapprova' : 'Approva'}</span>
                       </button>
                     )}
-                    {/* Mostra Rifiuta per pending e approved */}
                     {user.status !== 'rejected' && (
                       <button
                         onClick={() => handleRejectUser(user.id, user.full_name, user.email)}
-                        className="flex items-center gap-1 px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition"
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-lg transition border border-rose-200/50"
                         title="Rifiuta"
                       >
-                      <XCircle className="w-3 h-3" />
-                      <span className="hidden xl:inline">Rifiuta</span>
-                       
+                        <XCircle className="w-3.5 h-3.5" />
+                        <span>Rifiuta</span>
                       </button>
                     )}
                   </div>
@@ -27765,62 +28077,55 @@ if (loadingProfile && !user && !authUser) {
         <p className="text-gray-500">Nessun utente approvato</p>
       </div>
     ) : (
-      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+      <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm overflow-hidden">
+        <table className="w-full text-left border-collapse">
+          <thead className="bg-slate-50/70 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Utente
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Ruolo Attuale
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Status
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                Azioni
-              </th>
+              <th className="py-3.5 px-4 sm:px-5">Utente</th>
+              <th className="py-3.5 px-4">Ruolo Attuale</th>
+              <th className="py-3.5 px-4 hidden sm:table-cell">Status Accreditato</th>
+              <th className="py-3.5 px-4 sm:px-5 text-right">Badge Ruolo</th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
             {approvedUsers.map((user) => (
-              <tr key={user.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0 h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                      <User className="w-5 h-5 text-blue-600" />
+              <tr key={user.id} className="hover:bg-slate-50/60 transition-colors">
+                <td className="py-3 px-4 sm:px-5">
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 shrink-0 bg-blue-100/80 text-blue-600 rounded-full flex items-center justify-center font-bold text-xs shadow-xs">
+                      <User className="w-4 h-4" />
                     </div>
-                    <div className="ml-4">
-                      <div className="text-sm font-medium text-gray-900">
-                      {user?.display_name || user?.full_name || 'N/A'}
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-800 truncate max-w-[130px] sm:max-w-[200px]">
+                        {user?.display_name || user?.full_name || 'Utente'}
                       </div>
-                      <div className="text-sm text-gray-500">{user.email}</div>
+                      <div className="text-xs text-slate-400 truncate max-w-[130px] sm:max-w-[200px]">{user.email}</div>
                     </div>
                   </div>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">
+                <td className="py-3 px-4">
                   <select
-                    value={user.role_id || ''}
-                    onChange={(e) => handleChangeUserRole(user.id, e.target.value, user.full_name)}
-                    className="text-sm border border-gray-300 rounded px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={
+                      user.role?.name === 'super_admin' || user.role_id === 1 || user.role === 'super_admin' ? 'super_admin' :
+                      user.role?.name === 'superUser' || user.role_id === 2 || user.role === 'superUser' ? 'superUser' :
+                      'User'
+                    }
+                    onChange={(e) => handleChangeUserRole(user.id, e.target.value, user.full_name || user.display_name)}
+                    className="text-xs font-semibold border border-slate-200 rounded-lg px-2.5 py-1.5 bg-slate-50/50 hover:bg-white text-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none cursor-pointer transition"
                   >
-                    <option value="">Nessun ruolo</option>
-                    {availableRoles.map(role => (
-                      <option key={role.id} value={role.id}>
-                        {role.name}
-                      </option>
-                    ))}
+                    <option value="super_admin">👑 SuperAdmin</option>
+                    <option value="superUser">⚡ superUser</option>
+                    <option value="User">👤 User</option>
                   </select>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">
+                <td className="py-3 px-4 hidden sm:table-cell">
                   <select
                     value={user.status}
                     onChange={(e) => handleChangeUserStatus(user.id, e.target.value, user.full_name)}
-                    className={`text-sm border rounded px-3 py-1.5 focus:ring-2 focus:ring-blue-500 ${
+                    className={`text-xs font-medium border rounded-lg px-2.5 py-1.5 outline-none transition ${
                       user.status === 'active' 
-                        ? 'bg-green-50 border-green-300 text-green-800'
-                        : 'bg-gray-50 border-gray-300 text-gray-700'
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                        : 'bg-slate-50 border-slate-200 text-slate-700'
                     }`}
                   >
                     <option value="approved">Approvato</option>
@@ -27828,20 +28133,16 @@ if (loadingProfile && !user && !authUser) {
                     <option value="inactive">Inattivo</option>
                   </select>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      user.role?.name === 'super_admin' 
-                        ? 'bg-purple-100 text-purple-800'
-                        : user.role?.name === 'admin'
-                        ? 'bg-blue-100 text-blue-800'
-                        : user.role?.name === 'editor'
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {user.role?.name || 'No role'}
-                    </span>
-                  </div>
+                <td className="py-3 px-4 sm:px-5 text-right whitespace-nowrap">
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border ${
+                    user.role?.name === 'super_admin' || user.role_id === 1 || user.role?.name === 'SuperAdmin'
+                      ? 'bg-purple-50 text-purple-700 border-purple-200'
+                      : user.role?.name === 'superUser' || user.role_id === 2
+                      ? 'bg-amber-50 text-amber-700 border-amber-200'
+                      : 'bg-slate-100 text-slate-700 border-slate-200'
+                  }`}>
+                    {user.role?.name === 'super_admin' ? 'SuperAdmin' : (user.role?.name || (user.role_id === 1 ? 'SuperAdmin' : user.role_id === 2 ? 'superUser' : 'User'))}
+                  </span>
                 </td>
               </tr>
             ))}
@@ -28193,35 +28494,54 @@ if (loadingProfile && !user && !authUser) {
   }); // ← chiusura React.memo
   
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center">
-              <Mail className="w-8 h-8 text-blue-600 mr-3" />
-              <h1 className="text-xl font-bold text-gray-900">MailMassProm</h1>
-            </div>
-            <div className="flex items-center gap-4">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col relative overflow-x-hidden">
+      {/* Sfondo decorativo con gradienti luminosi sfumati */}
+      <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/10 dark:bg-blue-600/15 rounded-full blur-3xl pointer-events-none -z-10 animate-pulse"></div>
+      <div className="absolute top-1/3 right-1/4 w-96 h-96 bg-indigo-500/10 dark:bg-indigo-600/15 rounded-full blur-3xl pointer-events-none -z-10"></div>
 
+      {/* Header Sticky con effetto Glassmorphism */}
+      <header className="sticky top-0 z-40 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 shadow-sm shadow-slate-900/5 transition-all">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-3.5">
+            {/* Logo Brand con Badge */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/25 ring-2 ring-blue-500/20">
+                <Mail className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-lg sm:text-xl font-extrabold bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 dark:from-white dark:via-blue-200 dark:to-indigo-200 bg-clip-text text-transparent">
+                    MailMassProm
+                  </h1>
+                  <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/50 hidden sm:inline-block shadow-2xs">
+                    PRO
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 sm:gap-3">
               {/* Rubrica rapida */}
-<button
-  onClick={() => setShowQuickContacts(true)}
-  className="relative p-2 text-gray-400 hover:text-gray-600 rounded transition-colors"
-  title="Rubrica contatti"
->
-  <Users className="w-5 h-5" />
-</button>
+              <button
+                onClick={() => setShowQuickContacts(true)}
+                className="relative p-2.5 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-xl transition-all duration-200"
+                title="Rubrica contatti"
+              >
+                <Users className="w-5 h-5" />
+              </button>
                
-{/* Bottone Aggiorna Piattaforma */}
-<button
-  onClick={() => setShowRefreshConfirm(true)} // ✅ Apre la modale
-  className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200 group"
-  title="Aggiorna piattaforma"
->
-  <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
-  <span className="text-sm font-medium hidden md:inline">Aggiorna</span>
-</button>
+              {/* Bottone Dark/Light Mode */}
+              <DarkModeToggle />
+
+              {/* Bottone Aggiorna Piattaforma */}
+              <button
+                onClick={() => setShowRefreshConfirm(true)}
+                className="flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-xl transition-all duration-200 group"
+                title="Aggiorna piattaforma"
+              >
+                <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
+                <span className="text-sm font-medium hidden md:inline">Aggiorna</span>
+              </button>
               {/* Notifiche */}
               <div className="relative">
                 <button
@@ -28472,9 +28792,9 @@ if (loadingProfile && !user && !authUser) {
           <div className="text-sm text-gray-500 truncate">
             {currentUser?.email}
           </div>
-          {(currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'super_admin') && (
+          {(currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'super_admin' || currentUser?.role?.name === 'SuperAdmin') && (
             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 mt-1">
-              {currentUser?.role?.name === 'super_admin' ? 'Super Admin' : 'Admin'}
+              {currentUser?.role?.name === 'super_admin' || currentUser?.role?.name === 'SuperAdmin' ? 'SuperAdmin' : 'Admin'}
             </span>
           )}
         </div>
@@ -28574,101 +28894,100 @@ if (loadingProfile && !user && !authUser) {
     </div>
   </div>
 )}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-  <div className="flex gap-8">
-    {/* Sidebar */}
-    <div className="w-64 flex-shrink-0 space-y-6">
-      <nav className="space-y-2">
+      <div className="flex-1 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 w-full">
+  <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
+    {/* Sidebar Nav (Responsive per Mobile/Tablet/Desktop) */}
+    <div className="w-full lg:w-64 flex-shrink-0 space-y-4 lg:space-y-6">
+      <nav className="flex lg:flex-col overflow-x-auto pb-2 lg:pb-0 gap-2 lg:gap-0 lg:space-y-2 no-scrollbar">
         <button
           onClick={() => setActiveTab("dashboard")}
-          className={`w-full flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
+          className={`flex items-center whitespace-nowrap px-4 py-2.5 sm:py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${
             activeTab === "dashboard"
-              ? "bg-blue-600 text-white"
-              : "text-gray-700 hover:bg-gray-100"
+              ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
+              : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 lg:hover:translate-x-1"
           }`}
         >
-          <BarChart3 className="w-5 h-5 mr-3" />
+          <BarChart3 className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'dashboard' ? 'scale-110' : ''}`} />
           Dashboard
         </button>
 
         <button
           onClick={() => setActiveTab("campaigns")}
-          className={`w-full flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
+          className={`flex items-center whitespace-nowrap px-4 py-2.5 sm:py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${
             activeTab === "campaigns"
-              ? "bg-blue-600 text-white"
-              : "text-gray-700 hover:bg-gray-100"
+              ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
+              : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 lg:hover:translate-x-1"
           }`}
         >
-          <Mail className="w-5 h-5 mr-3" />
+          <Mail className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'campaigns' ? 'scale-110' : ''}`} />
           Campagne
         </button>
 
         <button
           onClick={() => setActiveTab("contacts")}
-          className={`w-full flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
+          className={`flex items-center whitespace-nowrap px-4 py-2.5 sm:py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${
             activeTab === "contacts"
-              ? "bg-blue-600 text-white"
-              : "text-gray-700 hover:bg-gray-100"
+              ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
+              : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 lg:hover:translate-x-1"
           }`}
         >
-          <Users className="w-5 h-5 mr-3" />
+          <Users className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'contacts' ? 'scale-110' : ''}`} />
           Contatti
         </button>
 
         <button
           onClick={() => setActiveTab("logs")}
-          className={`w-full flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors ${
+          className={`flex items-center whitespace-nowrap px-4 py-2.5 sm:py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${
             activeTab === "logs"
-              ? "bg-blue-600 text-white"
-              : "text-gray-700 hover:bg-gray-100"
+              ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
+              : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 lg:hover:translate-x-1"
           }`}
         >
-          <BarChart3 className="w-5 h-5 mr-3" />
+          <BarChart3 className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'logs' ? 'scale-110' : ''}`} />
           Storico Invii
         </button>
-{/* Solo per admin e super_admin */}
+
 {(currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'super_admin') && (
               <button
                 onClick={() => setActiveTab("settings")}
-                className={`w-full flex items-center justify-between px-4 py-3 text-sm font-medium rounded-lg transition-colors ${activeTab === "settings"
-                    ? "bg-blue-600 text-white"
-                    : "text-gray-700 hover:bg-gray-100"
+                className={`flex items-center justify-between whitespace-nowrap px-4 py-2.5 sm:py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${activeTab === "settings"
+                    ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
+                    : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 lg:hover:translate-x-1"
                   }`}
               >
                 <span className="flex items-center">
-                  <Settings className="w-5 h-5 mr-3" />
+                  <Settings className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'settings' ? 'scale-110' : ''}`} />
                   Impostazioni Email
                 </span>
 
-                {/* 🔴 BADGE QUEUE */}
                 {queueCount > 0 && (
-                  <span className="bg-red-600 text-white text-xs font-semibold px-2 py-0.5 rounded-full animate-pulse">
+                  <span className="bg-red-600 text-white text-xs font-semibold px-2 py-0.5 rounded-full animate-pulse ml-2">
                     {queueCount}
                   </span>
                 )}
               </button>
       )}        
       </nav>
- {/* Widget Ultimi Invii */}
-     
-<div className="bg-white rounded-lg shadow-sm border border-gray-200 mt-6">
-  <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-      <Send className="w-4 h-4 text-blue-600" /> Ultimi Invii
-    </h3>
-    <button
-      onClick={() => setActiveTab("logs")}
-      className="text-xs text-blue-600 hover:text-blue-800 transition"
-    >
-      Vedi tutti
-    </button>
-  </div>
 
-  <div className="divide-y divide-gray-100">
-    {(() => {
-      const logs = latestLogsForWidget;
-      
-      if (!logs.length)
+      {/* Widget Ultimi Invii (visibile solo da schermi Desktop per evitare affollamento su Mobile) */}
+      <div className="hidden lg:block bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 mt-6">
+        <div className="p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <Send className="w-4 h-4 text-blue-600" /> Ultimi Invii
+          </h3>
+          <button
+            onClick={() => setActiveTab("logs")}
+            className="text-xs text-blue-600 hover:text-blue-800 transition"
+          >
+            Vedi tutti
+          </button>
+        </div>
+
+        <div className="divide-y divide-gray-100 dark:divide-slate-700">
+          {(() => {
+            const logs = latestLogsForWidget;
+            
+            if (!logs.length)
         return (
           <div className="p-4 text-gray-500 text-xs italic">
             Nessun invio recente
@@ -29264,9 +29583,8 @@ if (loadingProfile && !user && !authUser) {
     </motion.div>
   </motion.div>
 )}
-    {/* Main Content */}
 {/* Main Content */}
-<div className="flex-1">
+<div className="flex-1 min-w-0 w-full">
 
   {activeTab === "dashboard" && (
     <Dashboard 
@@ -29355,55 +29673,63 @@ if (loadingProfile && !user && !authUser) {
   />
 </div>
     
-    {/* FOOTER */}
-<footer className="bg-white border-t border-gray-200 mt-auto">
-  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-    <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-      
-      {/* Info Azienda */}
-      <div className="text-center md:text-left">
-        <p className="text-sm font-semibold text-gray-700">Promotergroup Spa</p>
-        <p className="text-xs text-gray-500 mt-0.5">
-          Via del Carrubo, snc — 97019 Vittoria (RG)
-        </p>
-        <p className="text-xs text-gray-500">
-          P.IVA 13178771005
-        </p>
-      </div>
+    {/* FOOTER PROFESSIONALE GLASSMORPHIC */}
+    <footer className="mt-auto bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800/80 transition-colors">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+          
+          {/* Info Azienda + Status Badge */}
+          <div className="flex items-center gap-4 text-center md:text-left">
+            <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-sm shadow-2xs">
+              PG
+            </div>
+            <div>
+              <div className="flex items-center gap-2 justify-center md:justify-start">
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-200">Promotergroup Spa</p>
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                  Piattaforma Attiva
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Via del Carrubo, snc — 97019 Vittoria (RG) · P.IVA 13178771005
+              </p>
+            </div>
+          </div>
 
-      {/* Link legali */}
-      <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-gray-500">
-        <button
-          onClick={() => setShowPrivacyModal(true)}
-          className="hover:text-blue-600 hover:underline transition-colors"
-        >
-          Privacy Policy
-        </button>
-        <span className="text-gray-300">|</span>
-        <button
-          onClick={() => setShowTermsModal(true)}
-          className="hover:text-blue-600 hover:underline transition-colors"
-        >
-          Termini di Servizio
-        </button>
-        <span className="text-gray-300">|</span>
-        <button
-          onClick={() => setShowCookieModal(true)}
-          className="hover:text-blue-600 hover:underline transition-colors"
-        >
-          Preferenze Cookie
-        </button>
-      </div>
+          {/* Link legali */}
+          <div className="flex flex-wrap items-center justify-center gap-3 text-xs font-medium text-slate-500 dark:text-slate-400">
+            <button
+              onClick={() => setShowPrivacyModal(true)}
+              className="px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400 transition-all"
+            >
+              Privacy Policy
+            </button>
+            <span className="text-slate-300 dark:text-slate-700">•</span>
+            <button
+              onClick={() => setShowTermsModal(true)}
+              className="px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400 transition-all"
+            >
+              Termini di Servizio
+            </button>
+            <span className="text-slate-300 dark:text-slate-700">•</span>
+            <button
+              onClick={() => setShowCookieModal(true)}
+              className="px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400 transition-all"
+            >
+              Preferenze Cookie
+            </button>
+          </div>
 
-      {/* Copyright */}
-      <div className="text-xs text-gray-400 text-center md:text-right">
-        © {new Date().getFullYear()} Promotergroup Spa<br />
-        Tutti i diritti riservati
-      </div>
+          {/* Copyright */}
+          <div className="text-xs text-slate-400 dark:text-slate-500 text-center md:text-right font-medium">
+            © {new Date().getFullYear()} Promotergroup Spa<br />
+            MailMassProm v2.5 · Tutti i diritti riservati
+          </div>
 
-    </div>
-  </div>
-</footer>
+        </div>
+      </div>
+    </footer>
 {/* MODAL PRIVACY */}
 {showPrivacyModal && (
   <div className="fixed inset-0 bg-black bg-opacity-50 z-[9999] flex items-center justify-center p-4">

@@ -102,16 +102,31 @@ export const useEmailAccounts = (opts = {}) => {
       }, { label: 'autenticazione' });
 
       if (!user) {
-        toast.error('Utente non autenticato.');
+        // Nessun utente autenticato: uscita silenziosa (normale su pagine pubbliche come login)
+        safeSetAccounts([]);
         return { success: false, error: 'not_authenticated' };
       }
 
       const rows = await withRetry(async () => {
-        const { data, error } = await supabase
+        // ✅ Check ruolo utente per SuperAdmin
+        const { data: userProfile } = await supabase
+          .from('profiles')
+          .select('role_id, role:roles(name)')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        const roleName = userProfile?.role?.name || userProfile?.role || '';
+        const isSuperAdminUser = ['super_admin', 'superAdmin', 'SuperAdmin'].includes(roleName) || userProfile?.role_id === 1;
+
+        let query = supabase
           .from('email_accounts')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
+          .select('*');
+
+        if (!isSuperAdminUser) {
+          query = query.eq('user_id', user.id);
+        }
+
+        const { data, error } = await query.order('created_at', { ascending: false });
         if (error) throw error;
         return data || [];
       }, { label: 'caricamento account' });

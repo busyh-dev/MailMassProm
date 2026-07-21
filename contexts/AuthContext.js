@@ -43,7 +43,7 @@ export const AuthProvider = ({ children }) => {
         const { data: { session }, error } = await supabase.auth.getSession();
     
         if (error) {
-          // ✅ Se è un errore di rete, riprova fino a 3 volte
+          // Errore di rete: riprova fino a 3 volte
           if (error.message?.includes('Failed to fetch') || 
               error.message?.includes('fetch') ||
               error.name === 'AuthRetryableFetchError') {
@@ -54,7 +54,11 @@ export const AuthProvider = ({ children }) => {
             }
           }
     
-          if (error.message?.includes('Auth session missing')) {
+          // Auth session missing è normale sulla pagina di login (nessuna sessione attiva)
+          if (
+            error.message?.includes('Auth session missing') ||
+            error.name === 'AuthSessionMissingError'
+          ) {
             setUser(null);
             setLoading(false);
             return;
@@ -74,7 +78,7 @@ export const AuthProvider = ({ children }) => {
     
         setLoading(false);
       } catch (err) {
-        // ✅ Gestisci errore di rete con retry
+        // Errore di rete con retry
         if (err.name === 'AuthRetryableFetchError' || 
             err.message?.includes('Failed to fetch')) {
           if (retryCount < 3) {
@@ -88,9 +92,17 @@ export const AuthProvider = ({ children }) => {
           return;
         }
     
-        if (!err.message?.includes('Auth session missing')) {
-          console.error('❌ Errore getSession:', err);
+        // Auth session missing: silenzioso, è normale senza sessione attiva
+        if (
+          err.message?.includes('Auth session missing') ||
+          err.name === 'AuthSessionMissingError'
+        ) {
+          setUser(null);
+          setLoading(false);
+          return;
         }
+
+        console.error('❌ Errore getSession:', err);
         setUser(null);
         setLoading(false);
       }
@@ -171,13 +183,6 @@ if (event === 'SIGNED_OUT') {
   }
   return;
 }
-
-      // ✅ TOKEN_REFRESHED - aggiorna silenziosamente senza reset
-      if (event === 'TOKEN_REFRESHED') {
-        console.log('🔄 Token refreshed');
-        setUser(prev => prev?.id === session?.user?.id ? prev : session?.user ?? null);
-        return;
-      }
 
       // ✅ Altri eventi
       if (session?.user) {

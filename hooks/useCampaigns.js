@@ -61,11 +61,25 @@ export const useCampaigns = () => {
         return;
       }
   
-      const { data, error } = await supabase
+      // ✅ Check ruolo utente per permettere al SuperAdmin di vedere tutte le campagne
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('role_id, role:roles(name)')
+        .eq('id', session.user.id)
+        .maybeSingle();
+
+      const roleName = userProfile?.role?.name || userProfile?.role || '';
+      const isSuperAdminUser = ['super_admin', 'superAdmin', 'SuperAdmin'].includes(roleName) || userProfile?.role_id === 1;
+
+      let query = supabase
         .from('campaigns')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .order('created_at', { ascending: false });
+        .select('*');
+
+      if (!isSuperAdminUser) {
+        query = query.eq('user_id', session.user.id);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
   
       if (error) throw error;
   

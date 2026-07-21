@@ -474,7 +474,7 @@ if (isLogin) {
   // 4️⃣ Verifica che abbia un ruolo assegnato
   if (!profileData.role_id) {
     console.warn('⚠️ Utente senza ruolo assegnato');
-    toast.warning('Accesso con permessi limitati');
+    toast('⚠️ Accesso con permessi limitati');
   }
 
   // 5️⃣ Login riuscito
