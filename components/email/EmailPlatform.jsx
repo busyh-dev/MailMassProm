@@ -58,6 +58,16 @@ import { usePersistentModal } from "../../hooks/usePersistentModal";
 import TemplateLibraryModal from "../../components/email/TemplateLibraryModal";
 import TemplatePreviewModal from "../../components/email/TemplatePreviewModal";
 
+const sanitizeAvatarUrl = (url) => {
+  if (!url) return null;
+  if (typeof url !== 'string') return url;
+  const currentSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://khvtqienmkobtadtmgsg.supabase.co';
+  if (url.includes('.supabase.co/storage/')) {
+    return url.replace(/https:\/\/[^/]+\.supabase\.co/gi, currentSupabaseUrl);
+  }
+  return url;
+};
+
 import {
   Mail,
   X,
@@ -25604,7 +25614,7 @@ useEffect(() => {
     setUser(currentUserProfile);
     setName(currentUserProfile.display_name || currentUserProfile.full_name || '');
     setEmail(currentUserProfile.email || '');
-    setPhoto(currentUserProfile.avatar_url || null);
+    setPhoto(sanitizeAvatarUrl(currentUserProfile.avatar_url) || null);
     setLoadingProfile(false);
   } 
 }, [currentUserProfile]);
@@ -28747,7 +28757,7 @@ if (loadingProfile && !user && !authUser) {
 <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium overflow-hidden">
   {currentUser?.avatar_url ? (
     <img 
-      src={currentUser.avatar_url} 
+      src={sanitizeAvatarUrl(currentUser.avatar_url)} 
       alt="Avatar" 
       className="w-full h-full object-cover"
     />
@@ -28780,7 +28790,7 @@ if (loadingProfile && !user && !authUser) {
       <div className="flex items-center gap-3">
       <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium flex-shrink-0 overflow-hidden">
   {currentUser?.avatar_url ? (
-    <img src={currentUser.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+    <img src={sanitizeAvatarUrl(currentUser.avatar_url)} alt="Avatar" className="w-full h-full object-cover" />
   ) : (
     getUserInitials(currentUser?.full_name)
   )}
@@ -29818,7 +29828,7 @@ if (loadingProfile && !user && !authUser) {
             return (
               <div className={`w-16 h-16 ${color} rounded-full flex items-center justify-center text-white text-xl font-bold shrink-0 overflow-hidden border-2 border-white/30`}>
                 {c.avatar_url 
-                  ? <img src={c.avatar_url} alt={c.name} className="w-full h-full object-cover" />
+                  ? <img src={sanitizeAvatarUrl(c.avatar_url)} alt={c.name} className="w-full h-full object-cover" />
                   : initials}
               </div>
             );
