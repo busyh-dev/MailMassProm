@@ -3203,9 +3203,17 @@ const Dashboard = ({ setActiveTab, campaigns: campaignsProp, contacts: contactsP
   useEffect(() => { if (campaignsProp) setCampaigns(campaignsProp); }, [campaignsProp]);
   useEffect(() => { if (contactsProp) setContacts(contactsProp); }, [contactsProp]);
 
+  const getSentCount = (c) => {
+    if (typeof c.sent_count === 'number' && c.sent_count > 0) return c.sent_count;
+    if (typeof c.total_recipients === 'number' && c.total_recipients > 0) return c.total_recipients;
+    if (Array.isArray(c.recipients)) return c.recipients.length;
+    if (Array.isArray(c.total_recipients)) return c.total_recipients.length;
+    return c.sent_count || c.total_recipients || 0;
+  };
+
   const totalCampaigns = campaigns.length;
   const activeContacts = contacts.filter(c => c.status?.trim().toLowerCase() === "active").length;
-  const totalEmailsSent = campaigns.reduce((sum, c) => sum + (c.sent_count || c.total_recipients || 0), 0);
+  const totalEmailsSent = campaigns.reduce((sum, c) => sum + getSentCount(c), 0);
   const totalOpened = campaigns.reduce((sum, c) => sum + (c.opened_count || 0), 0);
   const totalClicked = campaigns.reduce((sum, c) => sum + (c.clicked_count || 0), 0);
   const totalBounced = campaigns.reduce((sum, c) => sum + (c.bounced_count || 0), 0);
@@ -3227,7 +3235,7 @@ const Dashboard = ({ setActiveTab, campaigns: campaignsProp, contacts: contactsP
       if (isNaN(d.getTime())) return;
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       if (!map[key]) map[key] = { key, sent: 0, opened: 0, clicked: 0, bounced: 0 };
-      map[key].sent += c.sent_count || c.total_recipients || 0;
+      map[key].sent += getSentCount(c);
       map[key].opened += c.opened_count || 0;
       map[key].clicked += c.clicked_count || 0;
       map[key].bounced += c.bounced_count || 0;
@@ -3255,7 +3263,7 @@ const Dashboard = ({ setActiveTab, campaigns: campaignsProp, contacts: contactsP
       const d = new Date(c.sent_at || c.created_at);
       if (isNaN(d.getTime())) return;
       const idx = (d.getDay() + 6) % 7;
-      base[idx].sent += c.sent_count || c.total_recipients || 0;
+      base[idx].sent += getSentCount(c);
       base[idx].opened += c.opened_count || 0;
     });
     return base.map((d) => ({
@@ -3266,7 +3274,7 @@ const Dashboard = ({ setActiveTab, campaigns: campaignsProp, contacts: contactsP
   }, [campaigns]);
 
   const campaignsWithRates = useMemo(() => campaigns.map((c) => {
-    const sent = c.sent_count || c.total_recipients || 0;
+    const sent = getSentCount(c);
     const opened = c.opened_count || 0;
     const clicked = c.clicked_count || 0;
     return {
