@@ -52,7 +52,7 @@ const [newApiKey, setNewApiKey] = useState("")
   
     const loadAccountsFromDB = async () => {
       try {
-        console.log('📡 Fetching from:', '/api/email-accounts');
+        console.log('📡 Fetching from:', '/api/email-accounts/get');
         const res = await fetch(`/api/email-accounts/get?user_id=${user.id}`);
         const text = await res.text();
     
@@ -61,23 +61,33 @@ const [newApiKey, setNewApiKey] = useState("")
           result = JSON.parse(text);
         } catch {
           console.error("❌ Risposta non JSON:", text);
-          throw new Error("La risposta dell'API non è JSON valida (verifica percorso /api).");
         }
     
-        if (!res.ok || !result.success) {
-          throw new Error(result.message || "Errore durante il caricamento dei mittenti.");
+        if (res.ok && result?.success && Array.isArray(result.data)) {
+          setAccounts(result.data);
+          localStorage.setItem("emailAccounts", JSON.stringify(result.data));
+          return;
         }
-    
-        // ✅ AGGIUNGI QUESTI LOG
-        console.log('📋 Account dal DB:', result.data);
-        console.log('🔑 api_key primo account:', result.data?.[0]?.api_key);
-    
-        setAccounts(result.data);
-        localStorage.setItem("emailAccounts", JSON.stringify(result.data));
-    
+
+        // 🔄 Fallback diretto client-side con Supabase se l'API REST restituisce 500
+        const { data: clientData, error: clientErr } = await supabase
+          .from('email_accounts')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (!clientErr && clientData) {
+          setAccounts(clientData);
+          localStorage.setItem("emailAccounts", JSON.stringify(clientData));
+          return;
+        }
+
+        throw new Error(result?.message || clientErr?.message || "Errore durante il caricamento dei mittenti.");
       } catch (err) {
         console.error("💥 Errore caricamento mittenti:", err);
-        toast.error(`❌ ${err.message}`);
+        const local = localStorage.getItem("emailAccounts");
+        if (local) {
+          try { setAccounts(JSON.parse(local)); } catch (e) {}
+        }
       }
     };
   

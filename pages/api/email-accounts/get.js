@@ -1,16 +1,10 @@
 // pages/api/email-accounts/get.js
 import { createClient } from "@supabase/supabase-js";
-// const SUPABASE_URL = "https://qvgpbxjzvkbetxmmapfq.supabase.co"; // ← Inserisci il tuo URL
-// const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2Z3BieGp6dmtiZXR4bW1hcGZxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODI4MTk4NiwiZXhwIjoyMDczODU3OTg2fQ.QYNA4jbr57MTiTyAXOhE5IpIsp4iu9J9Z1Z68H4tzBQ"; // ← Inserisci la tua service_role key
 
-// const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://khvtqienmkobtadtmgsg.supabase.co";
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtodnRxaWVubWtvYnRhZHRtZ3NnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzOTUyMzUsImV4cCI6MjA5Nzk3MTIzNX0.0f-lHX73wiSjwQJe2Pe_cIx1GUWyDzIFmpYr41Jf1NY";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY // ← CORRETTO: _ROLE_KEY
-
- 
-);
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -19,29 +13,35 @@ export default async function handler(req, res) {
 
   const { user_id } = req.query;
 
-  if (!user_id) {
-    return res.status(400).json({ success: false, message: "Parametro 'user_id' mancante." });
-  }
-
   try {
-    console.log('📡 Fetching accounts for user:', user_id); // ← Log utile
+    let query = supabase.from("email_accounts").select("*");
 
-    const { data, error } = await supabase
-      .from("email_accounts")
-      .select("*")
-      .eq("user_id", user_id)
-      .order("created_at", { ascending: false });
+    if (user_id) {
+      // Check se l'utente è SuperAdmin per permettere la visione globale
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role_id, role:roles(name)')
+        .eq('user_id', user_id)
+        .maybeSingle();
+
+      const roleName = profile?.role?.name || profile?.role || '';
+      const isSuperAdmin = ['super_admin', 'superAdmin', 'SuperAdmin'].includes(roleName) || profile?.role_id === 1;
+
+      if (!isSuperAdmin) {
+        query = query.eq("user_id", user_id);
+      }
+    }
+
+    const { data, error } = await query.order("created_at", { ascending: false });
 
     if (error) {
-      console.error('❌ Supabase error:', error);
+      console.error('❌ Supabase error in email-accounts/get:', error);
       throw error;
     }
 
-    console.log('✅ Accounts found:', data?.length || 0); // ← Log utile
-
-    return res.status(200).json({ success: true, data });
+    return res.status(200).json({ success: true, data: data || [] });
   } catch (err) {
-    console.error("💥 Errore API GET:", err);
+    console.error("💥 Errore API GET email-accounts:", err);
     return res.status(500).json({
       success: false,
       message: "Errore durante il recupero dei mittenti.",
