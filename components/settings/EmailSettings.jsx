@@ -208,8 +208,8 @@ if (missingApiKey.length > 0) {
       setAccounts(updatedAccounts);
       localStorage.setItem("emailAccounts", JSON.stringify(updatedAccounts));
   
-      // ✅ Salva nel database
-      await updateSingleAccount(email, updatedAccount);
+      // ✅ Salva nel database (senza mostrare il toast duplicato di aggiornamento)
+      await updateSingleAccount(email, updatedAccount, false);
   
       if (domainInfo.status === "verified") {
         toast.success(`${email} verificato correttamente!`);
@@ -283,7 +283,7 @@ const refreshDomainStatus = async (email) => {
 
 
 // 🔁 Aggiorna un singolo mittente nel database
-const updateSingleAccount = async (email, updatedAccount = null) => {
+const updateSingleAccount = async (email, updatedAccount = null, showToast = true) => {
   if (!user?.id) {
     toast.error("⚠️ Devi essere loggato per aggiornare.");
     return;
@@ -318,7 +318,9 @@ const updateSingleAccount = async (email, updatedAccount = null) => {
       throw new Error(result.message || "Errore durante l'aggiornamento.");
     }
 
-    toast.success(`${account.email} aggiornato correttamente.`);
+    if (showToast) {
+      toast.success(`${account.email} aggiornato correttamente.`);
+    }
   } catch (err) {
     console.error("💥 Errore update singolo:", err);
     toast.error(err.message);
@@ -365,7 +367,7 @@ const refreshSenderStatus = async (email) => {
     const updatedAccounts = accounts.map((a) => a.email === email ? updatedAccount : a);
     setAccounts(updatedAccounts);
     localStorage.setItem("emailAccounts", JSON.stringify(updatedAccounts));
-    await updateSingleAccount(email, updatedAccount);
+    await updateSingleAccount(email, updatedAccount, false);
 
     if (domainInfo.status === "verified") {
       toast.success(`Dominio ${senderDomain} verificato!`);
@@ -723,7 +725,7 @@ const getStatusBadge = (type, status) => {
           // ✅ Resetta is_default=false su TUTTI gli account nel DB
           await Promise.all(
             accounts.map(acc =>
-              updateSingleAccount(acc.email, { ...acc, is_default: acc.email === a.email })
+              updateSingleAccount(acc.email, { ...acc, is_default: acc.email === a.email }, false)
             )
           );
         

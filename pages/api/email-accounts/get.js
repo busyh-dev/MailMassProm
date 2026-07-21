@@ -1,10 +1,5 @@
 // pages/api/email-accounts/get.js
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://khvtqienmkobtadtmgsg.supabase.co";
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtodnRxaWVubWtvYnRhZHRtZ3NnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzOTUyMzUsImV4cCI6MjA5Nzk3MTIzNX0.0f-lHX73wiSjwQJe2Pe_cIx1GUWyDzIFmpYr41Jf1NY";
-
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { supabaseAdmin as supabase } from "../../../lib/supabaseAdmin";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
