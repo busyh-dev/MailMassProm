@@ -62,8 +62,11 @@ const sanitizeAvatarUrl = (url) => {
   if (!url) return null;
   if (typeof url !== 'string') return url;
   const currentSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://khvtqienmkobtadtmgsg.supabase.co';
+  if (url.includes('qvgpbxjzvkbetxmmapfq.supabase.co')) {
+    return url.replace(/https?:\/\/qvgpbxjzvkbetxmmapfq\.supabase\.co/gi, currentSupabaseUrl);
+  }
   if (url.includes('.supabase.co/storage/')) {
-    return url.replace(/https:\/\/[^/]+\.supabase\.co/gi, currentSupabaseUrl);
+    return url.replace(/https?:\/\/[^/]+\.supabase\.co/gi, currentSupabaseUrl);
   }
   return url;
 };
@@ -26255,7 +26258,7 @@ if (loadingProfile && !user && !authUser) {
                     <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center text-white text-2xl font-medium mx-auto mb-4 overflow-hidden">
   {photo || user?.avatar_url ? (
     <img 
-      src={photo || user?.avatar_url} 
+      src={sanitizeAvatarUrl(photo || user?.avatar_url)} 
       alt="Avatar" 
       className="w-full h-full object-cover"
     />
@@ -28292,7 +28295,7 @@ if (loadingProfile && !user && !authUser) {
   ) : photo || user?.avatar_url ? (
     // ✅ Avatar esistente dal DB
     <img 
-      src={photo || user?.avatar_url} 
+      src={sanitizeAvatarUrl(photo || user?.avatar_url)} 
       alt="Avatar" 
       className="w-full h-full object-cover"
     />
@@ -30126,7 +30129,7 @@ if (loadingProfile && !user && !authUser) {
                     <div key={c.id} onClick={() => setQuickContactDetail(c)} className="flex items-center gap-3 px-4 py-3 hover:bg-blue-50 transition-colors border-b border-gray-50 group cursor-pointer">
                       <div className={`w-10 h-10 ${color} rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 overflow-hidden`}>
                         {c.avatar_url 
-                          ? <img src={c.avatar_url} alt={c.name} className="w-full h-full object-cover" />
+                          ? <img src={sanitizeAvatarUrl(c.avatar_url)} alt={c.name} className="w-full h-full object-cover" />
                           : initials
                         }
                       </div>
