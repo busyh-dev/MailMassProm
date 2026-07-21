@@ -212,7 +212,7 @@ if (missingApiKey.length > 0) {
       await updateSingleAccount(email, updatedAccount);
   
       if (domainInfo.status === "verified") {
-        toast.success(`✅ ${email} verificato correttamente!`);
+        toast.success(`${email} verificato correttamente!`);
       } else {
         toast.custom((t) => (
           <div className={`${t.visible ? "animate-enter" : "animate-leave"} bg-yellow-100 text-yellow-800 px-4 py-3 rounded-lg shadow-md font-medium border border-yellow-300`}>
@@ -223,7 +223,7 @@ if (missingApiKey.length > 0) {
   
     } catch (err) {
       console.error("💥 Errore:", err);
-      toast.error(`❌ ${err.message || "Errore imprevisto."}`);
+      toast.error(err.message || "Errore imprevisto.");
     } finally {
       setVerifyingEmail(null);
     }
@@ -318,10 +318,10 @@ const updateSingleAccount = async (email, updatedAccount = null) => {
       throw new Error(result.message || "Errore durante l'aggiornamento.");
     }
 
-    toast.success(`✅ ${account.email} aggiornato correttamente.`);
+    toast.success(`${account.email} aggiornato correttamente.`);
   } catch (err) {
     console.error("💥 Errore update singolo:", err);
-    toast.error(`❌ ${err.message}`);
+    toast.error(err.message);
   }
 };
 // 🔄 Aggiorna lo stato DKIM/SPF dal dominio su Resend
@@ -368,12 +368,12 @@ const refreshSenderStatus = async (email) => {
     await updateSingleAccount(email, updatedAccount);
 
     if (domainInfo.status === "verified") {
-      toast.success(`✅ Dominio ${senderDomain} verificato!`);
+      toast.success(`Dominio ${senderDomain} verificato!`);
     } else {
-      toast(`⚠️ Dominio ${senderDomain} non ancora verificato.`, { icon: "🕓" });
+      toast(`Dominio ${senderDomain} non ancora verificato.`, { icon: "⚠️" });
     }
   } catch (err) {
-    toast.error(`❌ ${err.message}`);
+    toast.error(err.message);
   } finally {
     setVerifyingEmail(null);
   }
@@ -727,7 +727,7 @@ const getStatusBadge = (type, status) => {
             )
           );
         
-          toast.success("✅ Mittente predefinito aggiornato!");
+          toast.success("Mittente predefinito aggiornato!");
         }}
            className="text-blue-600 hover:text-blue-800 text-sm px-2 py-1"
          >

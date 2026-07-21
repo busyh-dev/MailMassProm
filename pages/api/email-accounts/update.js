@@ -26,16 +26,55 @@ export default async function handler(req, res) {
     console.log("🟢 API update.js chiamata!");
     console.log("Body ricevuto:", req.body);
 
-    // 🔍 Prima controlla se l'account esiste
-    const { data: existing, error: checkError } = await supabase
-      .from("email_accounts")
-      .select('*')
-      .eq("user_id", user_id)
-      .eq("email", account.email)
-      .single();
+    // 🔍 Cerca l'account esistente per ID (se presente) o per user_id + email
+    let existing = null;
+    let checkError = null;
+
+    if (account.id) {
+      const { data, error } = await supabase
+        .from("email_accounts")
+        .select('*')
+        .eq("id", account.id)
+        .maybeSingle();
+      existing = data;
+      checkError = error;
+    } else {
+      const { data, error } = await supabase
+        .from("email_accounts")
+        .select('*')
+        .eq("user_id", user_id)
+        .eq("email", account.email)
+        .maybeSingle();
+      existing = data;
+      checkError = error;
+    }
 
     console.log("🔍 Account esistente:", existing);
     console.log("🔍 Errore check:", checkError);
+
+    // Se l'account esiste ma appartiene ad un altro utente, verifica se chi richiede è SuperAdmin
+    if (existing && existing.user_id !== user_id) {
+      let isSuperAdmin = false;
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role_id, role:roles(name)')
+          .eq('id', user_id)
+          .maybeSingle();
+
+        const roleName = profile?.role?.name || profile?.role || '';
+        isSuperAdmin = ['super_admin', 'superAdmin', 'SuperAdmin'].includes(roleName) || profile?.role_id === 1;
+      } catch (profileErr) {
+        console.warn('⚠️ Impossibile verificare profilo SuperAdmin in update.js:', profileErr?.message);
+      }
+
+      if (!isSuperAdmin) {
+        return res.status(403).json({
+          success: false,
+          message: "Non hai i permessi per modificare questo mittente.",
+        });
+      }
+    }
 
     // Se l'account NON esiste, crealo
     if (!existing || checkError?.code === 'PGRST116') {
