@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Key, Mail, Trash2, Plus, CheckCircle, RefreshCw, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "../../contexts/AuthContext";
+import { supabase } from "../../lib/supabase";
 
 
 const EmailSettings = () => {
