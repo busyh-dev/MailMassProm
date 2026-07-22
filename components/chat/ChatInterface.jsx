@@ -54,10 +54,10 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false }) => {
           return;
         }
         // Messaggi tra l'admin loggato e l'utente selezionato
-        query = query.or(`and(sender_id.eq.\${user.id},receiver_id.eq.\${selectedUser}),and(sender_id.eq.\${selectedUser},receiver_id.eq.\${user.id})`);
+        query = query.or(`and(sender_id.eq.${user.id},receiver_id.eq.${selectedUser}),and(sender_id.eq.${selectedUser},receiver_id.eq.${user.id})`);
       } else {
         // Messaggi dove l'utente è sender o receiver
-        query = query.or(`sender_id.eq.\${user.id},receiver_id.eq.\${user.id}`);
+        query = query.or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`);
       }
       
       const { data, error } = await query;
@@ -186,7 +186,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false }) => {
               <button
                 key={c.id}
                 onClick={() => setSelectedUser(c.id)}
-                className={\`w-full p-4 flex items-center gap-3 border-b border-gray-100 dark:border-slate-800/50 hover:bg-white dark:hover:bg-slate-800 transition-colors \${selectedUser === c.id ? 'bg-white dark:bg-slate-800 border-l-4 border-l-indigo-500' : ''}\`}
+                className={`w-full p-4 flex items-center gap-3 border-b border-gray-100 dark:border-slate-800/50 hover:bg-white dark:hover:bg-slate-800 transition-colors ${selectedUser === c.id ? 'bg-white dark:bg-slate-800 border-l-4 border-l-indigo-500' : ''}`}
               >
                 <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold">
                   {(c.full_name || c.email).charAt(0).toUpperCase()}
@@ -238,14 +238,14 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false }) => {
                 messages.map((msg, idx) => {
                   const isMe = msg.sender_id === user.id;
                   return (
-                    <div key={msg.id || idx} className={\`flex \${isMe ? 'justify-end' : 'justify-start'}\`}>
-                      <div className={\`max-w-[75%] rounded-2xl p-4 shadow-sm \${
+                    <div key={msg.id || idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[75%] rounded-2xl p-4 shadow-sm ${
                         isMe 
                           ? 'bg-indigo-600 text-white rounded-tr-sm' 
                           : 'bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-slate-700 rounded-tl-sm'
-                      }\`}>
+                      }`}>
                         <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                        <div className={\`flex items-center justify-end gap-1 mt-2 text-[10px] \${isMe ? 'text-indigo-200' : 'text-gray-400'}\`}>
+                        <div className={`flex items-center justify-end gap-1 mt-2 text-[10px] ${isMe ? 'text-indigo-200' : 'text-gray-400'}`}>
                           <Clock className="w-3 h-3" />
                           {formatTime(msg.created_at)}
                         </div>
