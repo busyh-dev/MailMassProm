@@ -1058,7 +1058,7 @@ const loadNotifications = useCallback(async () => {
     .eq('id', user.id)
     .single();
 
-  const (isAdmin || isSuperAdmin) = ['admin', 'super_admin'].includes(profileData?.role?.name);
+  const isAdminUser = ['admin', 'super_admin'].includes(profileData?.role?.name);
 
   let query = supabase
     .from('notifications')
@@ -1066,7 +1066,7 @@ const loadNotifications = useCallback(async () => {
     .order('created_at', { ascending: false })
     .limit(50);
 
-  if (!(isAdmin || isSuperAdmin)) {
+  if (!isAdminUser) {
     query = query.eq('user_id', user.id);
   }
 
