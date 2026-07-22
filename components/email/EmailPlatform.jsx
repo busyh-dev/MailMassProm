@@ -1,6 +1,7 @@
 
 // ✅ AGGIUNGI QUESTO IMPORT IN CIMA AL FILE
 import { useEditorState } from '../../contexts/EditorContext';
+import Dashboard from './Dashboard';
 import React, { useState, useEffect, useRef, useMemo, memo, useCallback  } from 'react';
 import { createPortal } from 'react-dom';
 import { usePushNotifications } from '../../hooks/usePushNotifications';
@@ -3198,11 +3199,7 @@ useEffect(() => {
       </div>
     );
   }
-  // Componente Dashboard
-// =======================
-// 📊 DASHBOARD AVANZATA
-// =======================
-const Dashboard = ({ setActiveTab, campaigns: campaignsProp, contacts: contactsProp }) => {
+  ) => {
 
   const [campaigns, setCampaigns] = useState(campaignsProp || []);
   const [contacts, setContacts] = useState(contactsProp || []);

@@ -48,6 +48,33 @@ const KpiCard = ({ icon: Icon, title, value, subtitle, color }) => (
   </div>
 );
 
+
+// Componente Paginazione
+const PaginationControls = ({ currentPage, totalPages, setCurrentPage, totalItems }) => (
+  <div className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-slate-700/30 border-t border-gray-200 dark:border-slate-600">
+    <div className="text-sm text-gray-500">Totale: {totalItems}</div>
+    <div className="flex items-center gap-4">
+      <button
+        onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+        disabled={currentPage === 1}
+        className="px-3 py-1 text-sm bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+      >
+        Precedente
+      </button>
+      <span className="text-sm text-gray-600 dark:text-gray-300 font-medium">
+        Pagina {currentPage} di {totalPages}
+      </span>
+      <button
+        onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+        disabled={currentPage === totalPages}
+        className="px-3 py-1 text-sm bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+      >
+        Successiva
+      </button>
+    </div>
+  </div>
+);
+
 // ─── TABELLA CONTATTI ───────────────────────────────────────────
 const ContactsTable = ({ data, loading }) => {
   const [search, setSearch] = useState('');
@@ -55,6 +82,11 @@ const ContactsTable = ({ data, loading }) => {
     [c.name, c.email, c.company, c.account?.email, c.account?.full_name]
       .filter(Boolean).join(' ').toLowerCase().includes(search.toLowerCase())
   );
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+  useEffect(() => { setCurrentPage(1); }, [search]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
+  const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
     <div className="space-y-3">
@@ -87,7 +119,7 @@ const ContactsTable = ({ data, loading }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
-                {filtered.length === 0 ? (
+                {paginated.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-4 py-10 text-center text-gray-400">
                       <Users className="w-8 h-8 mx-auto mb-2 opacity-40" />
@@ -95,7 +127,7 @@ const ContactsTable = ({ data, loading }) => {
                     </td>
                   </tr>
                 ) : (
-                  filtered.map(c => (
+                  paginated.map(c => (
                     <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-slate-700/40 transition-colors">
                       <td className="px-4 py-3">
                         <p className="font-medium text-gray-900 dark:text-gray-100">{c.name || c.full_name || '—'}</p>
@@ -123,9 +155,7 @@ const ContactsTable = ({ data, loading }) => {
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-2 bg-gray-50 dark:bg-slate-700/30 border-t border-gray-200 dark:border-slate-600 text-xs text-gray-500">
-            {filtered.length} / {data?.length || 0} contatti
-          </div>
+          <PaginationControls currentPage={currentPage} totalPages={totalPages} setCurrentPage={setCurrentPage} totalItems={filtered.length} />
         </div>
       )}
     </div>
@@ -139,6 +169,11 @@ const CampaignsTable = ({ data, loading }) => {
     [c.campaign_name, c.subject, c.sender_email, c.account?.email, c.account?.full_name]
       .filter(Boolean).join(' ').toLowerCase().includes(search.toLowerCase())
   );
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+  useEffect(() => { setCurrentPage(1); }, [search]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
+  const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
     <div className="space-y-3">
@@ -172,7 +207,7 @@ const CampaignsTable = ({ data, loading }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
-                {filtered.length === 0 ? (
+                {paginated.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-4 py-10 text-center text-gray-400">
                       <Mail className="w-8 h-8 mx-auto mb-2 opacity-40" />
@@ -180,7 +215,7 @@ const CampaignsTable = ({ data, loading }) => {
                     </td>
                   </tr>
                 ) : (
-                  filtered.map(c => (
+                  paginated.map(c => (
                     <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-slate-700/40 transition-colors">
                       <td className="px-4 py-3">
                         <p className="font-medium text-gray-900 dark:text-gray-100 truncate max-w-[180px]">
@@ -216,9 +251,7 @@ const CampaignsTable = ({ data, loading }) => {
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-2 bg-gray-50 dark:bg-slate-700/30 border-t border-gray-200 dark:border-slate-600 text-xs text-gray-500">
-            {filtered.length} / {data?.length || 0} campagne
-          </div>
+          <PaginationControls currentPage={currentPage} totalPages={totalPages} setCurrentPage={setCurrentPage} totalItems={filtered.length} />
         </div>
       )}
     </div>
@@ -232,6 +265,11 @@ const LogsTable = ({ data, loading }) => {
     [l.subject, l.sender_email, l.campaign_name, l.account?.email, l.account?.full_name]
       .filter(Boolean).join(' ').toLowerCase().includes(search.toLowerCase())
   );
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+  useEffect(() => { setCurrentPage(1); }, [search]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
+  const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
     <div className="space-y-3">
@@ -265,7 +303,7 @@ const LogsTable = ({ data, loading }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
-                {filtered.length === 0 ? (
+                {paginated.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-4 py-10 text-center text-gray-400">
                       <Inbox className="w-8 h-8 mx-auto mb-2 opacity-40" />
@@ -273,7 +311,7 @@ const LogsTable = ({ data, loading }) => {
                     </td>
                   </tr>
                 ) : (
-                  filtered.map(l => {
+                  paginated.map(l => {
                     const openRate = l.total_recipients > 0
                       ? Math.round(((l.opened_count || 0) / l.total_recipients) * 100)
                       : 0;
@@ -320,9 +358,7 @@ const LogsTable = ({ data, loading }) => {
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-2 bg-gray-50 dark:bg-slate-700/30 border-t border-gray-200 dark:border-slate-600 text-xs text-gray-500">
-            {filtered.length} / {data?.length || 0} invii
-          </div>
+          <PaginationControls currentPage={currentPage} totalPages={totalPages} setCurrentPage={setCurrentPage} totalItems={filtered.length} />
         </div>
       )}
     </div>
