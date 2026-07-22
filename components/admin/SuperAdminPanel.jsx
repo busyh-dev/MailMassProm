@@ -6,7 +6,7 @@ import {
   Eye, Clock, Filter, AlertCircle, Globe
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import SuperAdminDashboard from './SuperAdminDashboard';
+import Dashboard from '../email/Dashboard';
 
 // Utility: formatta una data in italiano
 const formatDate = (dateStr) => {
@@ -651,7 +651,7 @@ export default function SuperAdminPanel() {
 
         {/* Tab content */}
         <div className="p-4 sm:p-6">
-          {innerTab === 'dashboard' && (<SuperAdminDashboard />)}
+          {innerTab === 'dashboard' && (<Dashboard campaigns={campaigns} contacts={contacts} />)}
           {innerTab === 'contacts' && (
             <ContactsTable data={contacts} loading={contactsLoading} />
           )}
