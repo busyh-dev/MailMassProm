@@ -15,6 +15,7 @@ import CampaignHeader from "./CampaignHeader";
 import { Loader2 } from "lucide-react";
 import EmailLogs from "./EmailLogs";
 import EmailSettings from "../settings/EmailSettings";
+import SuperAdminPanel from "../admin/SuperAdminPanel";
 import { supabase } from '../../lib/supabaseClient';
 import SessionTimeoutSettings from '../SessionTimeoutSettings';
 import { motion, AnimatePresence } from "framer-motion";
@@ -146,7 +147,10 @@ import {
   Building2,
   Save,
   GripVertical,
-  UserPlus
+  UserPlus,
+  Crown,
+  TrendingUp,
+  Inbox
 } from 'lucide-react';
 
 // Importa Lexical
@@ -28968,6 +28972,21 @@ if (loadingProfile && !user && !authUser) {
           Storico Invii
         </button>
 
+        {/* 👑 SuperAdmin – solo super_admin */}
+        {(isSuperAdmin || role?.name === 'super_admin' || role?.name === 'SuperAdmin') && (
+          <button
+            onClick={() => setActiveTab('superadmin')}
+            className={`flex items-center whitespace-nowrap px-4 py-2.5 sm:py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${
+              activeTab === 'superadmin'
+                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md shadow-amber-500/25 lg:translate-x-1'
+                : 'text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 lg:hover:translate-x-1'
+            }`}
+          >
+            <Crown className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'superadmin' ? 'scale-110' : ''}`} />
+            SuperAdmin
+          </button>
+        )}
+
 {(currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'super_admin') && (
               <button
                 onClick={() => setActiveTab("settings")}
@@ -29669,6 +29688,11 @@ if (loadingProfile && !user && !authUser) {
   />
 )}
 {activeTab === "settings" && <EmailSettings key="settings" />}
+
+{/* 👑 SuperAdmin Panel */}
+{activeTab === "superadmin" && (isSuperAdmin || role?.name === 'super_admin' || role?.name === 'SuperAdmin') && (
+  <SuperAdminPanel key="superadmin" />
+)}
 
 </div>
 
