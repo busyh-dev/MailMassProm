@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import { Mail, Users, Send, BarChart3, Globe, ChevronDown, UserCheck, TrendingUp, TrendingDown, Download, AlertCircle, FileSpreadsheet } from 'lucide-react';
+import { Mail, Users, Send, BarChart3, Globe, ChevronDown, UserCheck, TrendingUp, TrendingDown, Download, AlertCircle, FileSpreadsheet, FileText } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { usePermissions } from '../../src/contexts/PermissionsContext';
 import { useAuth } from '../../contexts/AuthContext';
