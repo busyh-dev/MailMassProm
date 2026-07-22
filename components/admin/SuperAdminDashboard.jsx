@@ -1,10 +1,70 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Mail, Users, Send, BarChart3, TrendingUp, TrendingDown, Download, AlertCircle, FileSpreadsheet, FileText, CalendarClock } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { supabase } from '../../lib/supabaseClient';
+import { Mail, Users, Send, BarChart3, Globe, ChevronDown, UserCheck, TrendingUp, TrendingDown, Download, AlertCircle, FileSpreadsheet, FileText, CalendarClock } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
+import { usePermissions } from '../../src/contexts/PermissionsContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 // 📊 DASHBOARD AVANZATA
 // =======================
 export default function Dashboard({ setActiveTab, campaigns: campaignsProp, contacts: contactsProp }) {
+  const { user } = useAuth();
+  const { isSuperAdmin } = usePermissions();
+  const [loadingGlobal, setLoadingGlobal] = useState(false);
+  
+  // Filtro account per il superadmin
+  const [accounts, setAccounts] = useState([]);
+  const [selectedAccount, setSelectedAccount] = useState(''); // '' = Tutti gli account
+  const [accountsLoading, setAccountsLoading] = useState(false);
+
+  const fetchAccounts = useCallback(async () => {
+    if (!isSuperAdmin || !user?.id) return;
+    setAccountsLoading(true);
+    try {
+      const res = await fetch(`/api/admin/accounts-list?user_id=${user.id}`);
+      const json = await res.json();
+      if (json.success) setAccounts(json.data || []);
+    } catch (e) {
+      console.error('Errore fetch accounts:', e);
+    } finally {
+      setAccountsLoading(false);
+    }
+  }, [isSuperAdmin, user?.id]);
+
+  const loadData = useCallback(async (accountIdToFilter = '') => {
+    if (!isSuperAdmin || !user?.id) return;
+    setLoadingGlobal(true);
+    try {
+      const urlParams = `?user_id=${user.id}${accountIdToFilter ? `&filter_user_id=${accountIdToFilter}` : ''}`;
+      const [campRes, contRes] = await Promise.all([
+        fetch(`/api/admin/campaigns-all${urlParams}`).then(r => r.json()),
+        fetch(`/api/admin/contacts-all${urlParams}`).then(r => r.json())
+      ]);
+      setCampaigns(campRes.success ? campRes.data : []);
+      setContacts(contRes.success ? contRes.data : []);
+    } catch (error) {
+      console.error('Errore caricamento dashboard globale:', error);
+    } finally {
+      setLoadingGlobal(false);
+    }
+  }, [user?.id, isSuperAdmin]);
+
+  useEffect(() => {
+    if (isSuperAdmin) {
+      fetchAccounts();
+      loadData(selectedAccount);
+    }
+  }, [isSuperAdmin, fetchAccounts, loadData, selectedAccount]);
+
+  // Sync props if not superAdmin, else props are ignored because loadData overrides them
+  useEffect(() => { if (campaignsProp && !isSuperAdmin) setCampaigns(campaignsProp); }, [campaignsProp, isSuperAdmin]);
+  useEffect(() => { if (contactsProp && !isSuperAdmin) setContacts(contactsProp); }, [contactsProp, isSuperAdmin]);
+
+  const handleAccountChange = (accountId) => {
+    setSelectedAccount(accountId);
+  };
+  const selectedAccountInfo = accounts.find(a => a.id === selectedAccount);
+
 
   const [campaigns, setCampaigns] = useState(campaignsProp || []);
   const [contacts, setContacts] = useState(contactsProp || []);

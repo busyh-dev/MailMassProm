@@ -3,9 +3,10 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Users, Mail, BarChart3, Send, ChevronDown, RefreshCw,
   Building2, Search, Crown, TrendingUp, Inbox, UserCheck,
-  Eye, Clock, Filter, AlertCircle
+  Eye, Clock, Filter, AlertCircle, Globe
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import SuperAdminDashboard from './SuperAdminDashboard';
 
 // Utility: formatta una data in italiano
 const formatDate = (dateStr) => {
@@ -382,7 +383,7 @@ export default function SuperAdminPanel() {
   const [logsLoading, setLogsLoading] = useState(false);
 
   // UI state
-  const [innerTab, setInnerTab] = useState('contacts'); // contacts | campaigns | logs
+  const [innerTab, setInnerTab] = useState('dashboard'); // contacts | campaigns | logs
   const [accounts, setAccounts] = useState([]); // lista account per il filtro
   const [selectedAccount, setSelectedAccount] = useState(''); // '' = tutti
   const [accountsLoading, setAccountsLoading] = useState(false);
@@ -495,6 +496,7 @@ export default function SuperAdminPanel() {
   const selectedAccountInfo = accounts.find(a => a.id === selectedAccount);
 
   const innerTabs = [
+    { id: 'dashboard', label: 'Dashboard Globale', icon: Globe, count: null },
     { id: 'contacts', label: 'Contatti', icon: Users, count: contacts.length },
     { id: 'campaigns', label: 'Campagne', icon: Mail, count: campaigns.length },
     { id: 'logs', label: 'Storico Invii', icon: BarChart3, count: logs.length },
@@ -636,19 +638,20 @@ export default function SuperAdminPanel() {
             >
               <tab.icon className="w-4 h-4" />
               {tab.label}
-              <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+              {tab.count !== null && (<span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
                 innerTab === tab.id
                   ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
                   : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400'
               }`}>
                 {tab.count}
-              </span>
+              </span>)}
             </button>
           ))}
         </div>
 
         {/* Tab content */}
         <div className="p-4 sm:p-6">
+          {innerTab === 'dashboard' && (<SuperAdminDashboard />)}
           {innerTab === 'contacts' && (
             <ContactsTable data={contacts} loading={contactsLoading} />
           )}
