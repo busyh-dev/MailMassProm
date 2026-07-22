@@ -78,14 +78,16 @@ const PaginationControls = ({ currentPage, totalPages, setCurrentPage, totalItem
 
 // ─── TABELLA CONTATTI ───────────────────────────────────────────
 const ContactsTable = ({ data, loading }) => {
-  const [search, setSearch] = useState('');
-  const filtered = (data || []).filter(c =>
-    [c.name, c.email, c.company, c.account?.email, c.account?.full_name]
-      .filter(Boolean).join(' ').toLowerCase().includes(search.toLowerCase())
-  );
+  const [filters, setFilters] = useState({ name: '', email: '', company: '' });
+  const filtered = (data || []).filter(c => {
+    const matchName = !filters.name || (c.name?.toLowerCase() || '').includes(filters.name.toLowerCase()) || (c.full_name?.toLowerCase() || '').includes(filters.name.toLowerCase());
+    const matchEmail = !filters.email || (c.email?.toLowerCase() || '').includes(filters.email.toLowerCase());
+    const matchCompany = !filters.company || (c.company?.toLowerCase() || '').includes(filters.company.toLowerCase());
+    return matchName && matchEmail && matchCompany;
+  });
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
-  useEffect(() => { setCurrentPage(1); }, [search]);
+  useEffect(() => { setCurrentPage(1); }, [filters]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
   const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
@@ -196,14 +198,15 @@ const ContactsTable = ({ data, loading }) => {
 
 // ─── TABELLA CAMPAGNE ───────────────────────────────────────────
 const CampaignsTable = ({ data, loading }) => {
-  const [search, setSearch] = useState('');
-  const filtered = (data || []).filter(c =>
-    [c.campaign_name, c.subject, c.sender_email, c.account?.email, c.account?.full_name]
-      .filter(Boolean).join(' ').toLowerCase().includes(search.toLowerCase())
-  );
+  const [filters, setFilters] = useState({ name: '', sender: '' });
+  const filtered = (data || []).filter(c => {
+    const matchName = !filters.name || (c.name?.toLowerCase() || '').includes(filters.name.toLowerCase()) || (c.subject?.toLowerCase() || '').includes(filters.name.toLowerCase());
+    const matchSender = !filters.sender || (c.sender_email?.toLowerCase() || '').includes(filters.sender.toLowerCase());
+    return matchName && matchSender;
+  });
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
-  useEffect(() => { setCurrentPage(1); }, [search]);
+  useEffect(() => { setCurrentPage(1); }, [filters]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
   const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
@@ -325,14 +328,15 @@ const CampaignsTable = ({ data, loading }) => {
 
 // ─── TABELLA STORICO INVII ───────────────────────────────────────
 const LogsTable = ({ data, loading }) => {
-  const [search, setSearch] = useState('');
-  const filtered = (data || []).filter(l =>
-    [l.subject, l.sender_email, l.campaign_name, l.account?.email, l.account?.full_name]
-      .filter(Boolean).join(' ').toLowerCase().includes(search.toLowerCase())
-  );
+  const [filters, setFilters] = useState({ email: '', event: '' });
+  const filtered = (data || []).filter(l => {
+    const matchEmail = !filters.email || (l.email?.toLowerCase() || '').includes(filters.email.toLowerCase());
+    const matchEvent = !filters.event || (l.event?.toLowerCase() || '').includes(filters.event.toLowerCase());
+    return matchEmail && matchEvent;
+  });
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
-  useEffect(() => { setCurrentPage(1); }, [search]);
+  useEffect(() => { setCurrentPage(1); }, [filters]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
   const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
