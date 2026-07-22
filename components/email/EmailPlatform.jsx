@@ -18,6 +18,8 @@ import EmailLogs from "./EmailLogs";
 import EmailSettings from "../settings/EmailSettings";
 import SuperAdminPanel from "../admin/SuperAdminPanel";
 import { supabase } from '../../lib/supabaseClient';
+import { ChatInterface } from '../chat/ChatInterface';
+import { NotificationDetailModal } from '../modals/NotificationDetailModal';
 import SessionTimeoutSettings from '../SessionTimeoutSettings';
 import { motion, AnimatePresence } from "framer-motion";
 import { useCampaigns } from '../../hooks/useCampaigns';
@@ -1135,6 +1137,8 @@ const [coperturaCanale, setCoperturaCanale] = useState([]);
 const [testate, setTestate] = useState([]);
 const [contactLabels, setContactLabels] = useState([]);
   const [rejectedUsers, setRejectedUsers] = useState([]);
+  const [selectedNotification, setSelectedNotification] = useState(null);
+  const [chatInitialUser, setChatInitialUser] = useState(null);
   const [activeTab, setActiveTab] = useState("dashboard");
   // const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -28016,7 +28020,7 @@ if (loadingProfile && !user && !authUser) {
           notifications.map((notif) => (
             <div
               key={notif.id}
-              className={`p-4 hover:bg-gray-50 transition ${
+              onClick={() => { setSelectedNotification(notif); setShowNotificationsDropdown(false); setShowAllNotificationsModal(false); }} className={`cursor-pointer p-4 hover:bg-gray-50 transition ${
                 !notif.read ? 'border-l-4 border-blue-500 bg-blue-50/30' : ''
               }`}
             >
@@ -29015,7 +29019,24 @@ if (loadingProfile && !user && !authUser) {
 {activeTab === "settings" && <EmailSettings key="settings" />}
 
 {/* 👑 SuperAdmin Panel */}
-{activeTab === "superadmin" && (isSuperAdmin || role?.name === 'super_admin' || role?.name === 'SuperAdmin') && (
+
+      {activeTab === "chat" && (
+        <div className="p-4 sm:p-6 lg:p-8 animate-in fade-in duration-300">
+          <div className="mb-6 flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300">
+                Chat e Supporto
+              </h1>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {isAdminUser ? 'Gestisci le richieste di assistenza degli utenti' : 'Parla con il nostro team di supporto tecnico'}
+              </p>
+            </div>
+          </div>
+          <ChatInterface initialUserId={chatInitialUser} isAdmin={isAdminUser} />
+        </div>
+      )}
+
+      {activeTab === "superadmin" && (isSuperAdmin || role?.name === 'super_admin' || role?.name === 'SuperAdmin') && (
   <SuperAdminPanel key="superadmin" />
 )}
 
