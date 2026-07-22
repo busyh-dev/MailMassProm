@@ -3,8 +3,8 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Users, Mail, BarChart3, Send, ChevronDown, RefreshCw,
   Building2, Search, Crown, TrendingUp, Inbox, UserCheck,
-  Eye, Clock, Filter, AlertCircle, Globe
-} from 'lucide-react';
+  Eye, Clock, Filter, AlertCircle, Globe, Download, FileText, X } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useAuth } from '../../contexts/AuthContext';
 import Dashboard from '../email/Dashboard';
 
@@ -89,17 +89,48 @@ const ContactsTable = ({ data, loading }) => {
   const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
   const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
+
+  const exportToExcel = () => {
+    const ws = XLSX.utils.json_to_sheet(filtered.map(c => ({
+      'Nome': c.name || c.full_name || '',
+      'Email': c.email,
+      'Azienda': c.company || '',
+      'Account': c.account?.full_name || c.account?.email || c.user_id,
+      'Stato': c.status || 'active',
+      'Data Creazione': formatDate(c.created_at)
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Contatti');
+    XLSX.writeFile(wb, 'Export_Contatti.xlsx');
+  };
+
   return (
-    <div className="space-y-3">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Cerca contatto, email, azienda..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-white dark:bg-slate-800 p-4 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm">
+        <div className="relative w-full sm:max-w-md group">
+          <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400 group-focus-within:text-blue-500 transition-colors">
+            <Search className="w-5 h-5" />
+          </div>
+          <input
+            type="text"
+            placeholder="Cerca contatto, email, azienda..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full pl-10 pr-10 py-2.5 text-sm bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-600 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
+          />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600">
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        <button
+          onClick={exportToExcel}
+          className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold shadow-sm transition-all active:scale-95"
+        >
+          <FileText className="w-4 h-4" />
+          Esporta Excel
+        </button>
       </div>
 
       {loading ? (
@@ -176,17 +207,50 @@ const CampaignsTable = ({ data, loading }) => {
   const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
   const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
+
+  const exportToExcel = () => {
+    const ws = XLSX.utils.json_to_sheet(filtered.map(c => ({
+      'Campagna': c.name || c.subject || '',
+      'Mittente': c.sender_email,
+      'Oggetto': c.subject,
+      'Account': c.account?.full_name || c.account?.email || c.user_id,
+      'Destinatari': c.total_recipients || 0,
+      'Aperture': c.opened_count || 0,
+      'Click': c.clicked_count || 0,
+      'Data Invio': formatDate(c.sent_at || c.created_at)
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Campagne');
+    XLSX.writeFile(wb, 'Export_Campagne.xlsx');
+  };
+
   return (
-    <div className="space-y-3">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Cerca campagna, oggetto, mittente..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-white dark:bg-slate-800 p-4 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm">
+        <div className="relative w-full sm:max-w-md group">
+          <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400 group-focus-within:text-blue-500 transition-colors">
+            <Search className="w-5 h-5" />
+          </div>
+          <input
+            type="text"
+            placeholder="Cerca campagna, mittente..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full pl-10 pr-10 py-2.5 text-sm bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-600 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
+          />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600">
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        <button
+          onClick={exportToExcel}
+          className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold shadow-sm transition-all active:scale-95"
+        >
+          <FileText className="w-4 h-4" />
+          Esporta Excel
+        </button>
       </div>
 
       {loading ? (
@@ -272,17 +336,48 @@ const LogsTable = ({ data, loading }) => {
   const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
   const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
+
+  const exportToExcel = () => {
+    const ws = XLSX.utils.json_to_sheet(filtered.map(l => ({
+      'Email': l.email,
+      'Campagna': l.campaign?.name || l.campaign?.subject || l.campaign_id,
+      'Evento': l.event,
+      'Dettagli': l.details || '',
+      'IP': l.ip_address || '',
+      'Data': formatDate(l.created_at)
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Storico_Invii');
+    XLSX.writeFile(wb, 'Export_Storico.xlsx');
+  };
+
   return (
-    <div className="space-y-3">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Cerca per oggetto, mittente, account..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-white dark:bg-slate-800 p-4 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm">
+        <div className="relative w-full sm:max-w-md group">
+          <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400 group-focus-within:text-blue-500 transition-colors">
+            <Search className="w-5 h-5" />
+          </div>
+          <input
+            type="text"
+            placeholder="Cerca log, email, evento..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full pl-10 pr-10 py-2.5 text-sm bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-600 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
+          />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600">
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        <button
+          onClick={exportToExcel}
+          className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold shadow-sm transition-all active:scale-95"
+        >
+          <FileText className="w-4 h-4" />
+          Esporta Excel
+        </button>
       </div>
 
       {loading ? (
