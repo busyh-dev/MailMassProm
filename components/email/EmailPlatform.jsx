@@ -1139,6 +1139,7 @@ const [contactLabels, setContactLabels] = useState([]);
   const [rejectedUsers, setRejectedUsers] = useState([]);
   const [selectedNotification, setSelectedNotification] = useState(null);
   const [chatInitialUser, setChatInitialUser] = useState(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("dashboard");
   // const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -29020,22 +29021,7 @@ if (loadingProfile && !user && !authUser) {
 
 {/* 👑 SuperAdmin Panel */}
 
-      {activeTab === "chat" && (
-        <div className="p-4 sm:p-6 lg:p-8 animate-in fade-in duration-300">
-          <div className="mb-6 flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300">
-                Chat e Supporto
-              </h1>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                {isAdminUser ? 'Gestisci le richieste di assistenza degli utenti' : 'Parla con il nostro team di supporto tecnico'}
-              </p>
-            </div>
-          </div>
-          <ChatInterface initialUserId={chatInitialUser} isAdmin={isAdminUser} />
-        </div>
-      )}
-
+      
       {activeTab === "superadmin" && (isSuperAdmin || role?.name === 'super_admin' || role?.name === 'SuperAdmin') && (
   <SuperAdminPanel key="superadmin" />
 )}
