@@ -153,7 +153,7 @@ import {
   UserPlus,
   Crown,
   TrendingUp,
-  Inbox
+  Inbox,
   MessageCircle
 } from 'lucide-react';
 
