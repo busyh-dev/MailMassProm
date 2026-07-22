@@ -154,6 +154,7 @@ import {
   Crown,
   TrendingUp,
   Inbox
+  MessageCircle
 } from 'lucide-react';
 
 // Importa Lexical
@@ -29050,6 +29051,36 @@ if (loadingProfile && !user && !authUser) {
 
 
    {/* Modals */}
+
+      {/* Sliding Chat Panel */}
+      {isChatOpen && (
+        <div className="fixed inset-0 z-[200] flex justify-end">
+          <div 
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
+            onClick={() => setIsChatOpen(false)}
+          />
+          <div className="relative w-full max-w-4xl h-full bg-white dark:bg-slate-900 shadow-2xl animate-in slide-in-from-right duration-300 flex flex-col border-l border-gray-200 dark:border-slate-700">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
+                  <MessageCircle className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">Chat Supporto</h2>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{isAdminUser ? 'Gestisci richieste' : 'Parla con il team'}</p>
+                </div>
+              </div>
+              <button onClick={() => setIsChatOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden p-4">
+              <ChatInterface initialUserId={chatInitialUser} isAdmin={isAdminUser} />
+            </div>
+          </div>
+        </div>
+      )}
+
 <ContactModal />
 <div style={{ display: showProfileModal ? 'block' : 'none' }}>
   <ProfileModal 
@@ -35361,33 +35392,5 @@ const CancelConfirmModal = ({ show, onCancel, onConfirm, title, message }) => {
 };
 // 🔥 Alla fine del file EmailPlatform.jsx, DOPO tutti i componenti
 
-      {/* Sliding Chat Panel */}
-      {isChatOpen && (
-        <div className="fixed inset-0 z-[200] flex justify-end">
-          <div 
-            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
-            onClick={() => setIsChatOpen(false)}
-          />
-          <div className="relative w-full max-w-4xl h-full bg-white dark:bg-slate-900 shadow-2xl animate-in slide-in-from-right duration-300 flex flex-col border-l border-gray-200 dark:border-slate-700">
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
-                  <MessageCircle className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">Chat Supporto</h2>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{isAdminUser ? 'Gestisci richieste' : 'Parla con il team'}</p>
-                </div>
-              </div>
-              <button onClick={() => setIsChatOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl transition-colors">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-hidden p-4">
-              <ChatInterface initialUserId={chatInitialUser} isAdmin={isAdminUser} />
-            </div>
-          </div>
-        </div>
-      )}
-
+      
 export default EmailPlatform;
