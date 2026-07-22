@@ -1058,7 +1058,7 @@ const loadNotifications = useCallback(async () => {
     .eq('id', user.id)
     .single();
 
-  const isAdminUser = ['admin', 'super_admin'].includes(profileData?.role?.name);
+  const (isAdmin || isSuperAdmin) = ['admin', 'super_admin'].includes(profileData?.role?.name);
 
   let query = supabase
     .from('notifications')
@@ -1066,7 +1066,7 @@ const loadNotifications = useCallback(async () => {
     .order('created_at', { ascending: false })
     .limit(50);
 
-  if (!isAdminUser) {
+  if (!(isAdmin || isSuperAdmin)) {
     query = query.eq('user_id', user.id);
   }
 
@@ -1078,7 +1078,7 @@ const loadNotifications = useCallback(async () => {
   }
 
   // Se admin, carica i profili separatamente
-  if (isAdminUser && data?.length > 0) {
+  if ((isAdmin || isSuperAdmin) && data?.length > 0) {
     const userIds = [...new Set(data.map(n => n.user_id))];
     const { data: profiles } = await supabase
       .from('profiles')
@@ -29067,7 +29067,7 @@ if (loadingProfile && !user && !authUser) {
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-gray-900 dark:text-white">Chat Supporto</h2>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{isAdminUser ? 'Gestisci richieste' : 'Parla con il team'}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{(isAdmin || isSuperAdmin) ? 'Gestisci richieste' : 'Parla con il team'}</p>
                 </div>
               </div>
               <button onClick={() => setIsChatOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl transition-colors">
@@ -29075,7 +29075,7 @@ if (loadingProfile && !user && !authUser) {
               </button>
             </div>
             <div className="flex-1 overflow-hidden p-4">
-              <ChatInterface initialUserId={chatInitialUser} isAdmin={isAdminUser} />
+              <ChatInterface initialUserId={chatInitialUser} isAdmin={(isAdmin || isSuperAdmin)} />
             </div>
           </div>
         </div>
