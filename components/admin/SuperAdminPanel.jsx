@@ -651,7 +651,7 @@ export default function SuperAdminPanel() {
           icon={Building2}
           title="Account Totali"
           value={statsLoading ? null : stats?.accountsCount}
-          subtitle="Utenti registrati"
+          subtitle={statsLoading ? '...' : `${stats?.activeAccountsCount || 0} account attivi (che inviano)`}
           color="bg-gradient-to-br from-indigo-500 to-indigo-600"
         />
         <KpiCard

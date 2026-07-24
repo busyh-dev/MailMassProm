@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
-import { Send, User, Search, MessageCircle, Clock } from 'lucide-react';
+import { Send, User, Search, MessageCircle, Clock, Trash2, Download, X } from 'lucide-react';
 
-export const ChatInterface = ({ initialUserId = null, isAdmin = false }) => {
+export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }) => {
   const { user } = useAuth();
   const [conversations, setConversations] = useState([]);
   const [selectedUser, setSelectedUser] = useState(initialUserId);
@@ -12,6 +12,144 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false }) => {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const messagesEndRef = useRef(null);
+  const [onlineUsers, setOnlineUsers] = useState(new Set());
+  const [unreadCounts, setUnreadCounts] = useState({});
+  const [typingUsers, setTypingUsers] = useState(new Set());
+  const typingTimeoutRef = useRef({});
+  const typingChannelRef = useRef(null);
+  const lastTypingTimeRef = useRef(0);
+
+  
+  // Gestione Typing Status (Broadcast)
+  useEffect(() => {
+    if (!user) return;
+
+    const typingChannel = supabase.channel('chat_typing_status');
+    typingChannelRef.current = typingChannel;
+
+    typingChannel
+      .on('broadcast', { event: 'typing' }, payload => {
+        const { userId, isTyping } = payload.payload;
+        if (userId === user.id) return; // Ignora i propri eventi
+
+        setTypingUsers(prev => {
+          const newSet = new Set(prev);
+          if (isTyping) {
+            newSet.add(userId);
+          } else {
+            newSet.delete(userId);
+          }
+          return newSet;
+        });
+
+        // Auto-clear typing status
+        if (isTyping) {
+          if (typingTimeoutRef.current[userId]) {
+            clearTimeout(typingTimeoutRef.current[userId]);
+          }
+          typingTimeoutRef.current[userId] = setTimeout(() => {
+            setTypingUsers(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(userId);
+              return newSet;
+            });
+          }, 3000);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(typingChannel);
+      Object.values(typingTimeoutRef.current).forEach(clearTimeout);
+    };
+  }, [user]);
+
+  const handleTyping = () => {
+    const now = Date.now();
+    // Invia un broadcast al massimo una volta al secondo
+    if (now - lastTypingTimeRef.current > 1000) {
+      lastTypingTimeRef.current = now;
+      if (typingChannelRef.current) {
+        typingChannelRef.current.send({
+          type: 'broadcast',
+          event: 'typing',
+          payload: { userId: user?.id, isTyping: true }
+        });
+      }
+    }
+  };
+
+  
+  // Gestione messaggi non letti per l'admin
+  useEffect(() => {
+    if (!isAdmin || !user) return;
+    
+    const fetchUnreadCounts = async () => {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('sender_id')
+        .eq('receiver_id', user.id)
+        .eq('read', false);
+        
+      if (!error && data) {
+        const counts = {};
+        data.forEach(msg => {
+          counts[msg.sender_id] = (counts[msg.sender_id] || 0) + 1;
+        });
+        setUnreadCounts(counts);
+      }
+    };
+    
+    fetchUnreadCounts();
+  }, [user, isAdmin]);
+
+  // Segna come letti quando si apre la conversazione
+  useEffect(() => {
+    if (isAdmin && selectedUser && user) {
+      const markAsRead = async () => {
+        const { error } = await supabase
+          .from('messages')
+          .update({ read: true })
+          .eq('sender_id', selectedUser)
+          .eq('receiver_id', user.id)
+          .eq('read', false);
+          
+        if (!error) {
+          setUnreadCounts(prev => {
+            const newCounts = { ...prev };
+            delete newCounts[selectedUser];
+            return newCounts;
+          });
+        }
+      };
+      markAsRead();
+    }
+  }, [selectedUser, isAdmin, user, messages.length]); // include messages.length so when a new message arrives while chat is open it gets marked as read too
+
+  // Gestione Presence
+  useEffect(() => {
+    if (!user) return;
+    
+    const presenceChannel = supabase.channel('chat_presence', {
+      config: { presence: { key: user.id } }
+    });
+
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = presenceChannel.presenceState();
+        const onlineIds = new Set(Object.keys(state));
+        setOnlineUsers(onlineIds);
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await presenceChannel.track({ online_at: new Date().toISOString() });
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(presenceChannel);
+    };
+  }, [user]);
 
   // Per gli admin: Carica la lista degli utenti con cui c'è una conversazione
   useEffect(() => {
@@ -79,6 +217,9 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false }) => {
           if (newMessage.sender_id === selectedUser || newMessage.receiver_id === selectedUser) {
             setMessages(prev => [...prev, newMessage]);
             scrollToBottom();
+          } else if (newMessage.receiver_id === user.id) {
+            // Nuovi messaggi da altri utenti
+            setUnreadCounts(prev => ({ ...prev, [newMessage.sender_id]: (prev[newMessage.sender_id] || 0) + 1 }));
           }
         } else {
           if (newMessage.sender_id === user.id || newMessage.receiver_id === user.id) {
@@ -98,6 +239,50 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false }) => {
     scrollToBottom();
   }, [messages]);
 
+  
+  const handleExportChat = () => {
+    if (!messages.length) {
+      alert("Nessun messaggio da esportare.");
+      return;
+    }
+    
+    let text = "=== CRONOLOGIA CHAT ===\n\n";
+    messages.forEach(m => {
+      const isMe = m.sender_id === user?.id;
+      const date = new Date(m.created_at).toLocaleString('it-IT');
+      const senderName = isMe ? "Io" : (isAdmin ? "Cliente" : "Supporto");
+      text += `[${date}] ${senderName}:\n${m.content}\n\n`;
+    });
+
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ChatExport_${new Date().getTime()}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDeleteChat = async () => {
+    if (!messages.length) return;
+    if (!window.confirm("Sei sicuro di voler eliminare l'intera conversazione? Questa azione è irreversibile per entrambi.")) return;
+
+    const messageIds = messages.map(m => m.id);
+    
+    const { error } = await supabase
+      .from('messages')
+      .delete()
+      .in('id', messageIds);
+
+    if (!error) {
+      setMessages([]);
+    } else {
+      alert("Errore durante l'eliminazione della chat.");
+    }
+  };
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -105,6 +290,14 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false }) => {
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !user) return;
+
+    if (typingChannelRef.current) {
+      typingChannelRef.current.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { userId: user?.id, isTyping: false }
+      });
+    }
 
     // Se l'utente è un admin, il receiver è selectedUser.
     // Se l'utente è un cliente, il receiver deve essere un admin. Nel DB, possiamo fare che i messaggi verso l'assistenza
@@ -192,8 +385,16 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false }) => {
                   {(c.full_name || c.email).charAt(0).toUpperCase()}
                 </div>
                 <div className="text-left flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
-                    {c.full_name || 'Utente'}
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center justify-between w-full">
+                    <span className="flex items-center gap-2 truncate">
+                      {c.full_name || 'Utente'}
+                      {onlineUsers.has(c.id) && <span className="w-2 h-2 min-w-[8px] rounded-full bg-green-500 shadow-sm" title="Online"></span>}
+                    </span>
+                    {unreadCounts[c.id] > 0 && (
+                      <span className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-rose-500 flex items-center justify-center text-[10px] font-bold text-white shadow-sm ml-2">
+                        {unreadCounts[c.id]}
+                      </span>
+                    )}
                   </p>
                   <p className="text-xs text-gray-500 truncate">{c.email}</p>
                 </div>
@@ -217,8 +418,29 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false }) => {
                   <h3 className="font-semibold text-gray-900 dark:text-white">
                     {isAdmin ? 'Utente Selezionato' : 'Assistenza Tecnica'}
                   </h3>
-                  <p className="text-xs text-green-500 font-medium">Online</p>
+                  {isAdmin ? (
+                    onlineUsers.has(selectedUser) 
+                      ? <p className="text-xs text-green-500 font-medium">Online</p>
+                      : <p className="text-xs text-gray-400 font-medium">Offline</p>
+                  ) : (
+                    onlineUsers.size > 1 
+                      ? <p className="text-xs text-green-500 font-medium">Supporto Online</p>
+                      : <p className="text-xs text-gray-400 font-medium">Supporto Offline</p>
+                  )}
                 </div>
+              </div>
+              <div className="flex items-center gap-1 sm:gap-2">
+                <button onClick={handleExportChat} className="p-2 text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors" title="Esporta Chat">
+                  <Download className="w-5 h-5" />
+                </button>
+                <button onClick={handleDeleteChat} className="p-2 text-gray-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-colors" title="Svuota Chat">
+                  <Trash2 className="w-5 h-5" />
+                </button>
+                {onClose && (
+                  <button onClick={onClose} className="p-2 text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors" title="Chiudi">
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -254,7 +476,20 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false }) => {
                   );
                 })
               )}
-              <div ref={messagesEndRef} />
+              
+        {typingUsers.size > 0 && (
+          <div className="flex justify-start">
+            <div className="bg-gray-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center space-x-2 w-max shadow-sm border border-gray-200/50 dark:border-slate-700/50">
+              <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Sta scrivendo</span>
+              <div className="flex space-x-1.5 ml-1">
+                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
             </div>
 
             {/* Input Area */}
@@ -263,7 +498,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false }) => {
                 <input
                   type="text"
                   value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
+                  onChange={(e) => { setNewMessage(e.target.value); handleTyping(); }}
                   placeholder="Scrivi un messaggio..."
                   className="flex-1 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-full px-6 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
                 />

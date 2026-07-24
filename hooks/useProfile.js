@@ -11,7 +11,7 @@ export const useProfile = () => {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user && (event === 'INITIAL_SESSION' || event === 'SIGNED_IN')) {
-        loadProfile(session.user);
+        loadProfile(session.user, event === 'SIGNED_IN');
       }
       if (event === 'SIGNED_OUT') {
         setUser(null);
@@ -23,9 +23,9 @@ export const useProfile = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const loadProfile = async (knownUser) => {
+  const loadProfile = async (knownUser, silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
 
       const currentUser = knownUser ?? (await supabase.auth.getUser()).data?.user;
       if (!currentUser) return;
@@ -41,7 +41,10 @@ export const useProfile = () => {
       if (profileError) throw profileError;
 
       if (profileData) {
-        setProfile(profileData);
+        setProfile(prev => {
+          if (JSON.stringify(prev) === JSON.stringify(profileData)) return prev;
+          return profileData;
+        });
         return;
       }
 
@@ -85,16 +88,22 @@ export const useProfile = () => {
           .eq('user_id', currentUser.id)
           .maybeSingle();
         if (fetchError) throw fetchError;
-        setProfile(existingProfile);
+        setProfile(prev => {
+          if (JSON.stringify(prev) === JSON.stringify(existingProfile)) return prev;
+          return existingProfile;
+        });
         return;
       }
 
       if (createError) throw createError;
-      setProfile(createdProfile);
+      setProfile(prev => {
+        if (JSON.stringify(prev) === JSON.stringify(createdProfile)) return prev;
+        return createdProfile;
+      });
     } catch (error) {
       console.error('❌ Errore nel caricamento del profilo:', error);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 

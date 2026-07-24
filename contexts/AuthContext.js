@@ -166,7 +166,7 @@ export const AuthProvider = ({ children }) => {
         console.log('✅ SIGNED_IN accettato:', session?.user?.email);
         lastSignInTime.current = now;
         currentUserId.current = session?.user?.id;
-        setUser(session?.user ?? null);
+        setUser(prev => prev?.id === session?.user?.id ? prev : (session?.user ?? null));
         return;
       }
       // ✅ SIGNED_OUT
@@ -186,7 +186,7 @@ if (event === 'SIGNED_OUT') {
 
       // ✅ Altri eventi
       if (session?.user) {
-        setUser(session.user);
+        setUser(prev => prev?.id === session.user.id ? prev : session.user);
         currentUserId.current = session.user.id;
       } else {
         setUser(null);

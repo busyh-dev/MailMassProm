@@ -168,6 +168,11 @@ export const PermissionsProvider = ({ children }) => {
     return name === 'super_admin' || name === 'SuperAdmin' || name?.toLowerCase() === 'super_admin';
   };
 
+  const isSuperUserRole = (r) => {
+    const name = r?.name || r;
+    return name === 'super_user' || name === 'superUser' || name === 'SuperUser';
+  };
+
   const hasPermission = (permissionName) => {
     if (!profile || !permissions.length) return false;
     if (isSuperAdminRole(role)) return true;
@@ -212,6 +217,7 @@ export const PermissionsProvider = ({ children }) => {
     hasPermission, hasAnyPermission, hasAllPermissions,
     canAccessModule, canPerformAction, canAccessResource,
     isSuperAdmin: isSuperAdminRole(role),
+    isSuperUser: isSuperUserRole(role),
     isAdmin: role?.name === 'admin' || isSuperAdminRole(role),
     isEditor: role?.name === 'editor',
     isViewer: role?.name === 'viewer',

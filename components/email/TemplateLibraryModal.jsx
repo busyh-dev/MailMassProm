@@ -49,6 +49,7 @@ export default function TemplateLibraryModal({
             <option value="welcome">Welcome</option>
             <option value="newsletter">Newsletter</option>
             <option value="promotions">Promozioni</option>
+            <option value="custom">I Miei Template</option>
           </select>
         </div>
 
@@ -67,10 +68,19 @@ export default function TemplateLibraryModal({
                   className="border rounded-lg shadow-sm bg-white cursor-pointer hover:shadow-xl overflow-hidden"
                   onClick={() => onSelect(t)}
                 >
-                  <img src={t.thumbnail} className="h-40 w-full object-cover" />
+                  {t.thumbnail ? (
+                    <img src={t.thumbnail} className="h-40 w-full object-cover" />
+                  ) : (
+                    <div className="h-40 w-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white relative">
+                      <div className="absolute inset-0 flex items-center justify-center opacity-20">
+                         <span className="text-6xl font-bold">{t.name ? t.name.substring(0, 1).toUpperCase() : "T"}</span>
+                      </div>
+                      <span className="text-5xl z-10">{t.preview || "📄"}</span>
+                    </div>
+                  )}
                   <div className="p-4">
-                    <h3 className="font-bold">{t.name}</h3>
-                    <p className="text-sm text-gray-500">{t.description}</p>
+                    <h3 className="font-bold text-gray-900">{t.name}</h3>
+                    <p className="text-sm text-gray-500">{t.description || "Modello personalizzato salvato da te"}</p>
                   </div>
                 </div>
               ))}

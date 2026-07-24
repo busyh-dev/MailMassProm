@@ -20,7 +20,7 @@ export const useCampaigns = () => {
       }
   
       if (session?.user) {
-        loadCampaigns();
+        loadCampaigns(false);
       } else {
         console.warn('⚠️ Sessione non disponibile');
         setLoading(false);
@@ -29,7 +29,7 @@ export const useCampaigns = () => {
   
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
-        loadCampaigns();
+        loadCampaigns(true);
       }
       if (event === 'SIGNED_OUT') {
         setCampaigns([]);
@@ -42,9 +42,9 @@ export const useCampaigns = () => {
   }, []);
 
   // ✅ Carica tutte le campagne dell'utente
-  const loadCampaigns = async () => {
+  const loadCampaigns = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
   
       if (loadingTimeout.current) clearTimeout(loadingTimeout.current);
       loadingTimeout.current = setTimeout(() => {
@@ -83,14 +83,18 @@ export const useCampaigns = () => {
   
       if (error) throw error;
   
-      setCampaigns(data || []);
+      setCampaigns(prev => {
+        const newData = data || [];
+        if (JSON.stringify(prev) === JSON.stringify(newData)) return prev;
+        return newData;
+      });
       return { success: true, data };
     } catch (error) {
       console.error('❌ Errore nel caricamento campagne:', error);
       return { success: false, error: error.message };
     } finally {
       clearTimeout(loadingTimeout.current);
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 

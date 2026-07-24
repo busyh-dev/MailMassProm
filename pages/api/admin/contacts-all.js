@@ -28,18 +28,35 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Carica i contatti (con filtro account opzionale)
-    let query = supabaseAdmin
-      .from('contacts')
-      .select('*')
-      .order('created_at', { ascending: false });
+    // Carica i contatti (con filtro account opzionale e paginazione per superare il limite di 1000)
+    let contacts = [];
+    let from = 0;
+    const limit = 1000;
+    let hasMore = true;
 
-    if (filter_user_id) {
-      query = query.eq('user_id', filter_user_id);
+    while (hasMore) {
+      let query = supabaseAdmin
+        .from('contacts')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(from, from + limit - 1);
+
+      if (filter_user_id) {
+        query = query.eq('user_id', filter_user_id);
+      }
+
+      const { data: chunk, error } = await query;
+      if (error) throw error;
+
+      if (chunk && chunk.length > 0) {
+        contacts = contacts.concat(chunk);
+        from += limit;
+      }
+      
+      if (!chunk || chunk.length < limit) {
+        hasMore = false;
+      }
     }
-
-    const { data: contacts, error } = await query;
-    if (error) throw error;
 
     // Recupera i profili degli account coinvolti per arricchire i dati
     const userIds = [...new Set((contacts || []).map(c => c.user_id).filter(Boolean))];

@@ -479,7 +479,7 @@ if (isLogin) {
 
   // 5️⃣ Login riuscito
   const welcomeName = profileData.full_name || profileData.email.split('@')[0];
-  toast.success(`Benvenuto, ${welcomeName}! 👋`);
+  toast.success(`Benvenuto/a, ${welcomeName}! 👋`);
   
   // 6️⃣ Redirect in base al ruolo
  // 6️⃣ Redirect alla dashboard

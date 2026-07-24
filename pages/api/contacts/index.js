@@ -31,15 +31,32 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { data, error } = await supabase
-      .from("contacts")
-      .select("*")
-      .eq("user_id", user_id)
-      .order("created_at", { ascending: false });
+    let data = [];
+    let from = 0;
+    const limit = 1000;
+    let hasMore = true;
 
-    if (error) {
-      console.error('❌ Supabase error:', error);
-      throw error;
+    while (hasMore) {
+      const { data: chunk, error } = await supabase
+        .from("contacts")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("created_at", { ascending: false })
+        .range(from, from + limit - 1);
+
+      if (error) {
+        console.error('❌ Supabase error:', error);
+        throw error;
+      }
+
+      if (chunk && chunk.length > 0) {
+        data = data.concat(chunk);
+        from += limit;
+      }
+      
+      if (!chunk || chunk.length < limit) {
+        hasMore = false;
+      }
     }
 
     console.log('✅ Contacts loaded:', data?.length || 0);

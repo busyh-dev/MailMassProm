@@ -1,8 +1,26 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Calendar, User, MessageCircle, Info } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 
 export const NotificationDetailModal = ({ notification, onClose, onReplyClick, isAdmin }) => {
+  const [userName, setUserName] = useState('');
+
+  useEffect(() => {
+    if (isAdmin && notification?.user_id) {
+      const fetchUserName = async () => {
+        const { data } = await supabase
+          .from('profiles')
+          .select('full_name, email')
+          .eq('id', notification.user_id)
+          .single();
+        if (data) {
+          setUserName(data.full_name || data.email);
+        }
+      };
+      fetchUserName();
+    }
+  }, [isAdmin, notification]);
+
   if (!notification) return null;
 
   const formatDate = (dateStr) => {
@@ -80,7 +98,7 @@ export const NotificationDetailModal = ({ notification, onClose, onReplyClick, i
               <div className="flex items-center gap-3 p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800/50">
                 <User className="w-5 h-5 text-indigo-500" />
                 <span className="text-sm font-medium text-indigo-900 dark:text-indigo-200">
-                  ID Utente: {notification.user_id}
+                  {userName ? `Utente: ${userName}` : `ID Utente: ${notification.user_id}`}
                 </span>
               </div>
             </div>

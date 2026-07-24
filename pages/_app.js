@@ -72,6 +72,7 @@ export default function App({ Component, pageProps }) {
           containerStyle={{
             top: "50%",
             transform: "translateY(-50%)",
+            zIndex: 99999999,
           }}
           toastOptions={{
             duration: 3000,

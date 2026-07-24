@@ -5,7 +5,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { supabase } from "../../lib/supabase";
 
 
-const EmailSettings = () => {
+const EmailSettings = ({ readOnly = false }) => {
   // const [apiKey, setApiKey] = useState("");
   const [accounts, setAccounts] = useState([]);
   const [newAccount, setNewAccount] = useState({ name: "", email: "" });
@@ -683,6 +683,7 @@ const getStatusBadge = (type, status) => {
      </div>
    
      {/* ✅ Riga inferiore - bottoni */}
+     {!readOnly && (
      <div className="flex items-center gap-2 flex-wrap border-t border-gray-200 pt-3">
        <button
          onClick={() => { setEditingSmtp(a.email); setNewApiKey(a.api_key || ""); setSmtpPassword(a.smtp?.pass || ""); }}
@@ -743,8 +744,9 @@ const getStatusBadge = (type, status) => {
        >
          <Trash2 className="w-4 h-4" />
        </button>
-     </div>
-   </li>
+      </div>
+      )}
+    </li>
     ))}
   </ul>
 ) : (
@@ -753,6 +755,7 @@ const getStatusBadge = (type, status) => {
         
 
         {/* ➕ Aggiungi nuovo mittente */}
+        {!readOnly && (
         <div className="mt-4 flex flex-col md:flex-row gap-3">
           <div className="flex-1">
             <input
@@ -816,6 +819,7 @@ const getStatusBadge = (type, status) => {
             Aggiungi
           </button>
         </div>
+        )}
 
         {showAddSuccess && (
           <div className="mt-3 text-green-600 text-sm flex items-center gap-2 animate-fadeIn">
@@ -826,6 +830,7 @@ const getStatusBadge = (type, status) => {
       </div>
 
       {/* 💾 Azioni Configurazione */}
+      {!readOnly && (
       <div className="pt-6 border-t border-gray-200 flex flex-col sm:flex-row justify-end gap-3">
       <button
   onClick={saveSettings}
@@ -984,6 +989,7 @@ const getStatusBadge = (type, status) => {
   {isVerifying ? "Verifica in corso..." : "Verifica tutti ora"}
 </button>
       </div>
+      )}
 
       <p className="text-xs text-gray-500 mt-2">
         🔒 I dati vengono salvati solo nel tuo browser e non vengono inviati a server esterni.
