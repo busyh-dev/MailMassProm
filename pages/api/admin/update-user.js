@@ -5,7 +5,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Metodo non consentito' });
   }
 
-  const { adminId, userId, fullName, email, password, roleName } = req.body;
+  const { adminId, userId, fullName, email, password, roleName, requirePasswordChange } = req.body;
 
   if (!adminId || !userId) {
     return res.status(400).json({ error: 'Mancano parametri essenziali' });
@@ -62,7 +62,8 @@ export default async function handler(req, res) {
       .update({
         full_name: fullName,
         email: email, // Manteniamo la sincronizzazione
-        role_id: roleIdToSet
+        role_id: roleIdToSet,
+        require_password_change: requirePasswordChange || false
       })
       .eq('id', userId);
 

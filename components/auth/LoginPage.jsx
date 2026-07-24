@@ -141,7 +141,9 @@ const LoginPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isResending, setIsResending] = useState(false); // ✅ Per il reinvio
   // Aggiungi questo stato dentro LoginPage
-const [showInactivityMessage, setShowInactivityMessage] = useState(false);
+  const [showInactivityMessage, setShowInactivityMessage] = useState(false);
+  const [forcePasswordChange, setForcePasswordChange] = useState(false);
+  const [forcePasswordData, setForcePasswordData] = useState({ oldPassword: '', newPassword: '', confirmNewPassword: '' });
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -477,7 +479,14 @@ if (isLogin) {
     toast('⚠️ Accesso con permessi limitati');
   }
 
-  // 5️⃣ Login riuscito
+  // 5️⃣ Controlla se è richiesto il cambio password
+  if (profileData.require_password_change) {
+    setForcePasswordChange(true);
+    setIsLoading(false);
+    return;
+  }
+
+  // 6️⃣ Login riuscito
   const welcomeName = profileData.full_name || profileData.email.split('@')[0];
   toast.success(`Benvenuto/a, ${welcomeName}! 👋`);
   
@@ -641,6 +650,59 @@ console.log('⏰ setTimeout impostato, attendo 1 secondo...');
     }
   };
 
+  const handleForcePasswordSubmit = async (e) => {
+    e.preventDefault();
+    if (forcePasswordData.newPassword !== forcePasswordData.confirmNewPassword) {
+      toast.error('Le nuove password non coincidono');
+      return;
+    }
+    if (forcePasswordData.newPassword.length < 8) {
+      toast.error('La password deve contenere minimo 8 caratteri');
+      return;
+    }
+    if (forcePasswordData.oldPassword === forcePasswordData.newPassword) {
+      toast.error('La nuova password deve essere diversa dalla precedente');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // 1. Re-autentica per sicurezza (se necessario) o aggiorna direttamente
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: forcePasswordData.newPassword
+      });
+
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
+
+      // 2. Aggiorna profile per rimuovere il flag
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData?.user) {
+        await supabase
+          .from('profiles')
+          .update({ require_password_change: false })
+          .eq('id', userData.user.id);
+      }
+
+      toast.success('Password aggiornata con successo! Accesso in corso...');
+      
+      setTimeout(() => {
+        if (typeof window !== 'undefined') {
+          window.__loginPageActive = false;
+          window.__currentLoginUserId = null;
+          window.location.href = '/dashboard';
+        }
+      }, 1500);
+
+    } catch (err) {
+      console.error(err);
+      toast.error("Errore durante l'aggiornamento della password: " + err.message);
+      setIsLoading(false);
+    }
+  };
+
+
   // Toggle login/register
   const handleToggleMode = () => {
     setIsLogin(!isLogin);
@@ -772,12 +834,14 @@ console.log('⏰ setTimeout impostato, attendo 1 secondo...');
             {/* Header Form */}
             <div className="text-center lg:text-left mb-8">
               <h2 className="text-3xl font-bold text-gray-900">
-                {isLogin ? 'Bentornato!' : 'Crea Account'}
+                {forcePasswordChange ? 'Aggiorna Password' : isLogin ? 'Bentornato!' : 'Crea Account'}
               </h2>
               <p className="mt-2 text-gray-600">
-                {isLogin 
-                  ? 'Accedi al tuo account per continuare' 
-                  : 'Inizia la tua prova gratuita oggi'}
+                {forcePasswordChange 
+                  ? 'È richiesto un cambio password per continuare'
+                  : isLogin 
+                    ? 'Accedi al tuo account per continuare' 
+                    : 'Inizia la tua prova gratuita oggi'}
               </p>
             </div>
 
@@ -791,161 +855,226 @@ console.log('⏰ setTimeout impostato, attendo 1 secondo...');
               </div>
             )}
 
-            {/* Error General */}
-            {errors.general && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-                <div className="flex items-start">
-                  <AlertCircle className="h-5 w-5 text-red-600 mr-2 mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-red-800">{errors.general}</p>
-                </div>
+            {/* General Error */}
+            {errors.general && !forcePasswordChange && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start">
+                <AlertCircle className="h-5 w-5 text-red-600 mr-2 mt-0.5 flex-shrink-0" />
+                <p className="text-red-700 text-sm font-medium">{errors.general}</p>
               </div>
             )}
 
-            {/* Toggle */}
-            <div className="flex bg-gray-100 rounded-lg p-1 mb-6">
-              <button
-                type="button"
-                onClick={() => !isLoading && setIsLogin(true)}
-                className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                  isLogin ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                } ${isLoading ? 'cursor-not-allowed' : ''}`}
-                disabled={isLoading}
-              >
-                Accedi
-              </button>
-              <button
-                type="button"
-                onClick={() => !isLoading && setIsLogin(false)}
-                className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                  !isLogin ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                } ${isLoading ? 'cursor-not-allowed' : ''}`}
-                disabled={isLoading}
-              >
-                Registrati
-              </button>
-            </div>
-
-            {/* Form */}
-            <form className="space-y-6" onSubmit={handleSubmit}>
-              {!isLogin && (
+            {forcePasswordChange ? (
+              <form onSubmit={handleForcePasswordSubmit} className="space-y-5">
                 <InputField
-                  name="full_name"
-                  placeholder="Nome completo"
-                  icon={User}
-                  value={formData.full_name}
-                  onChange={handleInputChange}
-                  errors={errors}
-                  isLoading={isLoading}
-                />
-              )}
-
-              <InputField
-                name="email"
-                type="email"
-                placeholder="Email"
-                icon={Mail}
-                value={formData.email}
-                onChange={handleInputChange}
-                errors={errors}
-                isLoading={isLoading}
-              />
-
-              <InputField
-                name="password"
-                placeholder="Password"
-                icon={Lock}
-                showPasswordToggle
-                showPassword={showPassword}
-                onTogglePassword={() => setShowPassword(!showPassword)}
-                value={formData.password}
-                onChange={handleInputChange}
-                errors={errors}
-                isLoading={isLoading}
-              />
-
-              {!isLogin && (
-                <InputField
-                  name="confirmPassword"
-                  placeholder="Conferma Password"
+                  label="Vecchia Password"
+                  type={showPassword ? "text" : "password"}
+                  name="oldPassword"
+                  value={forcePasswordData.oldPassword}
+                  onChange={(e) => setForcePasswordData({...forcePasswordData, oldPassword: e.target.value})}
+                  placeholder="Inserisci password attuale"
                   icon={Lock}
-                  showPasswordToggle
-                  showPassword={showConfirmPassword}
-                  onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
-                  value={formData.confirmPassword}
-                  onChange={handleInputChange}
-                  errors={errors}
-                  isLoading={isLoading}
+                  required
                 />
-              )}
+                
+                <InputField
+                  label="Nuova Password"
+                  type={showPassword ? "text" : "password"}
+                  name="newPassword"
+                  value={forcePasswordData.newPassword}
+                  onChange={(e) => setForcePasswordData({...forcePasswordData, newPassword: e.target.value})}
+                  placeholder="Minimo 8 caratteri"
+                  icon={Lock}
+                  required
+                />
 
-              {!isLogin && (
-                <div className="flex items-start">
-                  <div className="flex items-center h-5">
-                    <input
-                      id="acceptTerms"
-                      name="acceptTerms"
-                      type="checkbox"
-                      checked={formData.acceptTerms}
-                      onChange={handleInputChange}
-                      className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
-                      disabled={isLoading}
-                    />
-                  </div>
-                  <div className="ml-3 text-sm">
-                    <label htmlFor="acceptTerms" className="text-gray-600">
-                      Accetto i{' '}
-                      <a href="#" className="text-blue-600 hover:text-blue-500 font-medium">
-                        Termini di Servizio
-                      </a>{' '}
-                      e la{' '}
-                      <a href="#" className="text-blue-600 hover:text-blue-500 font-medium">
-                        Privacy Policy
-                      </a>
-                    </label>
-                    {errors.acceptTerms && (
-                      <div className="mt-1 flex items-center text-sm text-red-600">
-                        <AlertCircle className="h-4 w-4 mr-1" />
-                        {errors.acceptTerms}
-                      </div>
-                    )}
-                  </div>
+                <InputField
+                  label="Conferma Nuova Password"
+                  type={showConfirmPassword ? "text" : "password"}
+                  name="confirmNewPassword"
+                  value={forcePasswordData.confirmNewPassword}
+                  onChange={(e) => setForcePasswordData({...forcePasswordData, confirmNewPassword: e.target.value})}
+                  placeholder="Ripeti la nuova password"
+                  icon={Lock}
+                  required
+                />
+
+                <div className="flex justify-between items-center px-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="text-sm font-medium text-blue-600 hover:text-blue-700 transition"
+                  >
+                    {showPassword ? 'Nascondi Password' : 'Mostra Password'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="text-sm font-medium text-blue-600 hover:text-blue-700 transition"
+                  >
+                    {showConfirmPassword ? 'Nascondi Conferma' : 'Mostra Conferma'}
+                  </button>
                 </div>
-              )}
 
-              <div>
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-blue-600/20"
                 >
                   {isLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                      Aggiornamento in corso...
+                    </>
                   ) : (
-                    <ArrowRight className="w-4 h-4 mr-2 group-hover:translate-x-1 transition-transform" />
+                    'Aggiorna Password'
                   )}
-                  {isLoading
-                    ? isLogin
-                      ? 'Accesso in corso...'
-                      : 'Registrazione in corso...'
-                    : isLogin
-                    ? 'Accedi alla Piattaforma'
-                    : 'Crea Account Gratuito'}
                 </button>
-              </div>
-
-              {isLogin && (
-                <div className="text-center">
+              </form>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-5">
+                <div className="flex bg-gray-100 rounded-lg p-1 mb-6">
                   <button
                     type="button"
-                    onClick={() => setShowForgotPassword(true)}
-                    className="text-sm text-blue-600 hover:text-blue-500 transition"
+                    onClick={() => !isLoading && setIsLogin(true)}
+                    className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                      isLogin ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                    } ${isLoading ? 'cursor-not-allowed' : ''}`}
                     disabled={isLoading}
                   >
-                    Password dimenticata?
+                    Accedi
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => !isLoading && setIsLogin(false)}
+                    className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                      !isLogin ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                    } ${isLoading ? 'cursor-not-allowed' : ''}`}
+                    disabled={isLoading}
+                  >
+                    Registrati
                   </button>
                 </div>
-              )}     
-            </form>
+
+                {!isLogin && (
+                  <InputField
+                    name="full_name"
+                    placeholder="Nome completo"
+                    icon={User}
+                    value={formData.full_name}
+                    onChange={handleInputChange}
+                    errors={errors}
+                    isLoading={isLoading}
+                  />
+                )}
+
+                <InputField
+                  name="email"
+                  type="email"
+                  placeholder="Email"
+                  icon={Mail}
+                  value={formData.email}
+                  onChange={handleInputChange}
+                  errors={errors}
+                  isLoading={isLoading}
+                />
+
+                <InputField
+                  name="password"
+                  placeholder="Password"
+                  icon={Lock}
+                  showPasswordToggle
+                  showPassword={showPassword}
+                  onTogglePassword={() => setShowPassword(!showPassword)}
+                  value={formData.password}
+                  onChange={handleInputChange}
+                  errors={errors}
+                  isLoading={isLoading}
+                />
+
+                {!isLogin && (
+                  <InputField
+                    name="confirmPassword"
+                    placeholder="Conferma Password"
+                    icon={Lock}
+                    showPasswordToggle
+                    showPassword={showConfirmPassword}
+                    onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
+                    value={formData.confirmPassword}
+                    onChange={handleInputChange}
+                    errors={errors}
+                    isLoading={isLoading}
+                  />
+                )}
+
+                {!isLogin && (
+                  <div className="flex items-start">
+                    <div className="flex items-center h-5">
+                      <input
+                        id="acceptTerms"
+                        name="acceptTerms"
+                        type="checkbox"
+                        checked={formData.acceptTerms}
+                        onChange={handleInputChange}
+                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+                        disabled={isLoading}
+                      />
+                    </div>
+                    <div className="ml-3 text-sm">
+                      <label htmlFor="acceptTerms" className="text-gray-600">
+                        Accetto i{' '}
+                        <a href="#" className="text-blue-600 hover:text-blue-500 font-medium">
+                          Termini di Servizio
+                        </a>{' '}
+                        e la{' '}
+                        <a href="#" className="text-blue-600 hover:text-blue-500 font-medium">
+                          Privacy Policy
+                        </a>
+                      </label>
+                      {errors.acceptTerms && (
+                        <div className="mt-1 flex items-center text-sm text-red-600">
+                          <AlertCircle className="h-4 w-4 mr-1" />
+                          {errors.acceptTerms}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    ) : (
+                      <ArrowRight className="w-4 h-4 mr-2 group-hover:translate-x-1 transition-transform" />
+                    )}
+                    {isLoading
+                      ? isLogin
+                        ? 'Accesso in corso...'
+                        : 'Registrazione in corso...'
+                      : isLogin
+                      ? 'Accedi alla Piattaforma'
+                      : 'Crea Account Gratuito'}
+                  </button>
+                </div>
+
+                {isLogin && (
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotPassword(true)}
+                      className="text-sm text-blue-600 hover:text-blue-500 transition"
+                      disabled={isLoading}
+                    >
+                      Password dimenticata?
+                    </button>
+                  </div>
+                )}
+              </form>
+            )}
 
             {/* Modal Password Dimenticata */}
             <ForgotPasswordModal 
@@ -963,19 +1092,21 @@ console.log('⏰ setTimeout impostato, attendo 1 secondo...');
             />
 
             {/* Footer */}
-            <div className="mt-8 text-center">
-              <p className="text-xs text-gray-500">
-                {isLogin ? 'Non hai un account? ' : 'Hai già un account? '}
-                <button
-                  type="button"
-                  onClick={handleToggleMode}
-                  className="text-blue-600 hover:text-blue-500 font-medium"
-                  disabled={isLoading}
-                >
-                  {isLogin ? 'Registrati gratis' : 'Accedi'}
-                </button>
-              </p>
-            </div>
+            {!forcePasswordChange && (
+              <div className="mt-8 text-center">
+                <p className="text-xs text-gray-500">
+                  {isLogin ? 'Non hai un account? ' : 'Hai già un account? '}
+                  <button
+                    type="button"
+                    onClick={handleToggleMode}
+                    className="text-blue-600 hover:text-blue-500 font-medium"
+                    disabled={isLoading}
+                  >
+                    {isLogin ? 'Registrati gratis' : 'Accedi'}
+                  </button>
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

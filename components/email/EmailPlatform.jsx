@@ -25303,7 +25303,8 @@ const [registerData, setRegisterData] = useState({
   name: '',
   email: '',
   password: '',
-  confirmPassword: ''  // <-- AGGIUNGI QUESTO
+  confirmPassword: '',
+  requirePasswordChange: false
 });
 
     // ... stati esistenti
@@ -25606,6 +25607,7 @@ const cancelClose = () => {
               email: registerData.email,
               full_name: registerData.name,
               status: 'pending',
+              require_password_change: registerData.requirePasswordChange || false,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString()
             });
@@ -25621,6 +25623,7 @@ const cancelClose = () => {
             .update({
               full_name: registerData.name,
               status: 'pending',
+              require_password_change: registerData.requirePasswordChange || false,
               updated_at: new Date().toISOString()
             })
             .eq('id', authData.user.id);
@@ -25637,7 +25640,7 @@ const cancelClose = () => {
         });
     
         // Reset form
-        setRegisterData({ name: '', email: '', password: '', confirmPassword: '' });
+        setRegisterData({ name: '', email: '', password: '', confirmPassword: '', requirePasswordChange: false });
     
         // Ricarica la lista utenti pending
         if (typeof fetchPendingUsers === 'function') {
@@ -26626,6 +26629,19 @@ if (loadingProfile && !user && !authUser) {
             <option value="superUser">⚡ superUser</option>
             <option value="User">👤 User</option>
           </select>
+        </div>
+
+        <div className="flex items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+          <input
+            type="checkbox"
+            id="register_require_password_change"
+            checked={registerData.requirePasswordChange || false}
+            onChange={(e) => setRegisterData({ ...registerData, requirePasswordChange: e.target.checked })}
+            className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+          />
+          <label htmlFor="register_require_password_change" className="text-sm font-medium text-gray-700 cursor-pointer">
+            Forza cambio password al prossimo accesso
+          </label>
         </div>
 
         {/* Messaggio di info */}

@@ -9,7 +9,8 @@ export const EditUserModal = ({ user, onClose, onSave, currentUser }) => {
     email: '',
     roleName: '',
     password: '',
-    confirmPassword: ''
+    confirmPassword: '',
+    requirePasswordChange: false
   });
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -28,7 +29,8 @@ export const EditUserModal = ({ user, onClose, onSave, currentUser }) => {
         email: user.email || '',
         roleName: initialRole,
         password: '', // Keep empty for security
-        confirmPassword: ''
+        confirmPassword: '',
+        requirePasswordChange: user.require_password_change || false
       });
     }
   }, [user]);
@@ -87,7 +89,8 @@ export const EditUserModal = ({ user, onClose, onSave, currentUser }) => {
           fullName: formData.fullName,
           email: formData.email,
           roleName: formData.roleName,
-          password: formData.password
+          password: formData.password,
+          requirePasswordChange: formData.requirePasswordChange
         })
       });
 
@@ -238,6 +241,21 @@ export const EditUserModal = ({ user, onClose, onSave, currentUser }) => {
                 </p>
               </div>
             )}
+
+            <div className="mt-4 flex items-center gap-2 bg-gray-50 dark:bg-slate-800 p-3 rounded-xl border border-gray-100 dark:border-slate-700">
+              <input
+                type="checkbox"
+                id="requirePasswordChange"
+                name="requirePasswordChange"
+                checked={formData.requirePasswordChange}
+                onChange={handleChange}
+                className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+              />
+              <label htmlFor="requirePasswordChange" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer flex-1">
+                Forza cambio password al prossimo accesso
+              </label>
+            </div>
+
 
           </form>
         </div>
