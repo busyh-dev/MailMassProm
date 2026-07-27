@@ -3,13 +3,17 @@
 // ===========================================
 
 import { useAuth } from '../../contexts/AuthContext';
+import { usePermissions } from '../../src/contexts/PermissionsContext';
 import { useRouter } from 'next/router';
 import { useEffect } from 'react';
 import { Mail, Loader2 } from 'lucide-react';
 
 const ProtectedRoute = ({ children, adminOnly = false }) => {
-  const { user, loading, isAuthenticated, isAdmin } = useAuth();
+  const { user, loading: authLoading, isAuthenticated, isAdmin } = useAuth();
+  const { profile, loading: permissionsLoading } = usePermissions();
   const router = useRouter();
+
+  const loading = authLoading || permissionsLoading;
 
   // 🔥 DEBUG: Log stato attuale
   console.log('🛡️ ProtectedRoute render:', {
@@ -18,15 +22,22 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
     isAuthenticated,
     isAdmin,
     adminOnly,
+    requirePasswordChange: profile?.require_password_change,
     currentPath: router.pathname
   });
 
   useEffect(() => {
-    console.log('🔍 ProtectedRoute useEffect:', { loading, isAuthenticated, isAdmin, adminOnly });
+    console.log('🔍 ProtectedRoute useEffect:', { loading, isAuthenticated, isAdmin, adminOnly, requirePasswordChange: profile?.require_password_change });
     
     if (!loading) {
       if (!isAuthenticated) {
         console.log('❌ Not authenticated, redirect to /login');
+        router.push('/login');
+        return;
+      }
+
+      if (profile?.require_password_change) {
+        console.log('⚠️ Password change required, redirect to /login');
         router.push('/login');
         return;
       }
@@ -41,7 +52,7 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
     } else {
       console.log('⏳ Still loading auth state...');
     }
-  }, [loading, isAuthenticated, isAdmin, adminOnly, router]);
+  }, [loading, isAuthenticated, isAdmin, adminOnly, router, profile]);
 
   if (loading) {
     console.log('⏳ Showing loading screen');

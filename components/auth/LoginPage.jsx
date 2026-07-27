@@ -4,10 +4,10 @@ import { supabase } from '../../lib/supabaseClient';
 import toast from "react-hot-toast";
 import InputField from "../../components/ui/InputField";
 import ForgotPasswordModal from './ForgotPasswordModal';
+import { usePermissions } from '../../src/contexts/PermissionsContext';
 
 // Aggiungi questo import in cima
 import { AnimatePresence, motion } from 'framer-motion';
-
 
 
 
@@ -132,6 +132,7 @@ const EmailNotConfirmedModal = ({ show, onClose, email, onResend, isResending })
 };
 
 const LoginPage = () => {
+  const { profile, loading: permissionsLoading } = usePermissions();
   const [isLogin, setIsLogin] = useState(true);
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
@@ -154,6 +155,12 @@ const LoginPage = () => {
   
   const [errors, setErrors] = useState({});
   const [successMessage, setSuccessMessage] = useState('');
+  useEffect(() => {
+    if (!permissionsLoading && profile?.require_password_change) {
+      setForcePasswordChange(true);
+    }
+  }, [profile, permissionsLoading]);
+
   // Aggiungi questo useEffect (dopo quelli già esistenti)
 useEffect(() => {
   if (typeof window !== 'undefined') {
