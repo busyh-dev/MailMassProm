@@ -156,9 +156,22 @@ const LoginPage = () => {
   const [errors, setErrors] = useState({});
   const [successMessage, setSuccessMessage] = useState('');
   useEffect(() => {
-    if (!permissionsLoading && profile?.require_password_change) {
-      setForcePasswordChange(true);
-    }
+    const handleForcedPasswordSession = async () => {
+      if (!permissionsLoading && profile?.require_password_change) {
+        if (typeof window !== 'undefined' && window.__justLoggedIn) {
+          setForcePasswordChange(true);
+        } else {
+          console.log("🧹 Rilevato cambio password obbligatorio all'avvio. Eseguo logout...");
+          await supabase.auth.signOut();
+          if (typeof window !== 'undefined') {
+            localStorage.clear();
+            sessionStorage.clear();
+            window.location.reload();
+          }
+        }
+      }
+    };
+    handleForcedPasswordSession();
   }, [profile, permissionsLoading]);
 
   // Aggiungi questo useEffect (dopo quelli già esistenti)
@@ -178,12 +191,14 @@ useEffect(() => {
   if (typeof window !== 'undefined') {
     window.__loginPageActive = true;
     window.__currentLoginUserId = null; // ✅ segnala che non c'è utente attivo
+    window.__justLoggedIn = false;
   }
 
   return () => {
     if (typeof window !== 'undefined') {
       window.__loginPageActive = false;
       window.__currentLoginUserId = null;
+      window.__justLoggedIn = false;
     }
   };
 }, []);
@@ -337,6 +352,7 @@ useEffect(() => {
     if (typeof window !== 'undefined') {
       window.__currentLoginUserId = null;
       window.__loginPageActive = false; // ✅ disabilita temporaneamente il blocco
+      window.__justLoggedIn = true;
     }
   
     try {
@@ -629,6 +645,9 @@ console.log('⏰ setTimeout impostato, attendo 1 secondo...');
       }
   
     } catch (error) {
+      if (typeof window !== 'undefined') {
+        window.__justLoggedIn = false;
+      }
       console.error('❌ Errore catch finale:', error);
       const errorMessage = error.message || 'Errore sconosciuto';
     

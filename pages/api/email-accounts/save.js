@@ -1,4 +1,5 @@
 import { supabaseAdmin as supabase } from "../../../lib/supabaseAdmin";
+import crypto from "crypto";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -38,8 +39,10 @@ export default async function handler(req, res) {
 
     // ✅ Prepara i dati per l'upsert
     const accountsToSave = accounts.map(acc => {
+      const hasId = !!acc.id;
+      const accountId = acc.id || crypto.randomUUID();
       const accountData = {
-        id: acc.id || undefined, // Se esiste usa l'ID, altrimenti Supabase ne genera uno
+        id: accountId,
         user_id,
         name: acc.name,
         email: acc.email,
@@ -50,14 +53,9 @@ export default async function handler(req, res) {
         updated_at: new Date().toISOString(),
       };
 
-       // Aggiungi id solo se esiste (per update)
-       if (acc.id) {
-        accountData.id = acc.id;
+      if (!hasId) {
+        accountData.created_at = new Date().toISOString();
       }
-
-      // Aggiungi created_at solo per nuovi record
-      if (acc.id) accountData.id = acc.id;
-  if (!acc.id) accountData.created_at = new Date().toISOString();
   if (acc.smtp && typeof acc.smtp === 'object') accountData.smtp = acc.smtp;
   if (acc.provider) accountData.provider = acc.provider;
   

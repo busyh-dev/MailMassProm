@@ -1,4 +1,6 @@
 import { supabaseAdmin as supabase } from "../../../lib/supabaseAdmin";
+import crypto from "crypto";
+
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -121,10 +123,10 @@ if (account.api_key !== undefined) {
     console.log("✏️ Account trovato, aggiornamento...");
 
     const updateData = {
-      name: account.name || existing.name,
+      name: account.name || existing.name || "",
       verified: !!account.verified,
-      dkim_status: account.dkimStatus || account.dkim_status || existing.dkim_status,
-      spf_status: account.spfStatus || account.spf_status || existing.spf_status,
+      dkim_status: account.dkimStatus || account.dkim_status || existing.dkim_status || "unknown",
+      spf_status: account.spfStatus || account.spf_status || existing.spf_status || "unknown",
       is_default: !!account.is_default,
       updated_at: new Date().toISOString(),
     };

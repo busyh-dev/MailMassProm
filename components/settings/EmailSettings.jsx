@@ -136,7 +136,8 @@ if (missingApiKey.length > 0) {
       const result = await res.json();
   
       if (!res.ok || !result.success) {
-        throw new Error(result.message || "Errore nel salvataggio.");
+        const errorMsg = result.details ? `${result.message} (${result.details})` : (result.message || "Errore nel salvataggio.");
+        throw new Error(errorMsg);
       }
   
       // localStorage.setItem("resendApiKey", apiKey);
@@ -209,16 +210,18 @@ if (missingApiKey.length > 0) {
       localStorage.setItem("emailAccounts", JSON.stringify(updatedAccounts));
   
       // ✅ Salva nel database (senza mostrare il toast duplicato di aggiornamento)
-      await updateSingleAccount(email, updatedAccount, false);
+      const success = await updateSingleAccount(email, updatedAccount, false);
   
-      if (domainInfo.status === "verified") {
-        toast.success(`${email} verificato correttamente!`);
-      } else {
-        toast.custom((t) => (
-          <div className={`${t.visible ? "animate-enter" : "animate-leave"} bg-yellow-100 text-yellow-800 px-4 py-3 rounded-lg shadow-md font-medium border border-yellow-300`}>
-            ⚠️ {email} non è ancora verificato. Controlla i record DNS.
-          </div>
-        ));
+      if (success) {
+        if (domainInfo.status === "verified") {
+          toast.success(`${email} verificato correttamente!`);
+        } else {
+          toast.custom((t) => (
+            <div className={`${t.visible ? "animate-enter" : "animate-leave"} bg-yellow-100 text-yellow-800 px-4 py-3 rounded-lg shadow-md font-medium border border-yellow-300`}>
+              ⚠️ {email} non è ancora verificato. Controlla i record DNS.
+            </div>
+          ));
+        }
       }
   
     } catch (err) {
@@ -286,13 +289,13 @@ const refreshDomainStatus = async (email) => {
 const updateSingleAccount = async (email, updatedAccount = null, showToast = true) => {
   if (!user?.id) {
     toast.error("⚠️ Devi essere loggato per aggiornare.");
-    return;
+    return false;
   }
 
   const account = updatedAccount || accounts.find((a) => a.email === email);
   if (!account) {
     toast.error("❌ Mittente non trovato.");
-    return;
+    return false;
   }
 
   try {
@@ -315,15 +318,18 @@ const updateSingleAccount = async (email, updatedAccount = null, showToast = tru
     }
 
     if (!res.ok || !result.success) {
-      throw new Error(result.message || "Errore durante l'aggiornamento.");
+      const errorMsg = result.details ? `${result.message} (${result.details})` : (result.message || "Errore durante l'aggiornamento.");
+      throw new Error(errorMsg);
     }
 
     if (showToast) {
       toast.success(`${account.email} aggiornato correttamente.`);
     }
+    return true;
   } catch (err) {
     console.error("💥 Errore update singolo:", err);
     toast.error(err.message);
+    return false;
   }
 };
 // 🔄 Aggiorna lo stato DKIM/SPF dal dominio su Resend
@@ -367,12 +373,14 @@ const refreshSenderStatus = async (email) => {
     const updatedAccounts = accounts.map((a) => a.email === email ? updatedAccount : a);
     setAccounts(updatedAccounts);
     localStorage.setItem("emailAccounts", JSON.stringify(updatedAccounts));
-    await updateSingleAccount(email, updatedAccount, false);
-
-    if (domainInfo.status === "verified") {
-      toast.success(`Dominio ${senderDomain} verificato!`);
-    } else {
-      toast(`Dominio ${senderDomain} non ancora verificato.`, { icon: "⚠️" });
+    const success = await updateSingleAccount(email, updatedAccount, false);
+ 
+    if (success) {
+      if (domainInfo.status === "verified") {
+        toast.success(`Dominio ${senderDomain} verificato!`);
+      } else {
+        toast(`Dominio ${senderDomain} non ancora verificato.`, { icon: "⚠️" });
+      }
     }
   } catch (err) {
     toast.error(err.message);
