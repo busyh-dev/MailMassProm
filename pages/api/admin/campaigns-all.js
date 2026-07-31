@@ -2,14 +2,20 @@
 // Restituisce tutte le campagne per il SuperAdmin, con info account
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 
-async function isSuperAdmin(userId) {
-  const { data } = await supabaseAdmin
+async function checkSuperAdmin(userId) {
+  const { data, error } = await supabaseAdmin
     .from('profiles')
-    .select('role:roles(name), role_id')
+    .select('role:roles(name), role_id, email')
     .eq('id', userId)
     .maybeSingle();
+  if (error) return { authorized: false, details: `Errore DB: ${error.message}` };
+  if (!data) return { authorized: false, details: 'Nessun profilo trovato' };
   const roleName = data?.role?.name || '';
-  return ['super_admin', 'superAdmin', 'SuperAdmin'].includes(roleName) || data?.role_id === 1;
+  const ok = ['super_admin', 'superAdmin', 'SuperAdmin'].includes(roleName) || data?.role_id === 1;
+  return { 
+    authorized: ok, 
+    details: ok ? null : `Il tuo utente (${data.email}) ha il ruolo '${roleName}' (ID: ${data?.role_id}), che non dispone di permessi SuperAdmin.` 
+  };
 }
 
 export default async function handler(req, res) {
@@ -23,8 +29,9 @@ export default async function handler(req, res) {
     return res.status(400).json({ success: false, message: 'user_id obbligatorio' });
   }
 
-  if (!(await isSuperAdmin(user_id))) {
-    return res.status(403).json({ success: false, message: 'Accesso negato' });
+  const authCheck = await checkSuperAdmin(user_id);
+  if (!authCheck.authorized) {
+    return res.status(403).json({ success: false, message: 'Accesso negato', details: authCheck.details });
   }
 
   try {

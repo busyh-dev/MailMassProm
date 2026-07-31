@@ -518,7 +518,7 @@ export default function SuperAdminPanel() {
       const res = await fetch(`/api/admin/stats-all?user_id=${user.id}`);
       const json = await res.json();
       if (json.success) setStats(json.data);
-      else setError(json.message);
+      else setError(json.details ? `${json.message} - Dettaglio: ${json.details}` : json.message);
     } catch (e) {
       setError(e.message);
     } finally {

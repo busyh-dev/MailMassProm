@@ -15,17 +15,32 @@ export default async function handler(req, res) {
     }
 
     // Verifica super_admin
-    const { data } = await supabaseAdmin
+    const { data, error: profileErr } = await supabaseAdmin
       .from('profiles')
-      .select('role:roles(name), role_id')
+      .select('role:roles(name), role_id, email')
       .eq('id', user_id)
       .maybeSingle();
+
+    if (profileErr) {
+      console.error('❌ DB error checking super admin:', profileErr);
+      return res.status(403).json({ success: false, message: 'Accesso negato', details: `Errore database: ${profileErr.message}` });
+    }
+
+    if (!data) {
+      return res.status(403).json({ success: false, message: 'Accesso negato', details: 'Nessun profilo utente trovato per questo ID.' });
+    }
+
     const roleName = data?.role?.name || '';
     const isSuperAdmin = ['super_admin', 'superAdmin', 'SuperAdmin'].includes(roleName) || data?.role_id === 1;
 
     if (!isSuperAdmin) {
-      return res.status(403).json({ success: false, message: 'Accesso negato' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Accesso negato', 
+        details: `Il tuo utente (${data.email}) ha il ruolo '${roleName}' (ID: ${data?.role_id}), che non dispone di permessi SuperAdmin.` 
+      });
     }
+
 
     // Conta accounts (profili registrati) paginando
     let accountsCount = 0;
