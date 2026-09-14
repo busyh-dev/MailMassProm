@@ -41,12 +41,13 @@ useEffect(() => {
 useEffect(() => {
   if (!show) return;
   if (externalSelectedIds?.length > 0) {
-    const selected = allContacts.filter(c => externalSelectedIds.includes(c.id));
+    const extSet = new Set(externalSelectedIds.map(String));
+    const selected = allContacts.filter(c => extSet.has(String(c.id)));
     setIncomingContacts(selected);
   } else {
     setIncomingContacts([]);
   }
-}, [externalSelectedIds, show]);
+}, [externalSelectedIds, show, allContacts]);
 
   // Scrolla al form quando appare
   useEffect(() => {
@@ -77,8 +78,8 @@ useEffect(() => {
       toast.error('Seleziona almeno un contatto con il checkbox');
       return;
     }
-    const existingIds = accumulated.map(c => c.id);
-    const newOnes = incomingContacts.filter(c => !existingIds.includes(c.id));
+    const existingIds = new Set(accumulated.map(c => String(c.id)));
+    const newOnes = incomingContacts.filter(c => !existingIds.has(String(c.id)));
     setAccumulated(prev => [...prev, ...newOnes]);
     setIncomingContacts([]);
     onClearSelection?.();
@@ -86,8 +87,8 @@ useEffect(() => {
   };
 
   const handleAddFilteredToAccumulated = () => {
-    const existingIds = accumulated.map(c => c.id);
-    const newOnes = filteredContacts.filter(c => !existingIds.includes(c.id));
+    const existingIds = new Set(accumulated.map(c => String(c.id)));
+    const newOnes = filteredContacts.filter(c => !existingIds.has(String(c.id)));
     setAccumulated(prev => [...prev, ...newOnes]);
     toast.success(`✅ ${newOnes.length} nuovi contatti aggiunti (${accumulated.length + newOnes.length} totali)`);
   };
