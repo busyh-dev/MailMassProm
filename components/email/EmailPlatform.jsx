@@ -9339,7 +9339,31 @@ const Contacts = ({
   const contactsPerPage = 25;
   const [showImportModal, setShowImportModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [savedLists, setSavedLists] = useState([]);
+
+  const loadSavedLists = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { data, error } = await supabase
+        .from('contact_lists')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false });
+
+      if (data && !error) {
+        setSavedLists(data);
+        setSavedListsCount(data.length);
+      }
+    } catch (err) {
+      console.error('Errore caricamento liste salvate:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSavedLists();
+  }, [loadSavedLists]);
 
 const handleLoadList = (list) => {
   if (!list) return;
@@ -9361,8 +9385,13 @@ const handleLoadList = (list) => {
   setFilterCoperture([]);
   setFilterContactLabels([]);
 
-  if (list.filters) {
-    const f = list.filters;
+  let rawFilters = list.filters;
+  if (typeof rawFilters === 'string') {
+    try { rawFilters = JSON.parse(rawFilters); } catch { rawFilters = null; }
+  }
+
+  if (rawFilters && typeof rawFilters === 'object') {
+    const f = rawFilters;
     if (f.searchTerm !== undefined) setSearchTerm(f.searchTerm);
     if (f.statusFilter) setStatusFilter(f.statusFilter);
     if (f.selectedTags) setSelectedTags(f.selectedTags);
@@ -9393,19 +9422,6 @@ const handleLoadList = (list) => {
   useEffect(() => { if (coperturaCanaleProp?.length) setCoperturaCanale(coperturaCanaleProp); }, [coperturaCanaleProp]);
   useEffect(() => { if (testateProp?.length) setTestate(testateProp); }, [testateProp]);
   useEffect(() => { if (contactLabelsProp?.length) setContactLabels(contactLabelsProp); }, [contactLabelsProp]);
-  useEffect(() => {
-    const loadCount = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return; // ✅ Esci se non c'è sessione
-      
-      const { count } = await supabase
-        .from('contact_lists')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', session.user.id);
-      setSavedListsCount(count || 0);
-    };
-    loadCount();
-  }, []);
   const fetchContacts = fetchContactsProp || (() => {});
 
   // Aggiungi la funzione di eliminazione
@@ -9964,7 +9980,7 @@ const filteredContacts = contacts.filter((c) => {
     if (typeof listIds === 'string') {
       try { listIds = JSON.parse(listIds); } catch { listIds = null; }
     }
-    if (Array.isArray(listIds) && listIds.length > 0) {
+    if (Array.isArray(listIds)) {
       const idSet = new Set(listIds.map(String));
       if (!idSet.has(String(c.id))) {
         return false;
@@ -10204,7 +10220,7 @@ return (
 {/* 🔍 BARRA FILTRI */}
 <div className="bg-gray-50 border-t border-gray-200">
   <div className="px-6 py-4">
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
 
       {/* Ricerca */}
       <div className="relative">
@@ -10222,6 +10238,28 @@ return (
           </button>
         )}
       </div>
+
+      {/* Filtro Liste Salvate */}
+      <select
+        value={selectedList ? String(selectedList.id) : ''}
+        onChange={(e) => {
+          const listId = e.target.value;
+          if (!listId) {
+            setSelectedList(null);
+          } else {
+            const found = savedLists.find(l => String(l.id) === String(listId));
+            if (found) handleLoadList(found);
+          }
+        }}
+        className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white font-medium text-gray-700 truncate"
+      >
+        <option value="">📋 Tutte le liste ({savedLists.length})</option>
+        {savedLists.map(list => (
+          <option key={list.id} value={list.id}>
+            📁 {list.name} ({list.contact_count || 0})
+          </option>
+        ))}
+      </select>
 
       {/* Filtro Stato */}
       <select
@@ -10866,7 +10904,7 @@ return (
       {showListsModal && (
   <ContactListsModal
     show={showListsModal}
-    onClose={() => setShowListsModal(false)}
+    onClose={() => { setShowListsModal(false); loadSavedLists(); }}
     currentFilters={{
       searchTerm, statusFilter, selectedTags, hasNoTagFilter,
       filterSectors, filterChannels, filterRoles, filterAreas,
