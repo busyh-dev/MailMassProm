@@ -9336,7 +9336,7 @@ const Contacts = ({
   const [statusFilter, setStatusFilter] = useState({ value: 'all', label: 'Tutti i contatti' });
   const [sortConfig, setSortConfig] = useState({ key: null, direction: null });
   const [currentPage, setCurrentPage] = useState(1);
-  const contactsPerPage = 25;
+  const [contactsPerPage, setContactsPerPage] = useState(10);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -10007,15 +10007,15 @@ const filteredContacts = contacts.filter((c) => {
       c.tags.some(ct => ct.toLowerCase() === st.label.toLowerCase())
     ));
 
-    const matchesSector = filterSectors.length === 0 || filterSectors.includes(c.sector_id);
-    const matchesChannel = filterChannels.length === 0 || filterChannels.includes(c.channel_id);
-    const matchesRole = filterRoles.length === 0 || filterRoles.includes(c.contact_role_id);
-    const matchesArea = filterAreas.length === 0 || filterAreas.includes(c.area_id);
-    const matchesTestata = filterTestate.length === 0 || filterTestate.includes(c.testata_id);
-    const matchesTipologia = filterTipologie.length === 0 || filterTipologie.includes(c.tipologia_canale_id);
-    const matchesPeriodicita = filterPeriodicity.length === 0 || filterPeriodicity.includes(c.periodicita_canale_id);
-    const matchesCopertura = filterCoperture.length === 0 || filterCoperture.includes(c.copertura_canale_id);
-    const matchesContactLabel = filterContactLabels.length === 0 || filterContactLabels.includes(c.contact_label_id);
+    const matchesSector = filterSectors.length === 0 || filterSectors.some(id => String(id) === String(c.sector_id));
+    const matchesChannel = filterChannels.length === 0 || filterChannels.some(id => String(id) === String(c.channel_id));
+    const matchesRole = filterRoles.length === 0 || filterRoles.some(id => String(id) === String(c.contact_role_id));
+    const matchesArea = filterAreas.length === 0 || filterAreas.some(id => String(id) === String(c.area_id));
+    const matchesTestata = filterTestate.length === 0 || filterTestate.some(id => String(id) === String(c.testata_id));
+    const matchesTipologia = filterTipologie.length === 0 || filterTipologie.some(id => String(id) === String(c.tipologia_canale_id));
+    const matchesPeriodicita = filterPeriodicity.length === 0 || filterPeriodicity.some(id => String(id) === String(c.periodicita_canale_id));
+    const matchesCopertura = filterCoperture.length === 0 || filterCoperture.some(id => String(id) === String(c.copertura_canale_id));
+    const matchesContactLabel = filterContactLabels.length === 0 || filterContactLabels.some(id => String(id) === String(c.contact_label_id));
   const matchesTagLabels = filterTagLabels.length === 0 ||
     filterTagLabels.every(labelId => {
       const label = tagLabels.find(tl => tl.id === labelId);
@@ -10753,7 +10753,24 @@ return (
       ? `Mostrati ${startIndex + 1}-${Math.min(endIndex, totalContacts)} di ${totalContacts} contatti`
       : "Nessun contatto disponibile"}
   </div>
-  <div className="flex items-center gap-2">
+  <div className="flex items-center gap-3">
+    <div className="flex items-center gap-1.5">
+      <span className="text-xs text-gray-500 font-medium">Per pagina:</span>
+      <select
+        value={contactsPerPage}
+        onChange={(e) => {
+          setContactsPerPage(Number(e.target.value));
+          setCurrentPage(1);
+        }}
+        className="px-2 py-1 border border-gray-300 rounded text-xs bg-white text-gray-700 font-medium focus:ring-1 focus:ring-blue-500 outline-none"
+      >
+        <option value={10}>10</option>
+        <option value={25}>25</option>
+        <option value={50}>50</option>
+        <option value={100}>100</option>
+      </select>
+    </div>
+
     {/* Bottone Prima Pagina */}
     <button
       onClick={() => handlePageChange(1)}
