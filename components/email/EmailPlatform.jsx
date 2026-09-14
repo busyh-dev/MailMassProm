@@ -9335,6 +9335,22 @@ const Contacts = ({
 const handleLoadList = (list) => {
   if (!list) return;
   setSelectedList(list);
+
+  // Reset dei filtri dropdown correnti per evitare che filtri precedenti rimangano attivi
+  setSearchTerm('');
+  setStatusFilter({ value: 'all', label: 'Tutti i contatti' });
+  setSelectedTags([]);
+  setHasNoTagFilter(false);
+  setFilterSectors([]);
+  setFilterChannels([]);
+  setFilterRoles([]);
+  setFilterAreas([]);
+  setFilterTestate([]);
+  setFilterTipologie([]);
+  setFilterPeriodicity([]);
+  setFilterCoperture([]);
+  setFilterContactLabels([]);
+
   if (list.filters) {
     const f = list.filters;
     if (f.searchTerm !== undefined) setSearchTerm(f.searchTerm);
@@ -9946,9 +9962,16 @@ const handleImportContacts = (imported) => {
 
 // 🔍 Filtraggio ricerca + stato + lista salvata
 const filteredContacts = contacts.filter((c) => {
-  if (selectedList && Array.isArray(selectedList.contact_ids) && selectedList.contact_ids.length > 0) {
-    if (!selectedList.contact_ids.includes(c.id)) {
-      return false;
+  if (selectedList) {
+    let listIds = selectedList.contact_ids;
+    if (typeof listIds === 'string') {
+      try { listIds = JSON.parse(listIds); } catch { listIds = null; }
+    }
+    if (Array.isArray(listIds) && listIds.length > 0) {
+      const idSet = new Set(listIds.map(String));
+      if (!idSet.has(String(c.id))) {
+        return false;
+      }
     }
   }
 

@@ -96,6 +96,15 @@ useEffect(() => {
     setAccumulated(prev => prev.filter(c => c.id !== id));
   };
 
+  const getListContactIds = (list) => {
+    if (!list || !list.contact_ids) return [];
+    let ids = list.contact_ids;
+    if (typeof ids === 'string') {
+      try { ids = JSON.parse(ids); } catch { ids = []; }
+    }
+    return Array.isArray(ids) ? ids.map(String) : [];
+  };
+
   const handleSave = async () => {
     if (!newList.name.trim()) { toast.error('Inserisci un nome'); return; }
     const contactsToSave = accumulated.length > 0 ? accumulated 
@@ -111,11 +120,9 @@ useEffect(() => {
         name: newList.name.trim(),
         description: newList.description.trim(),
         contact_count: contactsToSave.length,
+        contact_ids: contactsToSave.map(c => String(c.id)),
       };
       if (saveMode === 'filters' || saveMode === 'both') payload.filters = currentFilters;
-      if (saveMode === 'snapshot' || saveMode === 'both') {
-        payload.contact_ids = contactsToSave.map(c => c.id);
-      }
 
       const { error } = await supabase.from('contact_lists').insert(payload);
       if (error) throw error;
@@ -133,8 +140,8 @@ useEffect(() => {
 
   // Funzione unificata per aggiungere a lista esistente
   const addToList = async (list, contacts, label) => {
-    const existing = list.contact_ids || [];
-    const newIds = contacts.map(c => c.id).filter(id => !existing.includes(id));
+    const existing = getListContactIds(list);
+    const newIds = contacts.map(c => String(c.id)).filter(id => !existing.includes(id));
     if (newIds.length === 0) {
       toast('ℹ️ Tutti i contatti sono già in questa lista');
       return;
@@ -176,7 +183,7 @@ useEffect(() => {
     const toUpdate = accumulated.length > 0 ? accumulated : filteredContacts;
     try {
       await supabase.from('contact_lists').update({ 
-        contact_ids: toUpdate.map(c => c.id),
+        contact_ids: toUpdate.map(c => String(c.id)),
         contact_count: toUpdate.length,
         updated_at: new Date().toISOString()
       }).eq('id', list.id);
@@ -186,8 +193,10 @@ useEffect(() => {
   };
 
   const resolveContacts = (list) => {
-    if (!list.contact_ids?.length) return [];
-    return allContacts.filter(c => list.contact_ids.includes(c.id));
+    const ids = getListContactIds(list);
+    if (ids.length === 0) return [];
+    const idSet = new Set(ids);
+    return allContacts.filter(c => idSet.has(String(c.id)));
   };
 
   const formatDate = (d) => new Date(d).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' });
