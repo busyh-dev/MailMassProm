@@ -9339,6 +9339,7 @@ const Contacts = ({
   const contactsPerPage = 25;
   const [showImportModal, setShowImportModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [savedLists, setSavedLists] = useState([]);
 
   const loadSavedLists = useCallback(async () => {
