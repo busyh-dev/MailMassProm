@@ -482,7 +482,13 @@ useEffect(() => {
                               </button>
                             </div>
                           ) : (
-                            <h3 className="font-semibold text-gray-900 truncate">{list.name}</h3>
+                            <div 
+                              className="cursor-pointer hover:opacity-80 transition"
+                              onClick={() => { onLoadList(list); onClose(); }}
+                              title="Clicca per filtrare i contatti con questa lista"
+                            >
+                              <h3 className="font-semibold text-gray-900 truncate hover:text-blue-600 transition">{list.name}</h3>
+                            </div>
                           )}
                           {list.description && (
                             <p className="text-xs text-gray-500 mt-0.5 truncate">{list.description}</p>
@@ -495,10 +501,10 @@ useEffect(() => {
                               <Calendar className="w-3 h-3" />{formatDate(list.created_at)}
                             </span>
                             {hasFilters && (
-                              <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">filtri</span>
+                              <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium">filtri</span>
                             )}
                             {hasSnapshot && (
-                              <span className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded">snapshot</span>
+                              <span className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded font-medium">snapshot</span>
                             )}
                           </div>
                           {hasFilters && (
@@ -508,10 +514,20 @@ useEffect(() => {
                           )}
                         </div>
 
-                        <div className="flex items-center gap-1 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Bottone principale: Applica Filtri / Carica Lista */}
+                          <button
+                            onClick={() => { onLoadList(list); onClose(); }}
+                            title="Applica questa lista e filtra la tabella contatti"
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition"
+                          >
+                            <Filter className="w-3.5 h-3.5" />
+                            <span>Applica filtri</span>
+                          </button>
+
                           <button
                             onClick={() => setAddingToListId(isAddingTo ? null : list.id)}
-                            title="Aggiungi contatti"
+                            title="Aggiungi contatti a questa lista"
                             className={`p-1.5 rounded-lg transition ${
                               isAddingTo 
                                 ? 'bg-green-100 text-green-700' 
@@ -520,15 +536,6 @@ useEffect(() => {
                           >
                             <UserPlus className="w-4 h-4" />
                           </button>
-                          {hasFilters && (
-                            <button
-                              onClick={() => { onLoadList(list); onClose(); }}
-                              title="Applica filtri"
-                              className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition"
-                            >
-                              <Filter className="w-4 h-4" />
-                            </button>
-                          )}
                           <button
                             onClick={() => handleUpdateSnapshot(list)}
                             title="Aggiorna snapshot"

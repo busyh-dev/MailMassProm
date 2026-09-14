@@ -9330,23 +9330,28 @@ const Contacts = ({
   const [filterContactLabels, setFilterContactLabels] = useState([]);
   const [filterTagLabels, setFilterTagLabels] = useState([]);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [selectedList, setSelectedList] = useState(null);
+
 const handleLoadList = (list) => {
-  if (!list.filters) return;
-  const f = list.filters;
-  if (f.searchTerm !== undefined) setSearchTerm(f.searchTerm);
-  if (f.statusFilter) setStatusFilter(f.statusFilter);
-  if (f.selectedTags) setSelectedTags(f.selectedTags);
-  if (f.hasNoTagFilter !== undefined) setHasNoTagFilter(f.hasNoTagFilter);
-  if (f.filterSectors) setFilterSectors(f.filterSectors);
-  if (f.filterChannels) setFilterChannels(f.filterChannels);
-  if (f.filterRoles) setFilterRoles(f.filterRoles);
-  if (f.filterAreas) setFilterAreas(f.filterAreas);
-  if (f.filterTestate) setFilterTestate(f.filterTestate);
-  if (f.filterTipologie) setFilterTipologie(f.filterTipologie);
-  if (f.filterPeriodicity) setFilterPeriodicity(f.filterPeriodicity);
-  if (f.filterCoperture) setFilterCoperture(f.filterCoperture);
-  if (f.filterContactLabels) setFilterContactLabels(f.filterContactLabels);
-  toast.success(`Filtri di "${list.name}" applicati`);
+  if (!list) return;
+  setSelectedList(list);
+  if (list.filters) {
+    const f = list.filters;
+    if (f.searchTerm !== undefined) setSearchTerm(f.searchTerm);
+    if (f.statusFilter) setStatusFilter(f.statusFilter);
+    if (f.selectedTags) setSelectedTags(f.selectedTags);
+    if (f.hasNoTagFilter !== undefined) setHasNoTagFilter(f.hasNoTagFilter);
+    if (f.filterSectors) setFilterSectors(f.filterSectors);
+    if (f.filterChannels) setFilterChannels(f.filterChannels);
+    if (f.filterRoles) setFilterRoles(f.filterRoles);
+    if (f.filterAreas) setFilterAreas(f.filterAreas);
+    if (f.filterTestate) setFilterTestate(f.filterTestate);
+    if (f.filterTipologie) setFilterTipologie(f.filterTipologie);
+    if (f.filterPeriodicity) setFilterPeriodicity(f.filterPeriodicity);
+    if (f.filterCoperture) setFilterCoperture(f.filterCoperture);
+    if (f.filterContactLabels) setFilterContactLabels(f.filterContactLabels);
+  }
+  toast.success(`Filtri della lista "${list.name}" applicati!`);
 };
   // ✅ Sincronizza quando le props cambiano
   useEffect(() => { if (contactsProp) setContacts(contactsProp); }, [contactsProp]);
@@ -9939,8 +9944,14 @@ const handleImportContacts = (imported) => {
   toast.success("📤 Contatti importati correttamente!");
 };
 
-// 🔍 Filtraggio ricerca + stato
+// 🔍 Filtraggio ricerca + stato + lista salvata
 const filteredContacts = contacts.filter((c) => {
+  if (selectedList && Array.isArray(selectedList.contact_ids) && selectedList.contact_ids.length > 0) {
+    if (!selectedList.contact_ids.includes(c.id)) {
+      return false;
+    }
+  }
+
   const term = searchTerm.toLowerCase();
    const matchesSearch =
     c.name?.toLowerCase().includes(term) ||
@@ -10380,8 +10391,38 @@ return (
         </div> */}
 
 
+    {/* Banner lista attiva */}
+    {selectedList && (
+      <div className="mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-3.5 flex items-center justify-between shadow-xs">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-blue-600 text-white rounded-xl flex items-center justify-center font-bold shadow-xs shrink-0">
+            <List className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Filtro Lista Attivo</span>
+              <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full font-semibold">
+                {filteredContacts.length} contatti
+              </span>
+            </div>
+            <h4 className="text-sm font-bold text-gray-900">{selectedList.name}</h4>
+            {selectedList.description && (
+              <p className="text-xs text-gray-500 mt-0.5">{selectedList.description}</p>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={() => setSelectedList(null)}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-gray-700 hover:text-red-600 border border-gray-300 rounded-lg text-xs font-semibold transition hover:bg-red-50 hover:border-red-200 shadow-xs"
+        >
+          <X className="w-4 h-4" />
+          Rimuovi filtro lista
+        </button>
+      </div>
+    )}
+
     {/* Info risultati + Reset */}
-    {(searchTerm || statusFilter.value !== 'all' || selectedTags.length > 0 || hasNoTagFilter ||
+    {(selectedList || searchTerm || statusFilter.value !== 'all' || selectedTags.length > 0 || hasNoTagFilter ||
   filterSectors.length > 0 || filterChannels.length > 0 || filterRoles.length > 0 ||
   filterAreas.length > 0 || filterTestate.length > 0 || filterTipologie.length > 0 ||
   filterPeriodicity.length > 0 || filterCoperture.length > 0 || filterContactLabels.length > 0) && (
@@ -10752,6 +10793,7 @@ return (
             setFilterPeriodicity([]);
             setFilterCoperture([]);
             setFilterContactLabels([]);
+            setSelectedList(null);
             setShowResetConfirm(false);
           }}
           className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition text-sm"

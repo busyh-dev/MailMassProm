@@ -12,13 +12,13 @@ import { AnimatePresence, motion } from 'framer-motion';
 
 
 
-import { 
-  Mail, 
-  Eye, 
-  EyeOff, 
-  Lock, 
-  User, 
-  Shield, 
+import {
+  Mail,
+  Eye,
+  EyeOff,
+  Lock,
+  User,
+  Shield,
   ArrowRight,
   CheckCircle,
   AlertCircle,
@@ -118,7 +118,7 @@ const EmailNotConfirmedModal = ({ show, onClose, email, onResend, isResending })
               </>
             )}
           </button>
-          
+
           <button
             onClick={onClose}
             className="w-full px-4 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition font-medium"
@@ -152,7 +152,7 @@ const LoginPage = () => {
     full_name: '',
     acceptTerms: false
   });
-  
+
   const [errors, setErrors] = useState({});
   const [successMessage, setSuccessMessage] = useState('');
   useEffect(() => {
@@ -175,56 +175,56 @@ const LoginPage = () => {
   }, [profile, permissionsLoading]);
 
   // Aggiungi questo useEffect (dopo quelli già esistenti)
-useEffect(() => {
-  if (typeof window !== 'undefined') {
-    const reason = sessionStorage.getItem('logout_reason');
-    if (reason === 'inactivity') {
-      setShowInactivityMessage(true);
-      sessionStorage.removeItem('logout_reason');
-    }
-  }
-}, []);
-// ✅ In LoginPage, aggiungi questo useEffect
-useEffect(() => {
-  // ✅ Azzera l'utente corrente quando sei sulla pagina di login
-  // così il prossimo SIGNED_IN viene sempre accettato
-  if (typeof window !== 'undefined') {
-    window.__loginPageActive = true;
-    window.__currentLoginUserId = null; // ✅ segnala che non c'è utente attivo
-    window.__justLoggedIn = false;
-  }
-
-  return () => {
+  useEffect(() => {
     if (typeof window !== 'undefined') {
-      window.__loginPageActive = false;
-      window.__currentLoginUserId = null;
+      const reason = sessionStorage.getItem('logout_reason');
+      if (reason === 'inactivity') {
+        setShowInactivityMessage(true);
+        sessionStorage.removeItem('logout_reason');
+      }
+    }
+  }, []);
+  // ✅ In LoginPage, aggiungi questo useEffect
+  useEffect(() => {
+    // ✅ Azzera l'utente corrente quando sei sulla pagina di login
+    // così il prossimo SIGNED_IN viene sempre accettato
+    if (typeof window !== 'undefined') {
+      window.__loginPageActive = true;
+      window.__currentLoginUserId = null; // ✅ segnala che non c'è utente attivo
       window.__justLoggedIn = false;
     }
-  };
-}, []);
-// ✅ Aggiungi in LoginPage nel useEffect esistente
-useEffect(() => {
-  // ✅ Resetta currentUserId quando sei sulla pagina di login
-  // Questo permette al prossimo SIGNED_IN di essere accettato
-  
-  const handleVisibilityChange = () => {
-    if (document.visibilityState === 'visible') {
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.__loginPageActive = false;
+        window.__currentLoginUserId = null;
+        window.__justLoggedIn = false;
+      }
+    };
+  }, []);
+  // ✅ Aggiungi in LoginPage nel useEffect esistente
+  useEffect(() => {
+    // ✅ Resetta currentUserId quando sei sulla pagina di login
+    // Questo permette al prossimo SIGNED_IN di essere accettato
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        setIsLoading(false);
+      }
+    };
+
+    const handleFocus = () => {
       setIsLoading(false);
-    }
-  };
+    };
 
-  const handleFocus = () => {
-    setIsLoading(false);
-  };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
 
-  document.addEventListener('visibilitychange', handleVisibilityChange);
-  window.addEventListener('focus', handleFocus);
-
-  return () => {
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
-    window.removeEventListener('focus', handleFocus);
-  };
-}, []);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
 
 
   // Gestione input
@@ -289,7 +289,7 @@ useEffect(() => {
 
     try {
       setIsResending(true);
-      
+
       const { error } = await supabase.auth.resend({
         type: 'signup',
         email: formData.email.trim().toLowerCase(),
@@ -302,114 +302,114 @@ useEffect(() => {
       toast.success('✅ Email di conferma inviata! Controlla la tua casella di posta.', {
         duration: 5000
       });
-      
-      setShowEmailNotConfirmed(false); // Chiudi il modale
-      
-   // ✅ Sostituisci il finally con questo
-} catch (error) {
-  console.error('❌ Errore catch finale:', error);
-  const errorMessage = error.message || 'Errore sconosciuto';
 
-  if (errorMessage.includes('already registered')) {
-    setErrors({ email: 'Questa email è già registrata' });
-    toast.error('Email già registrata. Prova ad accedere.');
-  } else if (errorMessage.includes('Invalid login credentials')) {
-    setErrors({ general: 'Email o password non corretti' });
-    toast.error('Credenziali non valide');
-  } else if (errorMessage.includes('pending') || errorMessage.includes('attesa')) {
-    setErrors({ general: errorMessage });
-    toast.error('Account in attesa di approvazione');
-  } else if (errorMessage.includes('rejected') || errorMessage.includes('rifiutato')) {
-    setErrors({ general: errorMessage });
-    toast.error('Account rifiutato');
-  } else if (errorMessage.includes('inactive') || errorMessage.includes('disattivato')) {
-    setErrors({ general: errorMessage });
-    toast.error('Account disattivato');
-  } else {
-    setErrors({ general: errorMessage });
-    toast.error(errorMessage);
-  }
-  
-  // ✅ Resetta loading solo in caso di errore
-  setIsLoading(false);
-  
-} finally {
-  // ✅ NON resettare loading qui - lo fa il setTimeout o il catch
-  // setIsLoading(false); // ❌ RIMUOVI questa riga
-}
+      setShowEmailNotConfirmed(false); // Chiudi il modale
+
+      // ✅ Sostituisci il finally con questo
+    } catch (error) {
+      console.error('❌ Errore catch finale:', error);
+      const errorMessage = error.message || 'Errore sconosciuto';
+
+      if (errorMessage.includes('already registered')) {
+        setErrors({ email: 'Questa email è già registrata' });
+        toast.error('Email già registrata. Prova ad accedere.');
+      } else if (errorMessage.includes('Invalid login credentials')) {
+        setErrors({ general: 'Email o password non corretti' });
+        toast.error('Credenziali non valide');
+      } else if (errorMessage.includes('pending') || errorMessage.includes('attesa')) {
+        setErrors({ general: errorMessage });
+        toast.error('Account in attesa di approvazione');
+      } else if (errorMessage.includes('rejected') || errorMessage.includes('rifiutato')) {
+        setErrors({ general: errorMessage });
+        toast.error('Account rifiutato');
+      } else if (errorMessage.includes('inactive') || errorMessage.includes('disattivato')) {
+        setErrors({ general: errorMessage });
+        toast.error('Account disattivato');
+      } else {
+        setErrors({ general: errorMessage });
+        toast.error(errorMessage);
+      }
+
+      // ✅ Resetta loading solo in caso di errore
+      setIsLoading(false);
+
+    } finally {
+      // ✅ NON resettare loading qui - lo fa il setTimeout o il catch
+      // setIsLoading(false); // ❌ RIMUOVI questa riga
+    }
   };
 
   // Submit
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
-    
+
     setIsLoading(true);
     setErrors({});
     setSuccessMessage('');
-  
+
     // ✅ AGGIUNGI QUESTE DUE RIGHE - azzera il flag prima del login
     if (typeof window !== 'undefined') {
       window.__currentLoginUserId = null;
       window.__loginPageActive = false; // ✅ disabilita temporaneamente il blocco
       window.__justLoggedIn = true;
     }
-  
+
     try {
       const cleanEmail = formData.email.trim().toLowerCase();
-  
+
       // ====================== LOGIN ======================
-if (isLogin) {
-  console.log('🔐 Tentativo di login per:', cleanEmail);
+      if (isLogin) {
+        console.log('🔐 Tentativo di login per:', cleanEmail);
 
-  // 1️⃣ Login con Supabase Auth - CON TRY-CATCH INTERNO
-  let authData, authError;
-  
-  try {
-    const result = await supabase.auth.signInWithPassword({
-      email: cleanEmail,
-      password: formData.password,
-    });
-    authData = result.data;
-    authError = result.error;
-  } catch (err) {
-    // Cattura l'errore se Supabase lancia un'eccezione
-    authError = err;
-  }
+        // 1️⃣ Login con Supabase Auth - CON TRY-CATCH INTERNO
+        let authData, authError;
 
-  if (authError) {
-    console.error('❌ Errore login:', authError);
-    
-    // ✅ Gestione errore email non confermata - MOSTRA POPUP
-    if (authError.message === 'Email not confirmed' || 
-        authError.message?.includes('Email not confirmed')) {
-      setShowEmailNotConfirmed(true);
-      setIsLoading(false);
-      return; // ✅ Ferma qui senza lanciare errori
-    }
-    
-    // Gestione altri errori
-    if (authError.message?.includes('Invalid login credentials')) {
-      throw new Error('Email o password non corretti');
-    }
-    
-    throw new Error(authError.message || 'Errore durante il login');
-  }
+        try {
+          const result = await supabase.auth.signInWithPassword({
+            email: cleanEmail,
+            password: formData.password,
+          });
+          authData = result.data;
+          authError = result.error;
+        } catch (err) {
+          // Cattura l'errore se Supabase lancia un'eccezione
+          authError = err;
+        }
 
-  console.log('✅ Autenticazione riuscita per:', authData.user.email);
+        if (authError) {
+          console.error('❌ Errore login:', authError);
 
-  // ✅ Controlla se l'email è confermata (doppio controllo)
-  if (!authData.user.email_confirmed_at) {
-    await supabase.auth.signOut();
-    setShowEmailNotConfirmed(true);
-    setIsLoading(false);
-    return; // ✅ Ferma qui
-  }
+          // ✅ Gestione errore email non confermata - MOSTRA POPUP
+          if (authError.message === 'Email not confirmed' ||
+            authError.message?.includes('Email not confirmed')) {
+            setShowEmailNotConfirmed(true);
+            setIsLoading(false);
+            return; // ✅ Ferma qui senza lanciare errori
+          }
 
-  // 2️⃣ Recupera il profilo con ruolo
-  let { data: profileData, error: profileError } = await supabase
-    .from('profiles')
-    .select(`
+          // Gestione altri errori
+          if (authError.message?.includes('Invalid login credentials')) {
+            throw new Error('Email o password non corretti');
+          }
+
+          throw new Error(authError.message || 'Errore durante il login');
+        }
+
+        console.log('✅ Autenticazione riuscita per:', authData.user.email);
+
+        // ✅ Controlla se l'email è confermata (doppio controllo)
+        if (!authData.user.email_confirmed_at) {
+          await supabase.auth.signOut();
+          setShowEmailNotConfirmed(true);
+          setIsLoading(false);
+          return; // ✅ Ferma qui
+        }
+
+        // 2️⃣ Recupera il profilo con ruolo
+        let { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select(`
       *,
       role:roles (
         id,
@@ -417,33 +417,33 @@ if (isLogin) {
         description
       )
     `)
-    .eq('id', authData.user.id)
-    .single();
+          .eq('id', authData.user.id)
+          .single();
 
-  // 2.5️⃣ Se il profilo non esiste, crealo al volo
-  if (profileError?.code === 'PGRST116') {
-    console.warn('⚠️ Profilo non trovato, creazione automatica...');
-    
-    const { data: defaultRole } = await supabase
-      .from('roles')
-      .select('id')
-      .eq('name', 'user')
-      .single();
+        // 2.5️⃣ Se il profilo non esiste, crealo al volo
+        if (profileError?.code === 'PGRST116') {
+          console.warn('⚠️ Profilo non trovato, creazione automatica...');
 
-    const { error: createError } = await supabase
-      .from('profiles')
-      .insert([{
-        id: authData.user.id,
-        email: cleanEmail,
-        full_name: authData.user.user_metadata?.full_name || cleanEmail,
-        status: 'approved',
-        role_id: defaultRole?.id
-      }]);
+          const { data: defaultRole } = await supabase
+            .from('roles')
+            .select('id')
+            .eq('name', 'user')
+            .single();
 
-    if (!createError) {
-      const result = await supabase
-        .from('profiles')
-        .select(`
+          const { error: createError } = await supabase
+            .from('profiles')
+            .insert([{
+              id: authData.user.id,
+              email: cleanEmail,
+              full_name: authData.user.user_metadata?.full_name || cleanEmail,
+              status: 'approved',
+              role_id: defaultRole?.id
+            }]);
+
+          if (!createError) {
+            const result = await supabase
+              .from('profiles')
+              .select(`
           *,
           role:roles (
             id,
@@ -451,94 +451,94 @@ if (isLogin) {
             description
           )
         `)
-        .eq('id', authData.user.id)
-        .single();
-      
-      profileData = result.data;
-      profileError = result.error;
-      
-      if (!profileError) {
-        console.log('✅ Profilo creato e caricato con successo');
+              .eq('id', authData.user.id)
+              .single();
+
+            profileData = result.data;
+            profileError = result.error;
+
+            if (!profileError) {
+              console.log('✅ Profilo creato e caricato con successo');
+            }
+          }
+        }
+
+        if (profileError || !profileData) {
+          console.error('❌ Profilo non recuperabile:', profileError);
+          await supabase.auth.signOut();
+          throw new Error('Errore nel caricamento del profilo. Contatta l\'amministratore.');
+        }
+
+        console.log('👤 Profilo recuperato:', {
+          email: profileData.email,
+          status: profileData.status,
+          role: profileData.role?.name
+        });
+
+        // 3️⃣ Verifica lo status del profilo
+        if (profileData.status === 'pending') {
+          await supabase.auth.signOut();
+          throw new Error('Il tuo account è in attesa di approvazione. Riceverai un\'email quando sarà attivato.');
+        }
+
+        if (profileData.status === 'rejected') {
+          await supabase.auth.signOut();
+          throw new Error('Il tuo account è stato rifiutato. Per informazioni contatta l\'amministratore.');
+        }
+
+        if (profileData.status === 'inactive') {
+          await supabase.auth.signOut();
+          throw new Error('Il tuo account è stato disattivato. Contatta l\'amministratore.');
+        }
+
+        if (profileData.status !== 'approved' && profileData.status !== 'active') {
+          await supabase.auth.signOut();
+          throw new Error('Il tuo account non è attivo. Contatta l\'amministratore.');
+        }
+
+        // 4️⃣ Verifica che abbia un ruolo assegnato
+        if (!profileData.role_id) {
+          console.warn('⚠️ Utente senza ruolo assegnato');
+          toast('⚠️ Accesso con permessi limitati');
+        }
+
+        // 5️⃣ Controlla se è richiesto il cambio password
+        if (profileData.require_password_change) {
+          setForcePasswordChange(true);
+          setIsLoading(false);
+          return;
+        }
+
+        // 6️⃣ Login riuscito
+        const welcomeName = profileData.full_name || profileData.email.split('@')[0];
+        toast.success(`Benvenuto/a, ${welcomeName}! 👋`);
+
+        // 6️⃣ Redirect in base al ruolo
+        // 6️⃣ Redirect alla dashboard
+        console.log('🚀 Preparazione redirect...', {
+          role: profileData.role?.name,
+          email: profileData.email
+        });
+
+        setTimeout(() => {
+          console.log('🚀 Eseguo redirect ora!');
+
+          if (typeof window !== 'undefined') {
+            window.__loginPageActive = false;
+            window.__currentLoginUserId = null;
+          }
+
+          setIsLoading(false);
+
+          // ✅ Usa window.location invece di router.push
+          window.location.href = '/dashboard';
+
+          console.log('✅ Redirect chiamato');
+        }, 1000);
+
+        console.log('⏰ setTimeout impostato, attendo 1 secondo...');
       }
-    }
-  }
 
-  if (profileError || !profileData) {
-    console.error('❌ Profilo non recuperabile:', profileError);
-    await supabase.auth.signOut();
-    throw new Error('Errore nel caricamento del profilo. Contatta l\'amministratore.');
-  }
-
-  console.log('👤 Profilo recuperato:', {
-    email: profileData.email,
-    status: profileData.status,
-    role: profileData.role?.name
-  });
-
-  // 3️⃣ Verifica lo status del profilo
-  if (profileData.status === 'pending') {
-    await supabase.auth.signOut();
-    throw new Error('Il tuo account è in attesa di approvazione. Riceverai un\'email quando sarà attivato.');
-  }
-
-  if (profileData.status === 'rejected') {
-    await supabase.auth.signOut();
-    throw new Error('Il tuo account è stato rifiutato. Per informazioni contatta l\'amministratore.');
-  }
-
-  if (profileData.status === 'inactive') {
-    await supabase.auth.signOut();
-    throw new Error('Il tuo account è stato disattivato. Contatta l\'amministratore.');
-  }
-
-  if (profileData.status !== 'approved' && profileData.status !== 'active') {
-    await supabase.auth.signOut();
-    throw new Error('Il tuo account non è attivo. Contatta l\'amministratore.');
-  }
-
-  // 4️⃣ Verifica che abbia un ruolo assegnato
-  if (!profileData.role_id) {
-    console.warn('⚠️ Utente senza ruolo assegnato');
-    toast('⚠️ Accesso con permessi limitati');
-  }
-
-  // 5️⃣ Controlla se è richiesto il cambio password
-  if (profileData.require_password_change) {
-    setForcePasswordChange(true);
-    setIsLoading(false);
-    return;
-  }
-
-  // 6️⃣ Login riuscito
-  const welcomeName = profileData.full_name || profileData.email.split('@')[0];
-  toast.success(`Benvenuto/a, ${welcomeName}! 👋`);
-  
-  // 6️⃣ Redirect in base al ruolo
- // 6️⃣ Redirect alla dashboard
-console.log('🚀 Preparazione redirect...', {
-  role: profileData.role?.name,
-  email: profileData.email
-});
-
-setTimeout(() => {
-  console.log('🚀 Eseguo redirect ora!');
-  
-  if (typeof window !== 'undefined') {
-    window.__loginPageActive = false;
-    window.__currentLoginUserId = null;
-  }
-
-  setIsLoading(false);
-  
-  // ✅ Usa window.location invece di router.push
-  window.location.href = '/dashboard';
-  
-  console.log('✅ Redirect chiamato');
-}, 1000);
-
-console.log('⏰ setTimeout impostato, attendo 1 secondo...');
-}
-  
       // ====================== REGISTRAZIONE ======================
       else {
         console.log('📝 Tentativo di registrazione per:', cleanEmail);
@@ -556,12 +556,12 @@ console.log('⏰ setTimeout impostato, attendo 1 secondo...');
 
         if (authError) {
           console.error('❌ Errore registrazione:', authError);
-          
-          if (authError.message.includes('already registered') || 
-              authError.message.includes('User already registered')) {
+
+          if (authError.message.includes('already registered') ||
+            authError.message.includes('User already registered')) {
             throw new Error('Questa email è già registrata. Prova ad accedere.');
           }
-          
+
           throw new Error(authError.message);
         }
 
@@ -574,7 +574,7 @@ console.log('⏰ setTimeout impostato, attendo 1 secondo...');
 
         // 2️⃣ Verifica se il profilo è stato creato dal trigger
         await new Promise(resolve => setTimeout(resolve, 500));
-        
+
         let { data: existingProfile } = await supabase
           .from('profiles')
           .select('id, status')
@@ -584,7 +584,7 @@ console.log('⏰ setTimeout impostato, attendo 1 secondo...');
         // 3️⃣ Se non esiste, crealo manualmente
         if (!existingProfile) {
           console.log('⚠️ Profilo non creato da trigger, creazione manuale...');
-          
+
           const { data: defaultRole } = await supabase
             .from('roles')
             .select('id')
@@ -640,17 +640,17 @@ console.log('⏰ setTimeout impostato, attendo 1 secondo...');
           '🎉 Registrazione completata! Riceverai un\'email quando il tuo account sarà approvato dall\'amministratore. Controlla anche lo spam.'
         );
         toast.success('Registrazione completata! In attesa di approvazione.');
-        
+
         console.log('✅ Registrazione completata con successo');
       }
-  
+
     } catch (error) {
       if (typeof window !== 'undefined') {
         window.__justLoggedIn = false;
       }
       console.error('❌ Errore catch finale:', error);
       const errorMessage = error.message || 'Errore sconosciuto';
-    
+
       // Gestione altri errori
       if (errorMessage.includes('already registered')) {
         setErrors({ email: 'Questa email è già registrata' });
@@ -712,7 +712,7 @@ console.log('⏰ setTimeout impostato, attendo 1 secondo...');
       }
 
       toast.success('Password aggiornata con successo! Accesso in corso...');
-      
+
       setTimeout(() => {
         if (typeof window !== 'undefined') {
           window.__loginPageActive = false;
@@ -746,399 +746,397 @@ console.log('⏰ setTimeout impostato, attendo 1 secondo...');
   return (
 
     <>
-    {/* 🔔 BANNER LOGOUT PER INATTIVITÀ */}
-    <AnimatePresence>
-      {showInactivityMessage && (
-        <motion.div
-          initial={{ opacity: 0, y: -60 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -60 }}
-          transition={{ type: "spring", damping: 25, stiffness: 300 }}
-          className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-between gap-4 px-6 py-4 bg-gradient-to-r from-slate-800 to-slate-900 text-white shadow-2xl"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-amber-500/20 rounded-full flex items-center justify-center shrink-0">
-              <span className="text-xl">⏱️</span>
-            </div>
-            <div>
-              <p className="font-semibold text-sm">Sessione terminata per inattività</p>
-              <p className="text-slate-400 text-xs mt-0.5">
-                Sei stato disconnesso automaticamente dopo 30 minuti senza attività. Accedi di nuovo per continuare.
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowInactivityMessage(false)}
-            className="shrink-0 text-slate-400 hover:text-white p-2 hover:bg-white/10 rounded-lg transition"
+      {/* 🔔 BANNER LOGOUT PER INATTIVITÀ */}
+      <AnimatePresence>
+        {showInactivityMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: -60 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -60 }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-between gap-4 px-6 py-4 bg-gradient-to-r from-slate-800 to-slate-900 text-white shadow-2xl"
           >
-            <X className="w-5 h-5" />
-          </button>
-        </motion.div>
-      )}
-    </AnimatePresence>
-
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
-      <div className="min-h-screen flex">
-        {/* Pannello sinistro - branding */}
-        <div className="hidden lg:flex lg:w-1/2 xl:w-2/5">
-          <div className="flex flex-col justify-center w-full max-w-md mx-auto p-12">
-            <div className="text-center mb-8">
-              <div className="flex items-center justify-center mb-6">
-                <div className="bg-blue-600 p-3 rounded-2xl">
-                  <Mail className="w-8 h-8 text-white" />
-                </div>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-amber-500/20 rounded-full flex items-center justify-center shrink-0">
+                <span className="text-xl">⏱️</span>
               </div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">MailMassProm</h1>
-              <p className="text-gray-600 text-lg">Piattaforma Professionale di Email Marketing</p>
-              <p className="text-xs text-gray-400 mt-1">
-  v{process.env.NEXT_PUBLIC_APP_VERSION}
-</p>
-            </div>
-
-            <div className="space-y-6">
-              <div className="flex items-start space-x-3">
-                <div className="bg-green-100 p-2 rounded-lg mt-1">
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">Invii Illimitati</h3>
-                  <p className="text-gray-600 text-sm">Raggiungi migliaia di clienti con campagne personalizzate</p>
-                </div>
-              </div>
-              
-              <div className="flex items-start space-x-3">
-                <div className="bg-blue-100 p-2 rounded-lg mt-1">
-                  <Shield className="w-5 h-5 text-blue-600" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">Sicurezza Garantita</h3>
-                  <p className="text-gray-600 text-sm">I tuoi dati sono protetti con crittografia avanzata</p>
-                </div>
-              </div>
-              
-              <div className="flex items-start space-x-3">
-                <div className="bg-purple-100 p-2 rounded-lg mt-1">
-                  <ArrowRight className="w-5 h-5 text-purple-600" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">Setup Immediato</h3>
-                  <p className="text-gray-600 text-sm">Inizia a inviare email in meno di 5 minuti</p>
-                </div>
+              <div>
+                <p className="font-semibold text-sm">Sessione terminata per inattività</p>
+                <p className="text-slate-400 text-xs mt-0.5">
+                  Sei stato disconnesso automaticamente dopo 30 minuti senza attività. Accedi di nuovo per continuare.
+                </p>
               </div>
             </div>
+            <button
+              onClick={() => setShowInactivityMessage(false)}
+              className="shrink-0 text-slate-400 hover:text-white p-2 hover:bg-white/10 rounded-lg transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-            <div className="mt-12 p-6 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl text-white">
-              <blockquote className="text-sm italic mb-3">
-                "MailMassProm ha trasformato completamente la nostra strategia di email marketing. Risultati incredibili!"
-              </blockquote>
-              <div className="flex items-center">
-                <div className="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center mr-3">
-                  <User className="w-4 h-4" />
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+        <div className="min-h-screen flex">
+          {/* Pannello sinistro - branding */}
+          <div className="hidden lg:flex lg:w-1/2 xl:w-2/5">
+            <div className="flex flex-col justify-center w-full max-w-md mx-auto p-12">
+              <div className="text-center mb-8">
+                <div className="flex items-center justify-center mb-6">
+                  <div className="bg-blue-600 p-3 rounded-2xl">
+                    <Mail className="w-8 h-8 text-white" />
+                  </div>
                 </div>
-                <div>
-                  <div className="font-semibold text-sm">Marco Verdi</div>
-                  <div className="text-xs opacity-80">CEO, TechStart Italia</div>
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">MailMassProm</h1>
+                <p className="text-gray-600 text-lg">Piattaforma Professionale di Email Marketing</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  v{process.env.NEXT_PUBLIC_APP_VERSION}
+                </p>
+              </div>
+
+              <div className="space-y-6">
+                <div className="flex items-start space-x-3">
+                  <div className="bg-green-100 p-2 rounded-lg mt-1">
+                    <CheckCircle className="w-5 h-5 text-green-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900">Invii Illimitati</h3>
+                    <p className="text-gray-600 text-sm">Raggiungi migliaia di clienti con campagne personalizzate</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start space-x-3">
+                  <div className="bg-blue-100 p-2 rounded-lg mt-1">
+                    <Shield className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900">Sicurezza Garantita</h3>
+                    <p className="text-gray-600 text-sm">I tuoi dati sono protetti con crittografia avanzata</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start space-x-3">
+                  <div className="bg-purple-100 p-2 rounded-lg mt-1">
+                    <ArrowRight className="w-5 h-5 text-purple-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900">Setup Immediato</h3>
+                    <p className="text-gray-600 text-sm">Inizia a inviare email in meno di 5 minuti</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-12 p-6 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl text-white">
+                <blockquote className="text-sm italic mb-3">
+                  "MailMassProm ha trasformato completamente la nostra strategia di email marketing. Risultati incredibili!"
+                </blockquote>
+                <div className="flex items-center">
+                  <div className="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center mr-3">
+                    <User className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-sm">Marco Verdi</div>
+                    <div className="text-xs opacity-80">CEO, TechStart Italia</div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Pannello destro - form */}
-        <div className="flex-1 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-20 xl:px-24">
-          <div className="mx-auto w-full max-w-sm lg:w-96">
-            {/* Logo Mobile */}
-            <div className="lg:hidden text-center mb-8">
-              <div className="flex items-center justify-center mb-4">
-                <div className="bg-blue-600 p-3 rounded-2xl">
-                  <Mail className="w-6 h-6 text-white" />
-                </div>
-              </div>
-              <h1 className="text-2xl font-bold text-gray-900">MailMassProm</h1>
-            </div>
-
-            {/* Header Form */}
-            <div className="text-center lg:text-left mb-8">
-              <h2 className="text-3xl font-bold text-gray-900">
-                {forcePasswordChange ? 'Aggiorna Password' : isLogin ? 'Bentornato!' : 'Crea Account'}
-              </h2>
-              <p className="mt-2 text-gray-600">
-                {forcePasswordChange 
-                  ? 'È richiesto un cambio password per continuare'
-                  : isLogin 
-                    ? 'Accedi al tuo account per continuare' 
-                    : 'Inizia la tua prova gratuita oggi'}
-              </p>
-            </div>
-
-            {/* Success Message */}
-            {successMessage && (
-              <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-                <div className="flex items-start">
-                  <CheckCircle className="h-5 w-5 text-green-600 mr-2 mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-green-800">{successMessage}</p>
-                </div>
-              </div>
-            )}
-
-            {/* General Error */}
-            {errors.general && !forcePasswordChange && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start">
-                <AlertCircle className="h-5 w-5 text-red-600 mr-2 mt-0.5 flex-shrink-0" />
-                <p className="text-red-700 text-sm font-medium">{errors.general}</p>
-              </div>
-            )}
-
-            {forcePasswordChange ? (
-              <form onSubmit={handleForcePasswordSubmit} className="space-y-5">
-                <InputField
-                  label="Vecchia Password"
-                  type={showPassword ? "text" : "password"}
-                  name="oldPassword"
-                  value={forcePasswordData.oldPassword}
-                  onChange={(e) => setForcePasswordData({...forcePasswordData, oldPassword: e.target.value})}
-                  placeholder="Inserisci password attuale"
-                  icon={Lock}
-                  required
-                />
-                
-                <InputField
-                  label="Nuova Password"
-                  type={showPassword ? "text" : "password"}
-                  name="newPassword"
-                  value={forcePasswordData.newPassword}
-                  onChange={(e) => setForcePasswordData({...forcePasswordData, newPassword: e.target.value})}
-                  placeholder="Minimo 8 caratteri"
-                  icon={Lock}
-                  required
-                />
-
-                <InputField
-                  label="Conferma Nuova Password"
-                  type={showConfirmPassword ? "text" : "password"}
-                  name="confirmNewPassword"
-                  value={forcePasswordData.confirmNewPassword}
-                  onChange={(e) => setForcePasswordData({...forcePasswordData, confirmNewPassword: e.target.value})}
-                  placeholder="Ripeti la nuova password"
-                  icon={Lock}
-                  required
-                />
-
-                <div className="flex justify-between items-center px-1">
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="text-sm font-medium text-blue-600 hover:text-blue-700 transition"
-                  >
-                    {showPassword ? 'Nascondi Password' : 'Mostra Password'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="text-sm font-medium text-blue-600 hover:text-blue-700 transition"
-                  >
-                    {showConfirmPassword ? 'Nascondi Conferma' : 'Mostra Conferma'}
-                  </button>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-blue-600/20"
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                      Aggiornamento in corso...
-                    </>
-                  ) : (
-                    'Aggiorna Password'
-                  )}
-                </button>
-              </form>
-            ) : (
-              <form onSubmit={handleSubmit} className="space-y-5">
-                <div className="flex bg-gray-100 rounded-lg p-1 mb-6">
-                  <button
-                    type="button"
-                    onClick={() => !isLoading && setIsLogin(true)}
-                    className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                      isLogin ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                    } ${isLoading ? 'cursor-not-allowed' : ''}`}
-                    disabled={isLoading}
-                  >
-                    Accedi
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => !isLoading && setIsLogin(false)}
-                    className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                      !isLogin ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                    } ${isLoading ? 'cursor-not-allowed' : ''}`}
-                    disabled={isLoading}
-                  >
-                    Registrati
-                  </button>
-                </div>
-
-                {!isLogin && (
-                  <InputField
-                    name="full_name"
-                    placeholder="Nome completo"
-                    icon={User}
-                    value={formData.full_name}
-                    onChange={handleInputChange}
-                    errors={errors}
-                    isLoading={isLoading}
-                  />
-                )}
-
-                <InputField
-                  name="email"
-                  type="email"
-                  placeholder="Email"
-                  icon={Mail}
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  errors={errors}
-                  isLoading={isLoading}
-                />
-
-                <InputField
-                  name="password"
-                  placeholder="Password"
-                  icon={Lock}
-                  showPasswordToggle
-                  showPassword={showPassword}
-                  onTogglePassword={() => setShowPassword(!showPassword)}
-                  value={formData.password}
-                  onChange={handleInputChange}
-                  errors={errors}
-                  isLoading={isLoading}
-                />
-
-                {!isLogin && (
-                  <InputField
-                    name="confirmPassword"
-                    placeholder="Conferma Password"
-                    icon={Lock}
-                    showPasswordToggle
-                    showPassword={showConfirmPassword}
-                    onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
-                    value={formData.confirmPassword}
-                    onChange={handleInputChange}
-                    errors={errors}
-                    isLoading={isLoading}
-                  />
-                )}
-
-                {!isLogin && (
-                  <div className="flex items-start">
-                    <div className="flex items-center h-5">
-                      <input
-                        id="acceptTerms"
-                        name="acceptTerms"
-                        type="checkbox"
-                        checked={formData.acceptTerms}
-                        onChange={handleInputChange}
-                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
-                        disabled={isLoading}
-                      />
-                    </div>
-                    <div className="ml-3 text-sm">
-                      <label htmlFor="acceptTerms" className="text-gray-600">
-                        Accetto i{' '}
-                        <a href="#" className="text-blue-600 hover:text-blue-500 font-medium">
-                          Termini di Servizio
-                        </a>{' '}
-                        e la{' '}
-                        <a href="#" className="text-blue-600 hover:text-blue-500 font-medium">
-                          Privacy Policy
-                        </a>
-                      </label>
-                      {errors.acceptTerms && (
-                        <div className="mt-1 flex items-center text-sm text-red-600">
-                          <AlertCircle className="h-4 w-4 mr-1" />
-                          {errors.acceptTerms}
-                        </div>
-                      )}
-                    </div>
+          {/* Pannello destro - form */}
+          <div className="flex-1 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-20 xl:px-24">
+            <div className="mx-auto w-full max-w-sm lg:w-96">
+              {/* Logo Mobile */}
+              <div className="lg:hidden text-center mb-8">
+                <div className="flex items-center justify-center mb-4">
+                  <div className="bg-blue-600 p-3 rounded-2xl">
+                    <Mail className="w-6 h-6 text-white" />
                   </div>
-                )}
+                </div>
+                <h1 className="text-2xl font-bold text-gray-900">MailMassProm</h1>
+              </div>
 
-                <div>
+              {/* Header Form */}
+              <div className="text-center lg:text-left mb-8">
+                <h2 className="text-3xl font-bold text-gray-900">
+                  {forcePasswordChange ? 'Aggiorna Password' : isLogin ? 'Bentornato!' : 'Crea Account'}
+                </h2>
+                <p className="mt-2 text-gray-600">
+                  {forcePasswordChange
+                    ? 'È richiesto un cambio password per continuare'
+                    : isLogin
+                      ? 'Accedi al tuo account per continuare'
+                      : 'Inizia la tua prova gratuita oggi'}
+                </p>
+              </div>
+
+              {/* Success Message */}
+              {successMessage && (
+                <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-start">
+                    <CheckCircle className="h-5 w-5 text-green-600 mr-2 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-green-800">{successMessage}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* General Error */}
+              {errors.general && !forcePasswordChange && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start">
+                  <AlertCircle className="h-5 w-5 text-red-600 mr-2 mt-0.5 flex-shrink-0" />
+                  <p className="text-red-700 text-sm font-medium">{errors.general}</p>
+                </div>
+              )}
+
+              {forcePasswordChange ? (
+                <form onSubmit={handleForcePasswordSubmit} className="space-y-5">
+                  <InputField
+                    label="Vecchia Password"
+                    type={showPassword ? "text" : "password"}
+                    name="oldPassword"
+                    value={forcePasswordData.oldPassword}
+                    onChange={(e) => setForcePasswordData({ ...forcePasswordData, oldPassword: e.target.value })}
+                    placeholder="Inserisci password attuale"
+                    icon={Lock}
+                    required
+                  />
+
+                  <InputField
+                    label="Nuova Password"
+                    type={showPassword ? "text" : "password"}
+                    name="newPassword"
+                    value={forcePasswordData.newPassword}
+                    onChange={(e) => setForcePasswordData({ ...forcePasswordData, newPassword: e.target.value })}
+                    placeholder="Minimo 8 caratteri"
+                    icon={Lock}
+                    required
+                  />
+
+                  <InputField
+                    label="Conferma Nuova Password"
+                    type={showConfirmPassword ? "text" : "password"}
+                    name="confirmNewPassword"
+                    value={forcePasswordData.confirmNewPassword}
+                    onChange={(e) => setForcePasswordData({ ...forcePasswordData, confirmNewPassword: e.target.value })}
+                    placeholder="Ripeti la nuova password"
+                    icon={Lock}
+                    required
+                  />
+
+                  <div className="flex justify-between items-center px-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-sm font-medium text-blue-600 hover:text-blue-700 transition"
+                    >
+                      {showPassword ? 'Nascondi Password' : 'Mostra Password'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="text-sm font-medium text-blue-600 hover:text-blue-700 transition"
+                    >
+                      {showConfirmPassword ? 'Nascondi Conferma' : 'Mostra Conferma'}
+                    </button>
+                  </div>
+
                   <button
                     type="submit"
                     disabled={isLoading}
-                    className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-blue-600/20"
                   >
                     {isLoading ? (
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                        Aggiornamento in corso...
+                      </>
                     ) : (
-                      <ArrowRight className="w-4 h-4 mr-2 group-hover:translate-x-1 transition-transform" />
+                      'Aggiorna Password'
                     )}
-                    {isLoading
-                      ? isLogin
-                        ? 'Accesso in corso...'
-                        : 'Registrazione in corso...'
-                      : isLogin
-                      ? 'Accedi alla Piattaforma'
-                      : 'Crea Account Gratuito'}
                   </button>
-                </div>
-
-                {isLogin && (
-                  <div className="text-center">
+                </form>
+              ) : (
+                <form onSubmit={handleSubmit} className="space-y-5">
+                  <div className="flex bg-gray-100 rounded-lg p-1 mb-6">
                     <button
                       type="button"
-                      onClick={() => setShowForgotPassword(true)}
-                      className="text-sm text-blue-600 hover:text-blue-500 transition"
+                      onClick={() => !isLoading && setIsLogin(true)}
+                      className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${isLogin ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                        } ${isLoading ? 'cursor-not-allowed' : ''}`}
                       disabled={isLoading}
                     >
-                      Password dimenticata?
+                      Accedi
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => !isLoading && setIsLogin(false)}
+                      className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${!isLogin ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                        } ${isLoading ? 'cursor-not-allowed' : ''}`}
+                      disabled={isLoading}
+                    >
+                      Registrati
                     </button>
                   </div>
-                )}
-              </form>
-            )}
 
-            {/* Modal Password Dimenticata */}
-            <ForgotPasswordModal 
-              show={showForgotPassword} 
-              onClose={() => setShowForgotPassword(false)} 
-            />
+                  {!isLogin && (
+                    <InputField
+                      name="full_name"
+                      placeholder="Nome completo"
+                      icon={User}
+                      value={formData.full_name}
+                      onChange={handleInputChange}
+                      errors={errors}
+                      isLoading={isLoading}
+                    />
+                  )}
 
-            {/* ✅ Modal Email Non Confermata */}
-            <EmailNotConfirmedModal
-              show={showEmailNotConfirmed}
-              onClose={() => setShowEmailNotConfirmed(false)}
-              email={formData.email}
-              onResend={handleResendConfirmation}
-              isResending={isResending}
-            />
+                  <InputField
+                    name="email"
+                    type="email"
+                    placeholder="Email"
+                    icon={Mail}
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    errors={errors}
+                    isLoading={isLoading}
+                  />
 
-            {/* Footer */}
-            {!forcePasswordChange && (
-              <div className="mt-8 text-center">
-                <p className="text-xs text-gray-500">
-                  {isLogin ? 'Non hai un account? ' : 'Hai già un account? '}
-                  <button
-                    type="button"
-                    onClick={handleToggleMode}
-                    className="text-blue-600 hover:text-blue-500 font-medium"
-                    disabled={isLoading}
-                  >
-                    {isLogin ? 'Registrati gratis' : 'Accedi'}
-                  </button>
-                </p>
-              </div>
-            )}
+                  <InputField
+                    name="password"
+                    placeholder="Password"
+                    icon={Lock}
+                    showPasswordToggle
+                    showPassword={showPassword}
+                    onTogglePassword={() => setShowPassword(!showPassword)}
+                    value={formData.password}
+                    onChange={handleInputChange}
+                    errors={errors}
+                    isLoading={isLoading}
+                  />
+
+                  {!isLogin && (
+                    <InputField
+                      name="confirmPassword"
+                      placeholder="Conferma Password"
+                      icon={Lock}
+                      showPasswordToggle
+                      showPassword={showConfirmPassword}
+                      onTogglePassword={() => setShowConfirmPassword(!showConfirmPassword)}
+                      value={formData.confirmPassword}
+                      onChange={handleInputChange}
+                      errors={errors}
+                      isLoading={isLoading}
+                    />
+                  )}
+
+                  {!isLogin && (
+                    <div className="flex items-start">
+                      <div className="flex items-center h-5">
+                        <input
+                          id="acceptTerms"
+                          name="acceptTerms"
+                          type="checkbox"
+                          checked={formData.acceptTerms}
+                          onChange={handleInputChange}
+                          className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+                          disabled={isLoading}
+                        />
+                      </div>
+                      <div className="ml-3 text-sm">
+                        <label htmlFor="acceptTerms" className="text-gray-600">
+                          Accetto i{' '}
+                          <a href="#" className="text-blue-600 hover:text-blue-500 font-medium">
+                            Termini di Servizio
+                          </a>{' '}
+                          e la{' '}
+                          <a href="#" className="text-blue-600 hover:text-blue-500 font-medium">
+                            Privacy Policy
+                          </a>
+                        </label>
+                        {errors.acceptTerms && (
+                          <div className="mt-1 flex items-center text-sm text-red-600">
+                            <AlertCircle className="h-4 w-4 mr-1" />
+                            {errors.acceptTerms}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {isLoading ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : (
+                        <ArrowRight className="w-4 h-4 mr-2 group-hover:translate-x-1 transition-transform" />
+                      )}
+                      {isLoading
+                        ? isLogin
+                          ? 'Accesso in corso...'
+                          : 'Registrazione in corso...'
+                        : isLogin
+                          ? 'Accedi alla Piattaforma'
+                          : 'Crea Account Gratuito'}
+                    </button>
+                  </div>
+
+                  {isLogin && (
+                    <div className="text-center">
+                      <button
+                        type="button"
+                        onClick={() => setShowForgotPassword(true)}
+                        className="text-sm text-blue-600 hover:text-blue-500 transition"
+                        disabled={isLoading}
+                      >
+                        Password dimenticata?
+                      </button>
+                    </div>
+                  )}
+                </form>
+              )}
+
+              {/* Modal Password Dimenticata */}
+              <ForgotPasswordModal
+                show={showForgotPassword}
+                onClose={() => setShowForgotPassword(false)}
+              />
+
+              {/* ✅ Modal Email Non Confermata */}
+              <EmailNotConfirmedModal
+                show={showEmailNotConfirmed}
+                onClose={() => setShowEmailNotConfirmed(false)}
+                email={formData.email}
+                onResend={handleResendConfirmation}
+                isResending={isResending}
+              />
+
+              {/* Footer */}
+              {!forcePasswordChange && (
+                <div className="mt-8 text-center">
+                  <p className="text-xs text-gray-500">
+                    {isLogin ? 'Non hai un account? ' : 'Hai già un account? '}
+                    <button
+                      type="button"
+                      onClick={handleToggleMode}
+                      className="text-blue-600 hover:text-blue-500 font-medium"
+                      disabled={isLoading}
+                    >
+                      {isLogin ? 'Registrati gratis' : 'Accedi'}
+                    </button>
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* CSS per l'animazione */}
-      <style jsx>{`
+        {/* CSS per l'animazione */}
+        <style jsx>{`
         @keyframes fade-in {
           from {
             opacity: 0;
@@ -1153,7 +1151,7 @@ console.log('⏰ setTimeout impostato, attendo 1 secondo...');
           animation: fade-in 0.2s ease-out;
         }
       `}</style>
-    </div>
+      </div>
     </>
   );
 };
