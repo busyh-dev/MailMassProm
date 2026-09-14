@@ -9410,7 +9410,14 @@ const handleLoadList = (list) => {
     if (rawFilters && typeof rawFilters === 'object') {
       const f = rawFilters;
       if (f.searchTerm !== undefined) setSearchTerm(f.searchTerm);
-      if (f.statusFilter) setStatusFilter(f.statusFilter);
+      if (f.statusFilter) {
+        if (typeof f.statusFilter === 'string') {
+          const found = statusOptions.find(opt => opt.value === f.statusFilter);
+          setStatusFilter(found || { value: f.statusFilter, label: f.statusFilter });
+        } else if (typeof f.statusFilter === 'object') {
+          setStatusFilter(f.statusFilter.value ? f.statusFilter : { value: 'all', label: 'Tutti i contatti' });
+        }
+      }
       if (f.selectedTags) setSelectedTags(f.selectedTags);
       if (f.hasNoTagFilter !== undefined) setHasNoTagFilter(f.hasNoTagFilter);
       if (f.filterSectors) setFilterSectors(f.filterSectors);
@@ -10009,10 +10016,11 @@ const filteredContacts = contacts.filter((c) => {
     c.email?.toLowerCase().includes(term) ||
     (c.tags || []).some((tag) => tag.toLowerCase().includes(term));
 
+  const currentStatus = typeof statusFilter === 'string' ? statusFilter : (statusFilter?.value || 'all');
   const matchesStatus =
-    statusFilter.value === 'all' ||
-    (statusFilter.value === 'active' && c.status === 'active') ||
-    (statusFilter.value === 'inactive' && c.status === 'inactive');
+    currentStatus === 'all' ||
+    (currentStatus === 'active' && c.status === 'active') ||
+    (currentStatus === 'inactive' && c.status === 'inactive');
 
   const matchesTags =
     (!hasNoTagFilter && selectedTags.length === 0) ||
@@ -10278,8 +10286,12 @@ return (
 
       {/* Filtro Stato */}
       <select
-        value={statusFilter.value}
-        onChange={(e) => setStatusFilter(statusOptions.find(opt => opt.value === e.target.value))}
+        value={typeof statusFilter === 'string' ? statusFilter : (statusFilter?.value || 'all')}
+        onChange={(e) => {
+          const val = e.target.value;
+          const found = statusOptions.find(opt => opt.value === val);
+          setStatusFilter(found || { value: val, label: val });
+        }}
         className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
       >
         <option value="all">Tutti i contatti</option>
