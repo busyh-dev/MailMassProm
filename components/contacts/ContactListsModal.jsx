@@ -101,7 +101,11 @@ useEffect(() => {
     if (!list || !list.contact_ids) return [];
     let ids = list.contact_ids;
     if (typeof ids === 'string') {
-      try { ids = JSON.parse(ids); } catch { ids = []; }
+      if (ids.startsWith('{') && ids.endsWith('}')) {
+        ids = ids.slice(1, -1).split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+      } else {
+        try { ids = JSON.parse(ids); } catch { ids = []; }
+      }
     }
     return Array.isArray(ids) ? ids.map(String) : [];
   };

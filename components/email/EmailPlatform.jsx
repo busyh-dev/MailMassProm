@@ -9366,12 +9366,25 @@ const Contacts = ({
     loadSavedLists();
   }, [loadSavedLists]);
 
+  const parseContactIds = (rawIds) => {
+    if (!rawIds) return null;
+    let ids = rawIds;
+    if (typeof ids === 'string') {
+      if (ids.startsWith('{') && ids.endsWith('}')) {
+        ids = ids.slice(1, -1).split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+      } else {
+        try { ids = JSON.parse(ids); } catch { ids = null; }
+      }
+    }
+    return Array.isArray(ids) ? ids.map(String) : null;
+  };
+
 const handleLoadList = (list) => {
   if (!list) return;
   setSelectedList(list);
   setCurrentPage(1);
 
-  // Reset dei filtri dropdown correnti per evitare che filtri precedenti rimangano attivi
+  // Reset dei filtri dropdown correnti per evitare interferenze con i filtri manuali
   setSearchTerm('');
   setStatusFilter({ value: 'all', label: 'Tutti i contatti' });
   setSelectedTags([]);
@@ -9386,28 +9399,32 @@ const handleLoadList = (list) => {
   setFilterCoperture([]);
   setFilterContactLabels([]);
 
-  let rawFilters = list.filters;
-  if (typeof rawFilters === 'string') {
-    try { rawFilters = JSON.parse(rawFilters); } catch { rawFilters = null; }
-  }
+  const snapshotIds = parseContactIds(list.contact_ids);
+  // Se la lista NON ha uno snapshot fisso di contatti (contact_ids), applica i filtri dinamici salvati
+  if (!snapshotIds || snapshotIds.length === 0) {
+    let rawFilters = list.filters;
+    if (typeof rawFilters === 'string') {
+      try { rawFilters = JSON.parse(rawFilters); } catch { rawFilters = null; }
+    }
 
-  if (rawFilters && typeof rawFilters === 'object') {
-    const f = rawFilters;
-    if (f.searchTerm !== undefined) setSearchTerm(f.searchTerm);
-    if (f.statusFilter) setStatusFilter(f.statusFilter);
-    if (f.selectedTags) setSelectedTags(f.selectedTags);
-    if (f.hasNoTagFilter !== undefined) setHasNoTagFilter(f.hasNoTagFilter);
-    if (f.filterSectors) setFilterSectors(f.filterSectors);
-    if (f.filterChannels) setFilterChannels(f.filterChannels);
-    if (f.filterRoles) setFilterRoles(f.filterRoles);
-    if (f.filterAreas) setFilterAreas(f.filterAreas);
-    if (f.filterTestate) setFilterTestate(f.filterTestate);
-    if (f.filterTipologie) setFilterTipologie(f.filterTipologie);
-    if (f.filterPeriodicity) setFilterPeriodicity(f.filterPeriodicity);
-    if (f.filterCoperture) setFilterCoperture(f.filterCoperture);
-    if (f.filterContactLabels) setFilterContactLabels(f.filterContactLabels);
+    if (rawFilters && typeof rawFilters === 'object') {
+      const f = rawFilters;
+      if (f.searchTerm !== undefined) setSearchTerm(f.searchTerm);
+      if (f.statusFilter) setStatusFilter(f.statusFilter);
+      if (f.selectedTags) setSelectedTags(f.selectedTags);
+      if (f.hasNoTagFilter !== undefined) setHasNoTagFilter(f.hasNoTagFilter);
+      if (f.filterSectors) setFilterSectors(f.filterSectors);
+      if (f.filterChannels) setFilterChannels(f.filterChannels);
+      if (f.filterRoles) setFilterRoles(f.filterRoles);
+      if (f.filterAreas) setFilterAreas(f.filterAreas);
+      if (f.filterTestate) setFilterTestate(f.filterTestate);
+      if (f.filterTipologie) setFilterTipologie(f.filterTipologie);
+      if (f.filterPeriodicity) setFilterPeriodicity(f.filterPeriodicity);
+      if (f.filterCoperture) setFilterCoperture(f.filterCoperture);
+      if (f.filterContactLabels) setFilterContactLabels(f.filterContactLabels);
+    }
   }
-  toast.success(`Filtri della lista "${list.name}" applicati!`);
+  toast.success(`Lista "${list.name}" applicata!`);
 };
   // ✅ Sincronizza quando le props cambiano
   useEffect(() => { if (contactsProp) setContacts(contactsProp); }, [contactsProp]);
@@ -9977,12 +9994,9 @@ const handleImportContacts = (imported) => {
 // 🔍 Filtraggio ricerca + stato + lista salvata
 const filteredContacts = contacts.filter((c) => {
   if (selectedList) {
-    let listIds = selectedList.contact_ids;
-    if (typeof listIds === 'string') {
-      try { listIds = JSON.parse(listIds); } catch { listIds = null; }
-    }
+    const listIds = parseContactIds(selectedList.contact_ids);
     if (Array.isArray(listIds)) {
-      const idSet = new Set(listIds.map(String));
+      const idSet = new Set(listIds);
       if (!idSet.has(String(c.id))) {
         return false;
       }
