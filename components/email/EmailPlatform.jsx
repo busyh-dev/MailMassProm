@@ -9303,6 +9303,7 @@ const Contacts = ({
   const setSelectedContacts = setSelectedContactsProp ?? (() => {});
 
   // ✅ Inizializza da props
+  const [contacts, setContacts] = useState(contactsProp || []);
   const [loading, setLoading] = useState(contactsLoadingProp || false);
   const [tags, setTags] = useState(tagsProp || []);
   const [tagLabels, setTagLabels] = useState(tagLabelsProp || []);
@@ -9331,10 +9332,19 @@ const Contacts = ({
   const [filterTagLabels, setFilterTagLabels] = useState([]);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [selectedList, setSelectedList] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState({ value: 'all', label: 'Tutti i contatti' });
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: null });
+  const [currentPage, setCurrentPage] = useState(1);
+  const contactsPerPage = 25;
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
 const handleLoadList = (list) => {
   if (!list) return;
   setSelectedList(list);
+  setCurrentPage(1);
 
   // Reset dei filtri dropdown correnti per evitare che filtri precedenti rimangano attivi
   setSearchTerm('');
@@ -9799,19 +9809,6 @@ const printContacts = () => {
 };
 
   <Toaster position="top-right" containerStyle={{ zIndex: 999999999 }} />
-
-const [showImportModal, setShowImportModal] = useState(false);
-const [showAddModal, setShowAddModal] = useState(false);
-
-const [showDeleteModal, setShowDeleteModal] = useState(false);
-
-
-const [searchTerm, setSearchTerm] = useState("");
-const [statusFilter, setStatusFilter] = useState({ value: "all", label: "Tutti" });
-const [sortConfig, setSortConfig] = useState({ key: null, direction: null });
-
-const [currentPage, setCurrentPage] = useState(1);
-const contactsPerPage = 6;
 
 // ✅ Stati semplici, niente sessionStorage
 // const [showEditModal, setShowEditModal] = useState(false);
