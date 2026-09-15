@@ -939,7 +939,10 @@ const _platformUsersLoaded = useRef(false);
   const [registerMessage, setRegisterMessage] = useState(null);
   const [emailLogs, setEmailLogs] = useState([]);
   const [contactsSelected, setContactsSelected] = useState([]); // ← nuovo
-const [emailLogsLoading, setEmailLogsLoading] = useState(false);
+  const [activeSelectedList, setActiveSelectedList] = useState(null);
+  const [activeSearchTerm, setActiveSearchTerm] = useState('');
+  const [activeStatusFilter, setActiveStatusFilter] = useState({ value: 'all', label: 'Tutti i contatti' });
+  const [emailLogsLoading, setEmailLogsLoading] = useState(false);
 const [showQuickContacts, setShowQuickContacts] = useState(false);
 const [quickSearch, setQuickSearch] = useState('');
 const [currentUserProfile, setCurrentUserProfile] = useState(null);
@@ -9276,6 +9279,12 @@ const Contacts = ({
   setShowListsModalProp,
   selectedContactsProp,
   setSelectedContactsProp,
+  selectedListProp,
+  setSelectedListProp,
+  searchTermProp,
+  setSearchTermProp,
+  statusFilterProp,
+  setStatusFilterProp,
   showEditModalProp,        // ← aggiungi
   setShowEditModalProp,     // ← aggiungi
   selectedContactProp,      // ← aggiungi
@@ -9301,6 +9310,17 @@ const Contacts = ({
   const setShowListsModal = setShowListsModalProp ?? (() => {});
   const selectedContacts = selectedContactsProp ?? [];
   const setSelectedContacts = setSelectedContactsProp ?? (() => {});
+
+  const [localSelectedList, setLocalSelectedList] = useState(null);
+  const [localSearchTerm, setLocalSearchTerm] = useState('');
+  const [localStatusFilter, setLocalStatusFilter] = useState({ value: 'all', label: 'Tutti i contatti' });
+
+  const selectedList = selectedListProp !== undefined ? selectedListProp : localSelectedList;
+  const setSelectedList = setSelectedListProp || setLocalSelectedList;
+  const searchTerm = searchTermProp !== undefined ? searchTermProp : localSearchTerm;
+  const setSearchTerm = setSearchTermProp || setLocalSearchTerm;
+  const statusFilter = statusFilterProp !== undefined ? statusFilterProp : localStatusFilter;
+  const setStatusFilter = setStatusFilterProp || setLocalStatusFilter;
 
   // ✅ Inizializza da props
   const [contacts, setContacts] = useState(contactsProp || []);
@@ -9331,9 +9351,6 @@ const Contacts = ({
   const [filterContactLabels, setFilterContactLabels] = useState([]);
   const [filterTagLabels, setFilterTagLabels] = useState([]);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [selectedList, setSelectedList] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState({ value: 'all', label: 'Tutti i contatti' });
   const [sortConfig, setSortConfig] = useState({ key: null, direction: null });
   const [currentPage, setCurrentPage] = useState(1);
   const [contactsPerPage, setContactsPerPage] = useState(10);
@@ -29832,6 +29849,12 @@ if (loadingProfile && !user && !authUser) {
     setShowListsModalProp={setShowContactListsModal}
     selectedContactsProp={contactsSelected}
     setSelectedContactsProp={setContactsSelected}
+    selectedListProp={activeSelectedList}
+    setSelectedListProp={setActiveSelectedList}
+    searchTermProp={activeSearchTerm}
+    setSearchTermProp={setActiveSearchTerm}
+    statusFilterProp={activeStatusFilter}
+    setStatusFilterProp={setActiveStatusFilter}
   />
 )}
 {activeTab === "logs" && (
