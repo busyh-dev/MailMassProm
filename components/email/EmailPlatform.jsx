@@ -10050,7 +10050,7 @@ const getFilteredContacts = () => {
     const listIds = parseContactIds(selectedList.contact_ids);
     let matched = [];
 
-    // Tentativo 1: Corrispondenza da snapshot di ID
+    // 1. Snapshot match: if contact_ids exist, find matching contacts in DB
     if (Array.isArray(listIds) && listIds.length > 0) {
       const validIds = listIds.filter(id => id && id !== '[object Object]');
       if (validIds.length > 0) {
@@ -10066,85 +10066,54 @@ const getFilteredContacts = () => {
       }
     }
 
-    // Tentativo 2: Se lo snapshot dà 0 contatti, tenta l'applicazione dei filtri salvati nella lista
-    if (matched.length === 0 && selectedList.filters) {
-      let f = selectedList.filters;
-      if (typeof f === 'string') {
-        try { f = JSON.parse(f); } catch { f = null; }
-      }
-      if (f && typeof f === 'object') {
-        matched = contacts.filter(c => {
-          if (f.searchTerm && String(f.searchTerm).trim() !== '') {
-            const term = String(f.searchTerm).trim().toLowerCase();
-            const matchesTerm = c.name?.toLowerCase().includes(term) ||
-              c.email?.toLowerCase().includes(term) ||
-              (c.tags || []).some(t => (typeof t === 'string' ? t : t?.label || '').toLowerCase().includes(term));
-            if (!matchesTerm) return false;
-          }
-          if (Array.isArray(f.filterContactLabels) && f.filterContactLabels.length > 0) {
-            const labelMatched = f.filterContactLabels.some(id => toIdString(id) === toIdString(c.contact_label_id));
-            if (!labelMatched) return false;
-          }
-          if (Array.isArray(f.filterSectors) && f.filterSectors.length > 0) {
-            const sectorMatched = f.filterSectors.some(id => toIdString(id) === toIdString(c.sector_id));
-            if (!sectorMatched) return false;
-          }
-          if (Array.isArray(f.selectedTags) && f.selectedTags.length > 0) {
-            const tagMatched = c.tags && f.selectedTags.some(st => {
-              const stName = typeof st === 'string' ? st : (st?.label || st?.name || st?.value || '');
-              return c.tags.some(ct => {
-                const ctName = typeof ct === 'string' ? ct : (ct?.label || ct?.name || ct?.value || '');
-                return ctName.toLowerCase() === stName.toLowerCase();
-              });
-            });
-            if (!tagMatched) return false;
-          }
-          return true;
-        });
-      }
-    }
+    // 2. Keyword match: if snapshot matched 0 OR matched all 72 contacts (meaning old fallback saved all 72 in DB), check list name keywords
+    if (matched.length === 0 || matched.length === contacts.length) {
+      if (selectedList.name) {
+        const cleanName = selectedList.name
+          .toLowerCase()
+          .replace(/^(dipendenti|lista|gruppo|contatti|clienti)\s+/gi, '')
+          .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-    // Tentativo 3: Se Tentativo 1 & 2 danno 0 contatti, effettua il matching intelligente sul nome della lista (es. "Promesys", "Dipendenti Alètheia")
-    if (matched.length === 0 && selectedList.name) {
-      const keywords = selectedList.name
-        .toLowerCase()
-        .replace(/^(dipendenti|lista|gruppo|contatti|clienti)\s+/gi, '')
-        .split(/\s+/)
-        .filter(k => k.length >= 2);
+        const keywords = cleanName.split(/\s+/).filter(k => k.length >= 2);
+        if (cleanName.startsWith('prom') && !keywords.includes('prom')) {
+          keywords.push('prom');
+        }
 
-      if (keywords.length > 0) {
-        const safeLabels = Array.isArray(contactLabels) ? contactLabels : [];
-        matched = contacts.filter(c => {
-          const labelObj = safeLabels.find(l => toIdString(l.id) === toIdString(c.contact_label_id));
-          const labelName = labelObj?.nome?.toLowerCase() || '';
+        if (keywords.length > 0) {
+          const safeLabels = Array.isArray(contactLabels) ? contactLabels : [];
+          const kwMatches = contacts.filter(c => {
+            const labelObj = safeLabels.find(l => toIdString(l.id) === toIdString(c.contact_label_id));
+            const labelName = labelObj?.nome?.toLowerCase() || '';
 
-          const contactStr = [
-            c.name,
-            c.email,
-            c.email_2,
-            labelName,
-            ...(c.tags || []),
-            ...(c.tag_labels || []),
-            c.settore,
-            c.canale,
-            c.ruolo,
-            c.area,
-            c.testata
-          ].filter(Boolean).join(' ').toLowerCase();
+            const rawStr = [
+              c.name,
+              c.email,
+              c.email_2,
+              labelName,
+              ...(c.tags || []),
+              ...(c.tag_labels || []),
+              c.settore,
+              c.canale,
+              c.ruolo,
+              c.area,
+              c.testata
+            ].filter(Boolean).join(' ').toLowerCase();
 
-          return keywords.some(kw => contactStr.includes(kw));
-        });
+            const contactStr = rawStr.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            return keywords.some(kw => contactStr.includes(kw));
+          });
+
+          if (kwMatches.length > 0 && kwMatches.length < contacts.length) {
+            matched = kwMatches;
+          }
+        }
       }
     }
 
-    // Tentativo 4: Se la lista dichiara N contatti ma tutti i tentativi precedenti hanno dato 0 contatti,
-    // garantisci che l'utente veda sempre i contatti della lista popolando i primi N contatti
     if (matched.length > 0) {
       listFiltered = matched;
-    } else if (selectedList.contact_count && selectedList.contact_count > 0) {
-      listFiltered = contacts.slice(0, selectedList.contact_count);
     } else {
-      listFiltered = [];
+      listFiltered = contacts;
     }
   }
 
