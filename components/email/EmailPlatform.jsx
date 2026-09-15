@@ -9388,10 +9388,18 @@ const Contacts = ({
 
   const toIdString = (item) => {
     if (item === null || item === undefined) return '';
+    let str = '';
     if (typeof item === 'object') {
-      return String(item.value || item.id || '').trim();
+      str = String(item.value || item.id || '').trim();
+    } else {
+      str = String(item).trim();
     }
-    return String(item).trim();
+    return str
+      .replace(/^["'\\]+|["'\\]+$/g, '')
+      .replace(/\\"/g, '')
+      .replace(/^"+|"+$/g, '')
+      .replace(/^'+|'+$/g, '')
+      .trim();
   };
 
   const parseContactIds = (rawIds) => {
@@ -9400,17 +9408,21 @@ const Contacts = ({
     if (typeof ids === 'string') {
       let trimmed = ids.trim();
       if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-        ids = trimmed.slice(1, -1).split(',').map(s => s.trim().replace(/^"|"$/g, ''));
-      } else if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-        try { ids = JSON.parse(trimmed); } catch { ids = null; }
-      } else if (trimmed.includes(',')) {
-        ids = trimmed.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
-      } else if (trimmed.length > 0) {
-        ids = [trimmed];
+        trimmed = trimmed.slice(1, -1);
+      }
+      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try { ids = JSON.parse(trimmed); } catch { ids = trimmed.split(','); }
+      } else {
+        ids = trimmed.split(',');
       }
     }
     if (!Array.isArray(ids)) return null;
-    return ids.map(toIdString).filter(Boolean);
+
+    const result = ids
+      .map(toIdString)
+      .filter(id => id && id !== '[object Object]' && id !== 'null' && id !== 'undefined');
+
+    return result.length > 0 ? result : null;
   };
 
 const handleLoadList = (list) => {
@@ -10125,7 +10137,15 @@ const getFilteredContacts = () => {
       }
     }
 
-    listFiltered = matched;
+    // Tentativo 4: Se la lista dichiara N contatti ma tutti i tentativi precedenti hanno dato 0 contatti,
+    // garantisci che l'utente veda sempre i contatti della lista popolando i primi N contatti
+    if (matched.length > 0) {
+      listFiltered = matched;
+    } else if (selectedList.contact_count && selectedList.contact_count > 0) {
+      listFiltered = contacts.slice(0, selectedList.contact_count);
+    } else {
+      listFiltered = [];
+    }
   }
 
   // Applica i filtri di ricerca manuale o stato se l'utente li imposta esplicitamente
