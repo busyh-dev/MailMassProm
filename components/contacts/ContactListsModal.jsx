@@ -890,5 +890,3 @@ useEffect(() => {
 
 export default ContactListsModal;
 
-export default ContactListsModal;
-
