@@ -97,6 +97,33 @@ useEffect(() => {
     setAccumulated(prev => prev.filter(c => c.id !== id));
   };
 
+  const handleRemoveFromIncoming = (id) => {
+    setIncomingContacts(prev => prev.filter(c => toIdString(c.id) !== toIdString(id)));
+  };
+
+  const handleRemoveSingleContactFromList = async (list, contactId) => {
+    const existing = getListContactIds(list);
+    const targetIdStr = toIdString(contactId);
+    const updatedIds = existing.filter(id => toIdString(id) !== targetIdStr);
+
+    try {
+      const { error } = await supabase
+        .from('contact_lists')
+        .update({
+          contact_ids: updatedIds,
+          contact_count: updatedIds.length,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', list.id);
+
+      if (error) throw error;
+      toast.success('Contatto rimosso dalla lista');
+      loadLists();
+    } catch {
+      toast.error('Errore durante la rimozione del contatto');
+    }
+  };
+
   const toIdString = (item) => {
     if (item === null || item === undefined) return '';
     if (typeof item === 'object') {
@@ -274,6 +301,22 @@ useEffect(() => {
                   </div>
                   <span className="text-lg font-bold text-blue-600">{incomingContacts.length}</span>
                 </div>
+                {incomingContacts.length > 0 && (
+                  <div className="max-h-24 overflow-y-auto mb-2 space-y-1">
+                    {incomingContacts.map(c => (
+                      <div key={c.id} className="flex items-center justify-between bg-blue-50 rounded-lg px-2 py-1 text-xs">
+                        <span className="font-medium text-gray-800 truncate">{c.name || c.email}</span>
+                        <button
+                          onClick={() => handleRemoveFromIncoming(c.id)}
+                          className="text-gray-400 hover:text-red-600 transition shrink-0 ml-1"
+                          title="Rimuovi contatto dai selezionati"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <button
                   onClick={handleAddCheckedToAccumulated}
                   disabled={incomingContacts.length === 0}
@@ -664,30 +707,39 @@ useEffect(() => {
                         ) : (
                           <div className="space-y-1">
                             {resolvedContacts.slice(0, 30).map(c => (
-  <div key={c.id} className="flex items-center gap-2 text-xs text-gray-700 py-1 px-2 bg-white rounded-lg hover:bg-red-50 group">
-    <input
-      type="checkbox"
-      checked={selectedInList[list.id]?.includes(c.id) || false}
-      onChange={(e) => {
-        setSelectedInList(prev => {
-          const current = prev[list.id] || [];
-          return {
-            ...prev,
-            [list.id]: e.target.checked
-              ? [...current, c.id]
-              : current.filter(id => id !== c.id)
-          };
-        });
-      }}
-      className="rounded border-gray-300 text-red-600 shrink-0"
-    />
-    <div className="w-5 h-5 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold text-[10px] shrink-0">
-      {c.name?.charAt(0)?.toUpperCase() || '?'}
-    </div>
-    <span className="font-medium truncate">{c.name}</span>
-    <span className="text-gray-400 truncate">{c.email}</span>
-  </div>
-))}
+                              <div key={c.id} className="flex items-center justify-between gap-2 text-xs text-gray-700 py-1 px-2 bg-white rounded-lg hover:bg-red-50 group">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedInList[list.id]?.includes(c.id) || false}
+                                    onChange={(e) => {
+                                      setSelectedInList(prev => {
+                                        const current = prev[list.id] || [];
+                                        return {
+                                          ...prev,
+                                          [list.id]: e.target.checked
+                                            ? [...current, c.id]
+                                            : current.filter(id => id !== c.id)
+                                        };
+                                      });
+                                    }}
+                                    className="rounded border-gray-300 text-red-600 shrink-0"
+                                  />
+                                  <div className="w-5 h-5 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold text-[10px] shrink-0">
+                                    {c.name?.charAt(0)?.toUpperCase() || '?'}
+                                  </div>
+                                  <span className="font-medium truncate">{c.name}</span>
+                                  <span className="text-gray-400 truncate">{c.email}</span>
+                                </div>
+                                <button
+                                  onClick={() => handleRemoveSingleContactFromList(list, c.id)}
+                                  title="Rimuovi questo contatto dalla lista"
+                                  className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-100 rounded transition shrink-0"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
 
 {/* Barra azioni selezione nella lista */}
 {(selectedInList[list.id]?.length || 0) > 0 && (
