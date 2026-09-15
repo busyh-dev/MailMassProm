@@ -10043,7 +10043,7 @@ const handleImportContacts = (imported) => {
     return false;
   };
 
-// 🔍 Filtraggio ricerca + stato + lista salvata
+// 🔍 Filtraggio ricerca + stato + lista salvata + filtri avanzati
 const getFilteredContacts = () => {
   let listFiltered = contacts;
 
@@ -10067,8 +10067,8 @@ const getFilteredContacts = () => {
       }
     }
 
-    // 2. Keyword match: if snapshot matched 0 OR matched all 72 contacts (meaning old fallback saved all 72 in DB), check list name keywords
-    if (matched.length === 0 || matched.length === contacts.length) {
+    // 2. Keyword match: if snapshot matched 0 OR matched all contacts (meaning old fallback saved all 72 in DB), check list name keywords
+    if (matched.length === 0 || (matched.length === contacts.length && contacts.length > 0)) {
       if (selectedList.name) {
         const cleanName = selectedList.name
           .toLowerCase()
@@ -10111,14 +10111,10 @@ const getFilteredContacts = () => {
       }
     }
 
-    if (matched.length > 0) {
-      listFiltered = matched;
-    } else {
-      listFiltered = contacts;
-    }
+    listFiltered = matched;
   }
 
-  // Applica i filtri di ricerca manuale o stato se l'utente li imposta esplicitamente
+  // Applica i filtri di ricerca manuale, stato, tag e filtri avanzati
   return listFiltered.filter((c) => {
     const term = searchTerm.trim().toLowerCase();
     const matchesSearch =
@@ -10133,7 +10129,46 @@ const getFilteredContacts = () => {
       (currentStatus === 'active' && c.status === 'active') ||
       (currentStatus === 'inactive' && c.status === 'inactive');
 
-    return matchesSearch && matchesStatus;
+    let matchesTags = true;
+    if (hasNoTagFilter) {
+      matchesTags = (!c.tags || c.tags.length === 0) && (!c.tag_labels || c.tag_labels.length === 0);
+    } else if (selectedTags && selectedTags.length > 0) {
+      const selectedTagIds = new Set(selectedTags.map(t => toIdString(t.id || t)));
+      matchesTags = (c.tags || []).some(t => selectedTagIds.has(toIdString(t.id || t))) ||
+                    (c.tag_labels || []).some(t => selectedTagIds.has(toIdString(t.id || t)));
+    }
+
+    let matchesSectors = true;
+    if (filterSectors && filterSectors.length > 0) {
+      const setSec = new Set(filterSectors.map(toIdString));
+      matchesSectors = setSec.has(toIdString(c.sector_id || c.settore));
+    }
+
+    let matchesChannels = true;
+    if (filterChannels && filterChannels.length > 0) {
+      const setChan = new Set(filterChannels.map(toIdString));
+      matchesChannels = setChan.has(toIdString(c.channel_id || c.canale));
+    }
+
+    let matchesRoles = true;
+    if (filterRoles && filterRoles.length > 0) {
+      const setRoles = new Set(filterRoles.map(toIdString));
+      matchesRoles = setRoles.has(toIdString(c.contact_role_id || c.ruolo));
+    }
+
+    let matchesAreas = true;
+    if (filterAreas && filterAreas.length > 0) {
+      const setAreas = new Set(filterAreas.map(toIdString));
+      matchesAreas = setAreas.has(toIdString(c.area_id || c.area));
+    }
+
+    let matchesLabels = true;
+    if (filterContactLabels && filterContactLabels.length > 0) {
+      const setLabels = new Set(filterContactLabels.map(toIdString));
+      matchesLabels = setLabels.has(toIdString(c.contact_label_id));
+    }
+
+    return matchesSearch && matchesStatus && matchesTags && matchesSectors && matchesChannels && matchesRoles && matchesAreas && matchesLabels;
   });
 };
 

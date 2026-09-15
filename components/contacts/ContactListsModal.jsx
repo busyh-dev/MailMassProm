@@ -24,6 +24,7 @@ const ContactListsModal = ({
   const [saveMode, setSaveMode] = useState('both');
   const [accumulated, setAccumulated] = useState([]);
   const [addingToListId, setAddingToListId] = useState(null);
+  const [searchQueryInAdd, setSearchQueryInAdd] = useState('');
   const [incomingContacts, setIncomingContacts] = useState([]);
   const saveFormRef = useRef(null);
   const [selectedInList, setSelectedInList] = useState({});
@@ -648,7 +649,84 @@ useEffect(() => {
                           <p className="text-xs font-medium text-green-800">
                             Aggiungi contatti a "{list.name}":
                           </p>
-                          <div className="grid grid-cols-3 gap-2 text-xs">
+
+                          {/* 🔍 Ricerca Manuale Contatti da Aggiungere */}
+                          <div className="space-y-1.5 pt-1">
+                            <label className="text-xs font-semibold text-green-900 block">
+                              🔍 Ricerca manuale contatto da aggiungere:
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                placeholder="Cerca per nome, cognome o email..."
+                                value={searchQueryInAdd}
+                                onChange={(e) => setSearchQueryInAdd(e.target.value)}
+                                className="w-full px-3 py-2 pl-8 pr-8 text-xs border border-green-300 rounded-lg focus:ring-2 focus:ring-green-500 bg-white shadow-xs"
+                              />
+                              <UserPlus className="w-3.5 h-3.5 text-green-600 absolute left-2.5 top-2.5" />
+                              {searchQueryInAdd && (
+                                <button
+                                  onClick={() => setSearchQueryInAdd('')}
+                                  className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Risultati della ricerca manuale */}
+                            {searchQueryInAdd.trim() !== '' && (() => {
+                              const term = searchQueryInAdd.trim().toLowerCase();
+                              const currentListIds = getListContactIds(list);
+                              const searchResults = allContacts.filter(c => 
+                                c.name?.toLowerCase().includes(term) ||
+                                c.email?.toLowerCase().includes(term)
+                              ).slice(0, 15);
+
+                              if (searchResults.length === 0) {
+                                return (
+                                  <p className="text-xs text-gray-400 italic py-1 text-center bg-white rounded-lg border border-gray-200">
+                                    Nessun contatto trovato con "{searchQueryInAdd}"
+                                  </p>
+                                );
+                              }
+
+                              return (
+                                <div className="max-h-36 overflow-y-auto space-y-1 bg-white border border-green-200 rounded-lg p-1.5 shadow-sm">
+                                  {searchResults.map(c => {
+                                    const isAlreadyInList = currentListIds.includes(toIdString(c.id));
+                                    return (
+                                      <div key={c.id} className="flex items-center justify-between text-xs py-1 px-2 hover:bg-green-50 rounded-md transition">
+                                        <div className="flex items-center gap-2 truncate pr-2">
+                                          <div className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center text-green-700 font-bold text-[10px] shrink-0">
+                                            {c.name?.charAt(0)?.toUpperCase() || '?'}
+                                          </div>
+                                          <span className="font-semibold text-gray-800 truncate">{c.name}</span>
+                                          <span className="text-gray-400 text-[11px] truncate hidden sm:inline">{c.email}</span>
+                                        </div>
+                                        <button
+                                          onClick={() => {
+                                            addToList(list, [c], 'contatto manuale');
+                                            setSearchQueryInAdd('');
+                                          }}
+                                          disabled={isAlreadyInList}
+                                          className={`px-2.5 py-1 rounded text-[11px] font-semibold transition shrink-0 flex items-center gap-1 ${
+                                            isAlreadyInList
+                                              ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                                              : 'bg-green-600 hover:bg-green-700 text-white shadow-xs'
+                                          }`}
+                                        >
+                                          {isAlreadyInList ? 'Già in lista' : '+ Aggiungi'}
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })()}
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-2 text-xs pt-1">
                             <div className={`p-2 rounded-lg border text-center ${accumulated.length > 0 ? 'bg-green-100 border-green-300' : 'bg-white border-gray-200 opacity-40'}`}>
                               <div className="font-bold text-green-700">{accumulated.length}</div>
                               <div className="text-gray-500">temporanea</div>
@@ -662,11 +740,7 @@ useEffect(() => {
                               <div className="text-gray-500">filtrati</div>
                             </div>
                           </div>
-                          {accumulated.length === 0 && incomingContacts.length === 0 && (
-                            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-                              ⚠️ Chiudi, seleziona contatti con il checkbox, poi riapri le liste
-                            </p>
-                          )}
+
                           <div className="flex flex-col gap-2">
                             {accumulated.length > 0 && (
                               <button
@@ -696,7 +770,7 @@ useEffect(() => {
                               </button>
                             )}
                             <button
-                              onClick={() => setAddingToListId(null)}
+                              onClick={() => { setAddingToListId(null); setSearchQueryInAdd(''); }}
                               className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-xs transition"
                             >
                               Annulla
