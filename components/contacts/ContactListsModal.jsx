@@ -139,7 +139,7 @@ useEffect(() => {
         name: newList.name.trim(),
         description: newList.description.trim(),
         contact_count: contactsToSave.length,
-        contact_ids: contactsToSave.map(c => String(c.id)),
+        contact_ids: contactsToSave.map(c => toIdString(c.id)),
       };
       if (saveMode === 'filters' || saveMode === 'both') payload.filters = currentFilters;
 

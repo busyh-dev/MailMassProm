@@ -10064,25 +10064,33 @@ const handleImportContacts = (imported) => {
   };
 
 // 🔍 Filtraggio ricerca + stato + lista salvata
-const filteredContacts = contacts.filter((c) => {
+const getFilteredContacts = () => {
+  let listFiltered = contacts;
+
   if (selectedList) {
     const listIds = parseContactIds(selectedList.contact_ids);
+    let matchedBySnapshot = [];
+
     if (Array.isArray(listIds) && listIds.length > 0) {
-      const idSet = new Set(listIds);
-      const contactId = toIdString(c.id);
-      const altContactId = toIdString(c.contact_id);
-      const contactEmail = c.email?.toLowerCase().trim();
-
-      const isMatch = (contactId && idSet.has(contactId)) ||
-        (altContactId && idSet.has(altContactId)) ||
-        (contactEmail && idSet.has(contactEmail));
-
-      if (!isMatch) {
-        return false;
+      const validIds = listIds.filter(id => id && id !== '[object Object]');
+      if (validIds.length > 0) {
+        const idSet = new Set(validIds);
+        matchedBySnapshot = contacts.filter(c => {
+          const contactId = toIdString(c.id);
+          const altContactId = toIdString(c.contact_id);
+          const contactEmail = c.email?.toLowerCase().trim();
+          return (contactId && idSet.has(contactId)) ||
+            (altContactId && idSet.has(altContactId)) ||
+            (contactEmail && idSet.has(contactEmail));
+        });
       }
+    }
+
+    if (matchedBySnapshot.length > 0) {
+      listFiltered = matchedBySnapshot;
     } else {
-      // Se la lista salvata non ha uno snapshot fisso di ID e non ha filtri reali attivi salvati,
-      // effettua un matching intelligente per nome della lista (es. "Promesys", "Dipendenti Alètheia")
+      // Fallback: Se la lista non ha uno snapshot di ID valido o gli ID sono corrotti/non abbinati,
+      // usiamo i filtri salvati o il matching intelligente per il nome della lista (es. "Promesys", "Dipendenti Alètheia")
       const activeFiltersExist = hasActiveFilters(selectedList.filters);
 
       if (!activeFiltersExist && selectedList.name) {
@@ -10094,77 +10102,80 @@ const filteredContacts = contacts.filter((c) => {
 
         if (keywords.length > 0) {
           const safeLabels = Array.isArray(contactLabels) ? contactLabels : [];
-          const labelObj = safeLabels.find(l => toIdString(l.id) === toIdString(c.contact_label_id));
-          const labelName = labelObj?.nome?.toLowerCase() || '';
+          listFiltered = contacts.filter(c => {
+            const labelObj = safeLabels.find(l => toIdString(l.id) === toIdString(c.contact_label_id));
+            const labelName = labelObj?.nome?.toLowerCase() || '';
 
-          const contactStr = [
-            c.name,
-            c.email,
-            c.email_2,
-            labelName,
-            ...(c.tags || []),
-            ...(c.tag_labels || []),
-            c.settore,
-            c.canale,
-            c.ruolo,
-            c.area,
-            c.testata
-          ].filter(Boolean).join(' ').toLowerCase();
+            const contactStr = [
+              c.name,
+              c.email,
+              c.email_2,
+              labelName,
+              ...(c.tags || []),
+              ...(c.tag_labels || []),
+              c.settore,
+              c.canale,
+              c.ruolo,
+              c.area,
+              c.testata
+            ].filter(Boolean).join(' ').toLowerCase();
 
-          const matchesNameKeyword = keywords.some(kw => contactStr.includes(kw));
-          if (!matchesNameKeyword) {
-            return false;
-          }
+            return keywords.some(kw => contactStr.includes(kw));
+          });
         }
       }
     }
   }
 
-  const term = searchTerm.trim().toLowerCase();
-  const matchesSearch =
-    !term ||
-    c.name?.toLowerCase().includes(term) ||
-    c.email?.toLowerCase().includes(term) ||
-    (c.tags || []).some((tag) => (typeof tag === 'string' ? tag : (tag?.label || tag?.name || '')).toLowerCase().includes(term));
+  return listFiltered.filter((c) => {
+    const term = searchTerm.trim().toLowerCase();
+    const matchesSearch =
+      !term ||
+      c.name?.toLowerCase().includes(term) ||
+      c.email?.toLowerCase().includes(term) ||
+      (c.tags || []).some((tag) => (typeof tag === 'string' ? tag : (tag?.label || tag?.name || '')).toLowerCase().includes(term));
 
-  const currentStatus = typeof statusFilter === 'string' ? statusFilter : (statusFilter?.value || 'all');
-  const matchesStatus =
-    currentStatus === 'all' ||
-    (currentStatus === 'active' && c.status === 'active') ||
-    (currentStatus === 'inactive' && c.status === 'inactive');
+    const currentStatus = typeof statusFilter === 'string' ? statusFilter : (statusFilter?.value || 'all');
+    const matchesStatus =
+      currentStatus === 'all' ||
+      (currentStatus === 'active' && c.status === 'active') ||
+      (currentStatus === 'inactive' && c.status === 'inactive');
 
-  const matchesTags =
-    (!hasNoTagFilter && selectedTags.length === 0) ||
-    (hasNoTagFilter && (!c.tags || c.tags.length === 0)) ||
-    (selectedTags.length > 0 && c.tags && selectedTags.some(st => {
-      const stName = typeof st === 'string' ? st : (st?.label || st?.name || st?.value || '');
-      return c.tags.some(ct => {
-        const ctName = typeof ct === 'string' ? ct : (ct?.label || ct?.name || ct?.value || '');
-        return ctName.toLowerCase() === stName.toLowerCase();
+    const matchesTags =
+      (!hasNoTagFilter && selectedTags.length === 0) ||
+      (hasNoTagFilter && (!c.tags || c.tags.length === 0)) ||
+      (selectedTags.length > 0 && c.tags && selectedTags.some(st => {
+        const stName = typeof st === 'string' ? st : (st?.label || st?.name || st?.value || '');
+        return c.tags.some(ct => {
+          const ctName = typeof ct === 'string' ? ct : (ct?.label || ct?.name || ct?.value || '');
+          return ctName.toLowerCase() === stName.toLowerCase();
+        });
+      }));
+
+    const matchesSector = filterSectors.length === 0 || filterSectors.some(id => toIdString(id) === toIdString(c.sector_id));
+    const matchesChannel = filterChannels.length === 0 || filterChannels.some(id => toIdString(id) === toIdString(c.channel_id));
+    const matchesRole = filterRoles.length === 0 || filterRoles.some(id => toIdString(id) === toIdString(c.contact_role_id));
+    const matchesArea = filterAreas.length === 0 || filterAreas.some(id => toIdString(id) === toIdString(c.area_id));
+    const matchesTestata = filterTestate.length === 0 || filterTestate.some(id => toIdString(id) === toIdString(c.testata_id));
+    const matchesTipologia = filterTipologie.length === 0 || filterTipologie.some(id => toIdString(id) === toIdString(c.tipologia_canale_id));
+    const matchesPeriodicita = filterPeriodicity.length === 0 || filterPeriodicity.some(id => toIdString(id) === toIdString(c.periodicita_canale_id));
+    const matchesCopertura = filterCoperture.length === 0 || filterCoperture.some(id => toIdString(id) === toIdString(c.copertura_canale_id));
+    const matchesContactLabel = filterContactLabels.length === 0 || filterContactLabels.some(id => toIdString(id) === toIdString(c.contact_label_id));
+    const matchesTagLabels = filterTagLabels.length === 0 ||
+      filterTagLabels.every(labelId => {
+        const targetId = toIdString(labelId);
+        const label = tagLabels.find(tl => toIdString(tl.id) === targetId || tl.label === targetId);
+        return label && (c.tag_labels || []).includes(label.label);
       });
-    }));
 
-  const matchesSector = filterSectors.length === 0 || filterSectors.some(id => toIdString(id) === toIdString(c.sector_id));
-  const matchesChannel = filterChannels.length === 0 || filterChannels.some(id => toIdString(id) === toIdString(c.channel_id));
-  const matchesRole = filterRoles.length === 0 || filterRoles.some(id => toIdString(id) === toIdString(c.contact_role_id));
-  const matchesArea = filterAreas.length === 0 || filterAreas.some(id => toIdString(id) === toIdString(c.area_id));
-  const matchesTestata = filterTestate.length === 0 || filterTestate.some(id => toIdString(id) === toIdString(c.testata_id));
-  const matchesTipologia = filterTipologie.length === 0 || filterTipologie.some(id => toIdString(id) === toIdString(c.tipologia_canale_id));
-  const matchesPeriodicita = filterPeriodicity.length === 0 || filterPeriodicity.some(id => toIdString(id) === toIdString(c.periodicita_canale_id));
-  const matchesCopertura = filterCoperture.length === 0 || filterCoperture.some(id => toIdString(id) === toIdString(c.copertura_canale_id));
-  const matchesContactLabel = filterContactLabels.length === 0 || filterContactLabels.some(id => toIdString(id) === toIdString(c.contact_label_id));
-  const matchesTagLabels = filterTagLabels.length === 0 ||
-    filterTagLabels.every(labelId => {
-      const targetId = toIdString(labelId);
-      const label = tagLabels.find(tl => toIdString(tl.id) === targetId || tl.label === targetId);
-      return label && (c.tag_labels || []).includes(label.label);
-    });
+    return matchesSearch && matchesStatus && matchesTags &&
+      matchesSector && matchesChannel && matchesRole && matchesArea &&
+      matchesTestata && matchesTipologia && matchesPeriodicita &&
+      matchesCopertura && matchesTagLabels && matchesContactLabel;
+  });
+};
 
-  return matchesSearch && matchesStatus && matchesTags &&
-    matchesSector && matchesChannel && matchesRole && matchesArea &&
-    matchesTestata && matchesTipologia && matchesPeriodicita &&
-    matchesCopertura && matchesTagLabels && matchesContactLabel;
-});
+const filteredContacts = getFilteredContacts();
 
 // 🔀 Ordinamento
 const sortedContacts = [...filteredContacts].sort((a, b) => {
