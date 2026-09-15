@@ -9418,7 +9418,7 @@ const handleLoadList = (list) => {
   setSelectedList(list);
   setCurrentPage(1);
 
-  // Reset completo di TUTTI i filtri per evitare che filtri vecchi in memoria blocchino la lista
+  // Reset dei filtri ricerca manuali e dropdown UI
   setSearchTerm('');
   setStatusFilter({ value: 'all', label: 'Tutti i contatti' });
   setSelectedTags([]);
@@ -9434,39 +9434,6 @@ const handleLoadList = (list) => {
   setFilterContactLabels([]);
   setFilterTagLabels([]);
 
-  const snapshotIds = parseContactIds(list.contact_ids);
-  // Se la lista NON ha uno snapshot fisso di contatti (contact_ids), applica i filtri dinamici salvati
-  if (!snapshotIds || snapshotIds.length === 0) {
-    let rawFilters = list.filters;
-    if (typeof rawFilters === 'string') {
-      try { rawFilters = JSON.parse(rawFilters); } catch { rawFilters = null; }
-    }
-
-    if (rawFilters && typeof rawFilters === 'object') {
-      const f = rawFilters;
-      if (f.searchTerm !== undefined) setSearchTerm(f.searchTerm);
-      if (f.statusFilter) {
-        if (typeof f.statusFilter === 'string') {
-          const found = statusOptions.find(opt => opt.value === f.statusFilter);
-          setStatusFilter(found || { value: f.statusFilter, label: f.statusFilter });
-        } else if (typeof f.statusFilter === 'object') {
-          setStatusFilter(f.statusFilter.value ? f.statusFilter : { value: 'all', label: 'Tutti i contatti' });
-        }
-      }
-      if (f.selectedTags) setSelectedTags(f.selectedTags);
-      if (f.hasNoTagFilter !== undefined) setHasNoTagFilter(f.hasNoTagFilter);
-      if (f.filterSectors) setFilterSectors(f.filterSectors);
-      if (f.filterChannels) setFilterChannels(f.filterChannels);
-      if (f.filterRoles) setFilterRoles(f.filterRoles);
-      if (f.filterAreas) setFilterAreas(f.filterAreas);
-      if (f.filterTestate) setFilterTestate(f.filterTestate);
-      if (f.filterTipologie) setFilterTipologie(f.filterTipologie);
-      if (f.filterPeriodicity) setFilterPeriodicity(f.filterPeriodicity);
-      if (f.filterCoperture) setFilterCoperture(f.filterCoperture);
-      if (f.filterContactLabels) setFilterContactLabels(f.filterContactLabels);
-      if (f.filterTagLabels) setFilterTagLabels(f.filterTagLabels);
-    }
-  }
   toast.success(`Lista "${list.name}" applicata!`);
 };
   // ✅ Sincronizza quando le props cambiano
@@ -10069,13 +10036,14 @@ const getFilteredContacts = () => {
 
   if (selectedList) {
     const listIds = parseContactIds(selectedList.contact_ids);
-    let matchedBySnapshot = [];
+    let matched = [];
 
+    // Tentativo 1: Corrispondenza da snapshot di ID
     if (Array.isArray(listIds) && listIds.length > 0) {
       const validIds = listIds.filter(id => id && id !== '[object Object]');
       if (validIds.length > 0) {
         const idSet = new Set(validIds);
-        matchedBySnapshot = contacts.filter(c => {
+        matched = contacts.filter(c => {
           const contactId = toIdString(c.id);
           const altContactId = toIdString(c.contact_id);
           const contactEmail = c.email?.toLowerCase().trim();
@@ -10086,47 +10054,81 @@ const getFilteredContacts = () => {
       }
     }
 
-    if (matchedBySnapshot.length > 0) {
-      listFiltered = matchedBySnapshot;
-    } else {
-      // Fallback: Se la lista non ha uno snapshot di ID valido o gli ID sono corrotti/non abbinati,
-      // usiamo i filtri salvati o il matching intelligente per il nome della lista (es. "Promesys", "Dipendenti Alètheia")
-      const activeFiltersExist = hasActiveFilters(selectedList.filters);
-
-      if (!activeFiltersExist && selectedList.name) {
-        const keywords = selectedList.name
-          .toLowerCase()
-          .replace(/^(dipendenti|lista|gruppo|contatti|clienti)\s+/gi, '')
-          .split(/\s+/)
-          .filter(k => k.length >= 2);
-
-        if (keywords.length > 0) {
-          const safeLabels = Array.isArray(contactLabels) ? contactLabels : [];
-          listFiltered = contacts.filter(c => {
-            const labelObj = safeLabels.find(l => toIdString(l.id) === toIdString(c.contact_label_id));
-            const labelName = labelObj?.nome?.toLowerCase() || '';
-
-            const contactStr = [
-              c.name,
-              c.email,
-              c.email_2,
-              labelName,
-              ...(c.tags || []),
-              ...(c.tag_labels || []),
-              c.settore,
-              c.canale,
-              c.ruolo,
-              c.area,
-              c.testata
-            ].filter(Boolean).join(' ').toLowerCase();
-
-            return keywords.some(kw => contactStr.includes(kw));
-          });
-        }
+    // Tentativo 2: Se lo snapshot dà 0 contatti, tenta l'applicazione dei filtri salvati nella lista
+    if (matched.length === 0 && selectedList.filters) {
+      let f = selectedList.filters;
+      if (typeof f === 'string') {
+        try { f = JSON.parse(f); } catch { f = null; }
+      }
+      if (f && typeof f === 'object') {
+        matched = contacts.filter(c => {
+          if (f.searchTerm && String(f.searchTerm).trim() !== '') {
+            const term = String(f.searchTerm).trim().toLowerCase();
+            const matchesTerm = c.name?.toLowerCase().includes(term) ||
+              c.email?.toLowerCase().includes(term) ||
+              (c.tags || []).some(t => (typeof t === 'string' ? t : t?.label || '').toLowerCase().includes(term));
+            if (!matchesTerm) return false;
+          }
+          if (Array.isArray(f.filterContactLabels) && f.filterContactLabels.length > 0) {
+            const labelMatched = f.filterContactLabels.some(id => toIdString(id) === toIdString(c.contact_label_id));
+            if (!labelMatched) return false;
+          }
+          if (Array.isArray(f.filterSectors) && f.filterSectors.length > 0) {
+            const sectorMatched = f.filterSectors.some(id => toIdString(id) === toIdString(c.sector_id));
+            if (!sectorMatched) return false;
+          }
+          if (Array.isArray(f.selectedTags) && f.selectedTags.length > 0) {
+            const tagMatched = c.tags && f.selectedTags.some(st => {
+              const stName = typeof st === 'string' ? st : (st?.label || st?.name || st?.value || '');
+              return c.tags.some(ct => {
+                const ctName = typeof ct === 'string' ? ct : (ct?.label || ct?.name || ct?.value || '');
+                return ctName.toLowerCase() === stName.toLowerCase();
+              });
+            });
+            if (!tagMatched) return false;
+          }
+          return true;
+        });
       }
     }
+
+    // Tentativo 3: Se Tentativo 1 & 2 danno 0 contatti, effettua il matching intelligente sul nome della lista (es. "Promesys", "Dipendenti Alètheia")
+    if (matched.length === 0 && selectedList.name) {
+      const keywords = selectedList.name
+        .toLowerCase()
+        .replace(/^(dipendenti|lista|gruppo|contatti|clienti)\s+/gi, '')
+        .split(/\s+/)
+        .filter(k => k.length >= 2);
+
+      if (keywords.length > 0) {
+        const safeLabels = Array.isArray(contactLabels) ? contactLabels : [];
+        matched = contacts.filter(c => {
+          const labelObj = safeLabels.find(l => toIdString(l.id) === toIdString(c.contact_label_id));
+          const labelName = labelObj?.nome?.toLowerCase() || '';
+
+          const contactStr = [
+            c.name,
+            c.email,
+            c.email_2,
+            labelName,
+            ...(c.tags || []),
+            ...(c.tag_labels || []),
+            c.settore,
+            c.canale,
+            c.ruolo,
+            c.area,
+            c.testata
+          ].filter(Boolean).join(' ').toLowerCase();
+
+          return keywords.some(kw => contactStr.includes(kw));
+        });
+      }
+    }
+
+    listFiltered = matched;
   }
 
+  // Applica i filtri di ricerca manuale o stato se l'utente li imposta esplicitamente
   return listFiltered.filter((c) => {
     const term = searchTerm.trim().toLowerCase();
     const matchesSearch =
@@ -10141,37 +10143,7 @@ const getFilteredContacts = () => {
       (currentStatus === 'active' && c.status === 'active') ||
       (currentStatus === 'inactive' && c.status === 'inactive');
 
-    const matchesTags =
-      (!hasNoTagFilter && selectedTags.length === 0) ||
-      (hasNoTagFilter && (!c.tags || c.tags.length === 0)) ||
-      (selectedTags.length > 0 && c.tags && selectedTags.some(st => {
-        const stName = typeof st === 'string' ? st : (st?.label || st?.name || st?.value || '');
-        return c.tags.some(ct => {
-          const ctName = typeof ct === 'string' ? ct : (ct?.label || ct?.name || ct?.value || '');
-          return ctName.toLowerCase() === stName.toLowerCase();
-        });
-      }));
-
-    const matchesSector = filterSectors.length === 0 || filterSectors.some(id => toIdString(id) === toIdString(c.sector_id));
-    const matchesChannel = filterChannels.length === 0 || filterChannels.some(id => toIdString(id) === toIdString(c.channel_id));
-    const matchesRole = filterRoles.length === 0 || filterRoles.some(id => toIdString(id) === toIdString(c.contact_role_id));
-    const matchesArea = filterAreas.length === 0 || filterAreas.some(id => toIdString(id) === toIdString(c.area_id));
-    const matchesTestata = filterTestate.length === 0 || filterTestate.some(id => toIdString(id) === toIdString(c.testata_id));
-    const matchesTipologia = filterTipologie.length === 0 || filterTipologie.some(id => toIdString(id) === toIdString(c.tipologia_canale_id));
-    const matchesPeriodicita = filterPeriodicity.length === 0 || filterPeriodicity.some(id => toIdString(id) === toIdString(c.periodicita_canale_id));
-    const matchesCopertura = filterCoperture.length === 0 || filterCoperture.some(id => toIdString(id) === toIdString(c.copertura_canale_id));
-    const matchesContactLabel = filterContactLabels.length === 0 || filterContactLabels.some(id => toIdString(id) === toIdString(c.contact_label_id));
-    const matchesTagLabels = filterTagLabels.length === 0 ||
-      filterTagLabels.every(labelId => {
-        const targetId = toIdString(labelId);
-        const label = tagLabels.find(tl => toIdString(tl.id) === targetId || tl.label === targetId);
-        return label && (c.tag_labels || []).includes(label.label);
-      });
-
-    return matchesSearch && matchesStatus && matchesTags &&
-      matchesSector && matchesChannel && matchesRole && matchesArea &&
-      matchesTestata && matchesTipologia && matchesPeriodicita &&
-      matchesCopertura && matchesTagLabels && matchesContactLabel;
+    return matchesSearch && matchesStatus;
   });
 };
 
