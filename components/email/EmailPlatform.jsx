@@ -10040,12 +10040,20 @@ const filteredContacts = contacts.filter((c) => {
     const listIds = parseContactIds(selectedList.contact_ids);
     if (Array.isArray(listIds) && listIds.length > 0) {
       const idSet = new Set(listIds);
-      if (!idSet.has(toIdString(c.id))) {
+      const contactId = toIdString(c.id);
+      const altContactId = toIdString(c.contact_id);
+      const contactEmail = c.email?.toLowerCase().trim();
+
+      const isMatch = (contactId && idSet.has(contactId)) ||
+        (altContactId && idSet.has(altContactId)) ||
+        (contactEmail && idSet.has(contactEmail));
+
+      if (!isMatch) {
         return false;
       }
     } else {
       // Se la lista salvata non ha uno snapshot fisso di ID e non ha filtri salvati specifici,
-      // effettua un matching intelligente per nome della lista (es. "Dipendenti Alètheia")
+      // effettua un matching intelligente per nome della lista (es. "Promesys", "Dipendenti Alètheia")
       let hasFilters = false;
       let rawFilters = selectedList.filters;
       if (typeof rawFilters === 'string') {
@@ -10060,7 +10068,7 @@ const filteredContacts = contacts.filter((c) => {
           .toLowerCase()
           .replace(/^(dipendenti|lista|gruppo|contatti|clienti)\s+/gi, '')
           .split(/\s+/)
-          .filter(k => k.length > 2);
+          .filter(k => k.length >= 2);
 
         if (keywords.length > 0) {
           const safeLabels = Array.isArray(contactLabels) ? contactLabels : [];
