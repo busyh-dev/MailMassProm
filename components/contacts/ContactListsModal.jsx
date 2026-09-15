@@ -260,7 +260,8 @@ useEffect(() => {
   const hasAnything = incomingContacts.length > 0 || accumulated.length > 0;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <>
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
         
         {/* Header - fisso */}
@@ -779,60 +780,63 @@ useEffect(() => {
           </div>
         </div>
       </div>
+
       {confirmRemoveFromList && (
-  <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4">
-    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center shrink-0">
-          <Trash2 className="w-6 h-6 text-red-600" />
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center shrink-0">
+                <Trash2 className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Rimuovi dalla lista</h3>
+                <p className="text-xs text-gray-500">Questa azione è irreversibile</p>
+              </div>
+            </div>
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+              <p className="text-sm text-red-800">
+                Stai per rimuovere <strong>{confirmRemoveFromList.count} contatti</strong> dalla lista <strong>"{confirmRemoveFromList.list.name}"</strong>.
+              </p>
+              <p className="text-xs text-red-600 mt-1">
+                I contatti verranno rimossi dalla lista salvata nel database.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setConfirmRemoveFromList(null)}
+                className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={async () => {
+                  const { list, count } = confirmRemoveFromList;
+                  const toRemove = selectedInList[list.id];
+                  const newIds = (list.contact_ids || []).filter(id => !toRemove.includes(id));
+                  const { error } = await supabase
+                    .from('contact_lists')
+                    .update({
+                      contact_ids: newIds,
+                      contact_count: newIds.length,
+                      updated_at: new Date().toISOString()
+                    })
+                    .eq('id', list.id);
+                  if (error) { toast.error('Errore rimozione'); return; }
+                  toast.success(`✅ ${count} contatti rimossi da "${confirmRemoveFromList.list.name}"`);
+                  setSelectedInList(prev => ({ ...prev, [list.id]: [] }));
+                  setConfirmRemoveFromList(null);
+                  loadLists();
+                }}
+                className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                Sì, rimuovi
+              </button>
+            </div>
+          </div>
         </div>
-        <div>
-          <h3 className="text-base font-bold text-gray-900">Rimuovi dalla lista</h3>
-          <p className="text-sm text-gray-500">Questa azione è irreversibile</p>
-        </div>
-      </div>
-      <div className="bg-red-50 border border-red-200 rounded-xl p-3">
-        <p className="text-sm text-red-800">
-          Stai per rimuovere <strong>{confirmRemoveFromList.count} contatti</strong> dalla lista <strong>"{confirmRemoveFromList.list.name}"</strong>.
-        </p>
-        <p className="text-xs text-red-600 mt-1">
-        I contatti verranno rimossi dalla lista salvata nel database.
-        </p>
-      </div>
-      <div className="flex gap-3 pt-2">
-        <button
-          onClick={() => setConfirmRemoveFromList(null)}
-          className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition"
-        >
-          Annulla
-        </button>
-        <button
-          onClick={async () => {
-            const { list, count } = confirmRemoveFromList;
-            const toRemove = selectedInList[list.id];
-            const newIds = (list.contact_ids || []).filter(id => !toRemove.includes(id));
-            const { error } = await supabase
-              .from('contact_lists')
-              .update({
-                contact_ids: newIds,
-                contact_count: newIds.length,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', list.id);
-            if (error) { toast.error('Errore rimozione'); return; }
-            toast.success(`✅ ${count} contatti rimossi da "${confirmRemoveFromList.list.name}"`);
-            setSelectedInList(prev => ({ ...prev, [list.id]: [] }));
-            setConfirmRemoveFromList(null);
-            loadLists();
-          }}
-          className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition flex items-center justify-center gap-2"
-        >
-          <Trash2 className="w-4 h-4" />
-          Sì, rimuovi
-        </button>
-      </div>
-    </div>
-  </div>
+      )}
+
       {confirmDeleteList && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
@@ -880,9 +884,11 @@ useEffect(() => {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
+
+export default ContactListsModal;
 
 export default ContactListsModal;
 
