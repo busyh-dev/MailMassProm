@@ -97,17 +97,31 @@ useEffect(() => {
     setAccumulated(prev => prev.filter(c => c.id !== id));
   };
 
+  const toIdString = (item) => {
+    if (item === null || item === undefined) return '';
+    if (typeof item === 'object') {
+      return String(item.value || item.id || '').trim();
+    }
+    return String(item).trim();
+  };
+
   const getListContactIds = (list) => {
     if (!list || !list.contact_ids) return [];
     let ids = list.contact_ids;
     if (typeof ids === 'string') {
-      if (ids.startsWith('{') && ids.endsWith('}')) {
-        ids = ids.slice(1, -1).split(',').map(s => s.trim().replace(/^"|"$/g, ''));
-      } else {
-        try { ids = JSON.parse(ids); } catch { ids = []; }
+      let trimmed = ids.trim();
+      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        ids = trimmed.slice(1, -1).split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+      } else if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try { ids = JSON.parse(trimmed); } catch { ids = []; }
+      } else if (trimmed.includes(',')) {
+        ids = trimmed.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+      } else if (trimmed.length > 0) {
+        ids = [trimmed];
       }
     }
-    return Array.isArray(ids) ? ids.map(String) : [];
+    if (!Array.isArray(ids)) return [];
+    return ids.map(toIdString).filter(Boolean);
   };
 
   const handleSave = async () => {

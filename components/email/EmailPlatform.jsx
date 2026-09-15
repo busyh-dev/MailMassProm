@@ -9366,17 +9366,31 @@ const Contacts = ({
     loadSavedLists();
   }, [loadSavedLists]);
 
+  const toIdString = (item) => {
+    if (item === null || item === undefined) return '';
+    if (typeof item === 'object') {
+      return String(item.value || item.id || '').trim();
+    }
+    return String(item).trim();
+  };
+
   const parseContactIds = (rawIds) => {
     if (!rawIds) return null;
     let ids = rawIds;
     if (typeof ids === 'string') {
-      if (ids.startsWith('{') && ids.endsWith('}')) {
-        ids = ids.slice(1, -1).split(',').map(s => s.trim().replace(/^"|"$/g, ''));
-      } else {
-        try { ids = JSON.parse(ids); } catch { ids = null; }
+      let trimmed = ids.trim();
+      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        ids = trimmed.slice(1, -1).split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+      } else if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try { ids = JSON.parse(trimmed); } catch { ids = null; }
+      } else if (trimmed.includes(',')) {
+        ids = trimmed.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+      } else if (trimmed.length > 0) {
+        ids = [trimmed];
       }
     }
-    return Array.isArray(ids) ? ids.map(String) : null;
+    if (!Array.isArray(ids)) return null;
+    return ids.map(toIdString).filter(Boolean);
   };
 
 const handleLoadList = (list) => {
@@ -9384,7 +9398,7 @@ const handleLoadList = (list) => {
   setSelectedList(list);
   setCurrentPage(1);
 
-  // Reset dei filtri dropdown correnti per evitare interferenze con i filtri manuali
+  // Reset completo di TUTTI i filtri per evitare che filtri vecchi in memoria blocchino la lista
   setSearchTerm('');
   setStatusFilter({ value: 'all', label: 'Tutti i contatti' });
   setSelectedTags([]);
@@ -9398,6 +9412,7 @@ const handleLoadList = (list) => {
   setFilterPeriodicity([]);
   setFilterCoperture([]);
   setFilterContactLabels([]);
+  setFilterTagLabels([]);
 
   const snapshotIds = parseContactIds(list.contact_ids);
   // Se la lista NON ha uno snapshot fisso di contatti (contact_ids), applica i filtri dinamici salvati
@@ -9429,6 +9444,7 @@ const handleLoadList = (list) => {
       if (f.filterPeriodicity) setFilterPeriodicity(f.filterPeriodicity);
       if (f.filterCoperture) setFilterCoperture(f.filterCoperture);
       if (f.filterContactLabels) setFilterContactLabels(f.filterContactLabels);
+      if (f.filterTagLabels) setFilterTagLabels(f.filterTagLabels);
     }
   }
   toast.success(`Lista "${list.name}" applicata!`);
@@ -10002,19 +10018,20 @@ const handleImportContacts = (imported) => {
 const filteredContacts = contacts.filter((c) => {
   if (selectedList) {
     const listIds = parseContactIds(selectedList.contact_ids);
-    if (Array.isArray(listIds)) {
+    if (Array.isArray(listIds) && listIds.length > 0) {
       const idSet = new Set(listIds);
-      if (!idSet.has(String(c.id))) {
+      if (!idSet.has(toIdString(c.id))) {
         return false;
       }
     }
   }
 
-  const term = searchTerm.toLowerCase();
-   const matchesSearch =
+  const term = searchTerm.trim().toLowerCase();
+  const matchesSearch =
+    !term ||
     c.name?.toLowerCase().includes(term) ||
     c.email?.toLowerCase().includes(term) ||
-    (c.tags || []).some((tag) => tag.toLowerCase().includes(term));
+    (c.tags || []).some((tag) => (typeof tag === 'string' ? tag : (tag?.label || tag?.name || '')).toLowerCase().includes(term));
 
   const currentStatus = typeof statusFilter === 'string' ? statusFilter : (statusFilter?.value || 'all');
   const matchesStatus =
@@ -10025,26 +10042,31 @@ const filteredContacts = contacts.filter((c) => {
   const matchesTags =
     (!hasNoTagFilter && selectedTags.length === 0) ||
     (hasNoTagFilter && (!c.tags || c.tags.length === 0)) ||
-    (selectedTags.length > 0 && c.tags && selectedTags.some(st =>
-      c.tags.some(ct => ct.toLowerCase() === st.label.toLowerCase())
-    ));
+    (selectedTags.length > 0 && c.tags && selectedTags.some(st => {
+      const stName = typeof st === 'string' ? st : (st?.label || st?.name || st?.value || '');
+      return c.tags.some(ct => {
+        const ctName = typeof ct === 'string' ? ct : (ct?.label || ct?.name || ct?.value || '');
+        return ctName.toLowerCase() === stName.toLowerCase();
+      });
+    }));
 
-    const matchesSector = filterSectors.length === 0 || filterSectors.some(id => String(id) === String(c.sector_id));
-    const matchesChannel = filterChannels.length === 0 || filterChannels.some(id => String(id) === String(c.channel_id));
-    const matchesRole = filterRoles.length === 0 || filterRoles.some(id => String(id) === String(c.contact_role_id));
-    const matchesArea = filterAreas.length === 0 || filterAreas.some(id => String(id) === String(c.area_id));
-    const matchesTestata = filterTestate.length === 0 || filterTestate.some(id => String(id) === String(c.testata_id));
-    const matchesTipologia = filterTipologie.length === 0 || filterTipologie.some(id => String(id) === String(c.tipologia_canale_id));
-    const matchesPeriodicita = filterPeriodicity.length === 0 || filterPeriodicity.some(id => String(id) === String(c.periodicita_canale_id));
-    const matchesCopertura = filterCoperture.length === 0 || filterCoperture.some(id => String(id) === String(c.copertura_canale_id));
-    const matchesContactLabel = filterContactLabels.length === 0 || filterContactLabels.some(id => String(id) === String(c.contact_label_id));
+  const matchesSector = filterSectors.length === 0 || filterSectors.some(id => toIdString(id) === toIdString(c.sector_id));
+  const matchesChannel = filterChannels.length === 0 || filterChannels.some(id => toIdString(id) === toIdString(c.channel_id));
+  const matchesRole = filterRoles.length === 0 || filterRoles.some(id => toIdString(id) === toIdString(c.contact_role_id));
+  const matchesArea = filterAreas.length === 0 || filterAreas.some(id => toIdString(id) === toIdString(c.area_id));
+  const matchesTestata = filterTestate.length === 0 || filterTestate.some(id => toIdString(id) === toIdString(c.testata_id));
+  const matchesTipologia = filterTipologie.length === 0 || filterTipologie.some(id => toIdString(id) === toIdString(c.tipologia_canale_id));
+  const matchesPeriodicita = filterPeriodicity.length === 0 || filterPeriodicity.some(id => toIdString(id) === toIdString(c.periodicita_canale_id));
+  const matchesCopertura = filterCoperture.length === 0 || filterCoperture.some(id => toIdString(id) === toIdString(c.copertura_canale_id));
+  const matchesContactLabel = filterContactLabels.length === 0 || filterContactLabels.some(id => toIdString(id) === toIdString(c.contact_label_id));
   const matchesTagLabels = filterTagLabels.length === 0 ||
     filterTagLabels.every(labelId => {
-      const label = tagLabels.find(tl => tl.id === labelId);
+      const targetId = toIdString(labelId);
+      const label = tagLabels.find(tl => toIdString(tl.id) === targetId || tl.label === targetId);
       return label && (c.tag_labels || []).includes(label.label);
     });
 
-    return matchesSearch && matchesStatus && matchesTags &&
+  return matchesSearch && matchesStatus && matchesTags &&
     matchesSector && matchesChannel && matchesRole && matchesArea &&
     matchesTestata && matchesTipologia && matchesPeriodicita &&
     matchesCopertura && matchesTagLabels && matchesContactLabel;
