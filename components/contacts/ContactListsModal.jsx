@@ -26,8 +26,9 @@ const ContactListsModal = ({
   const [addingToListId, setAddingToListId] = useState(null);
   const [incomingContacts, setIncomingContacts] = useState([]);
   const saveFormRef = useRef(null);
-    const [selectedInList, setSelectedInList] = useState({});
-const [confirmRemoveFromList, setConfirmRemoveFromList] = useState(null); // { listId, count }
+  const [selectedInList, setSelectedInList] = useState({});
+  const [confirmRemoveFromList, setConfirmRemoveFromList] = useState(null); // { listId, count }
+  const [confirmDeleteList, setConfirmDeleteList] = useState(null); // { id, name }
 
 // Rimuovi il vecchio useEffect e sostituiscilo con questo:
 const listsLoadedRef = useRef(false);
@@ -205,13 +206,8 @@ useEffect(() => {
     loadLists();
   };
 
-  const handleDelete = async (id, name) => {
-    if (!confirm(`Eliminare la lista "${name}"?`)) return;
-    try {
-      await supabase.from('contact_lists').delete().eq('id', id);
-      toast.success('Lista eliminata');
-      loadLists();
-    } catch { toast.error('Errore eliminazione'); }
+  const handleDelete = (id, name) => {
+    setConfirmDeleteList({ id, name });
   };
 
   const handleRename = async (id) => {
@@ -837,7 +833,53 @@ useEffect(() => {
       </div>
     </div>
   </div>
-)}
+      {confirmDeleteList && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center shrink-0">
+                <Trash2 className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Elimina Lista</h3>
+                <p className="text-xs text-gray-500">Azione irreversibile</p>
+              </div>
+            </div>
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+              <p className="text-sm text-red-800">
+                Stai per eliminare la lista <strong>"{confirmDeleteList.name}"</strong>.
+              </p>
+              <p className="text-xs text-red-600 mt-1">
+                La lista verrà rimossa dal database. I contatti non verranno cancellati.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setConfirmDeleteList(null)}
+                className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await supabase.from('contact_lists').delete().eq('id', confirmDeleteList.id);
+                    toast.success(`Lista "${confirmDeleteList.name}" eliminata`);
+                    setConfirmDeleteList(null);
+                    loadLists();
+                  } catch {
+                    toast.error('Errore durante l\'eliminazione della lista');
+                  }
+                }}
+                className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 shadow-sm"
+              >
+                <Trash2 className="w-4 h-4" />
+                Sì, elimina
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
