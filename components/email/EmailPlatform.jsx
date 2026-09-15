@@ -10034,6 +10034,35 @@ const handleImportContacts = (imported) => {
   toast.success("📤 Contatti importati correttamente!");
 };
 
+  const hasActiveFilters = (rawFilters) => {
+    if (!rawFilters) return false;
+    let f = rawFilters;
+    if (typeof f === 'string') {
+      try { f = JSON.parse(f); } catch { return false; }
+    }
+    if (!f || typeof f !== 'object') return false;
+
+    if (f.searchTerm && String(f.searchTerm).trim() !== '') return true;
+    if (f.statusFilter) {
+      const val = typeof f.statusFilter === 'string' ? f.statusFilter : f.statusFilter?.value;
+      if (val && val !== 'all') return true;
+    }
+    if (Array.isArray(f.selectedTags) && f.selectedTags.length > 0) return true;
+    if (f.hasNoTagFilter) return true;
+    if (Array.isArray(f.filterSectors) && f.filterSectors.length > 0) return true;
+    if (Array.isArray(f.filterChannels) && f.filterChannels.length > 0) return true;
+    if (Array.isArray(f.filterRoles) && f.filterRoles.length > 0) return true;
+    if (Array.isArray(f.filterAreas) && f.filterAreas.length > 0) return true;
+    if (Array.isArray(f.filterTestate) && f.filterTestate.length > 0) return true;
+    if (Array.isArray(f.filterTipologie) && f.filterTipologie.length > 0) return true;
+    if (Array.isArray(f.filterPeriodicity) && f.filterPeriodicity.length > 0) return true;
+    if (Array.isArray(f.filterCoperture) && f.filterCoperture.length > 0) return true;
+    if (Array.isArray(f.filterContactLabels) && f.filterContactLabels.length > 0) return true;
+    if (Array.isArray(f.filterTagLabels) && f.filterTagLabels.length > 0) return true;
+
+    return false;
+  };
+
 // 🔍 Filtraggio ricerca + stato + lista salvata
 const filteredContacts = contacts.filter((c) => {
   if (selectedList) {
@@ -10052,18 +10081,11 @@ const filteredContacts = contacts.filter((c) => {
         return false;
       }
     } else {
-      // Se la lista salvata non ha uno snapshot fisso di ID e non ha filtri salvati specifici,
+      // Se la lista salvata non ha uno snapshot fisso di ID e non ha filtri reali attivi salvati,
       // effettua un matching intelligente per nome della lista (es. "Promesys", "Dipendenti Alètheia")
-      let hasFilters = false;
-      let rawFilters = selectedList.filters;
-      if (typeof rawFilters === 'string') {
-        try { rawFilters = JSON.parse(rawFilters); } catch { rawFilters = null; }
-      }
-      if (rawFilters && typeof rawFilters === 'object' && Object.keys(rawFilters).length > 0) {
-        hasFilters = true;
-      }
+      const activeFiltersExist = hasActiveFilters(selectedList.filters);
 
-      if (!hasFilters && selectedList.name) {
+      if (!activeFiltersExist && selectedList.name) {
         const keywords = selectedList.name
           .toLowerCase()
           .replace(/^(dipendenti|lista|gruppo|contatti|clienti)\s+/gi, '')
