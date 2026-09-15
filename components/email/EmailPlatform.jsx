@@ -9347,15 +9347,35 @@ const Contacts = ({
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      const { data, error } = await supabase
+      const { data: listsData, error } = await supabase
         .from('contact_lists')
         .select('*')
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: false });
 
-      if (data && !error) {
-        setSavedLists(data);
-        setSavedListsCount(data.length);
+      if (listsData && !error) {
+        let junctionData = [];
+        try {
+          const { data: jData } = await supabase.from('list_contacts').select('*');
+          if (jData) junctionData = jData;
+        } catch { /* ignore if table doesn't exist */ }
+
+        const enrichedLists = listsData.map(list => {
+          let existingIds = parseContactIds(list.contact_ids) || [];
+          if (existingIds.length === 0 && junctionData.length > 0) {
+            const matches = junctionData.filter(j => String(j.list_id || j.listId) === String(list.id));
+            if (matches.length > 0) {
+              existingIds = matches.map(m => String(m.contact_id || m.contactId));
+            }
+          }
+          return {
+            ...list,
+            contact_ids: existingIds.length > 0 ? existingIds : list.contact_ids
+          };
+        });
+
+        setSavedLists(enrichedLists);
+        setSavedListsCount(enrichedLists.length);
       }
     } catch (err) {
       console.error('Errore caricamento liste salvate:', err);
@@ -10022,6 +10042,50 @@ const filteredContacts = contacts.filter((c) => {
       const idSet = new Set(listIds);
       if (!idSet.has(toIdString(c.id))) {
         return false;
+      }
+    } else {
+      // Se la lista salvata non ha uno snapshot fisso di ID e non ha filtri salvati specifici,
+      // effettua un matching intelligente per nome della lista (es. "Dipendenti Alètheia")
+      let hasFilters = false;
+      let rawFilters = selectedList.filters;
+      if (typeof rawFilters === 'string') {
+        try { rawFilters = JSON.parse(rawFilters); } catch { rawFilters = null; }
+      }
+      if (rawFilters && typeof rawFilters === 'object' && Object.keys(rawFilters).length > 0) {
+        hasFilters = true;
+      }
+
+      if (!hasFilters && selectedList.name) {
+        const keywords = selectedList.name
+          .toLowerCase()
+          .replace(/^(dipendenti|lista|gruppo|contatti|clienti)\s+/gi, '')
+          .split(/\s+/)
+          .filter(k => k.length > 2);
+
+        if (keywords.length > 0) {
+          const safeLabels = Array.isArray(contactLabels) ? contactLabels : [];
+          const labelObj = safeLabels.find(l => toIdString(l.id) === toIdString(c.contact_label_id));
+          const labelName = labelObj?.nome?.toLowerCase() || '';
+
+          const contactStr = [
+            c.name,
+            c.email,
+            c.email_2,
+            labelName,
+            ...(c.tags || []),
+            ...(c.tag_labels || []),
+            c.settore,
+            c.canale,
+            c.ruolo,
+            c.area,
+            c.testata
+          ].filter(Boolean).join(' ').toLowerCase();
+
+          const matchesNameKeyword = keywords.some(kw => contactStr.includes(kw));
+          if (!matchesNameKeyword) {
+            return false;
+          }
+        }
       }
     }
   }
