@@ -95,6 +95,35 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     return uploaded;
   };
 
+  // Helper resiliente per l'inserimento dei messaggi nel DB (con fallback automatico se ticket_id non esiste nel DB)
+  const insertMessageToSupabase = async (msgPayload) => {
+    try {
+      const { error } = await supabase.from('messages').insert([msgPayload]);
+      if (error) {
+        console.warn('Inserimento diretto fallito, esecuzione fallback senza colonna ticket_id:', error.message);
+        
+        const fallbackPayload = {
+          sender_id: msgPayload.sender_id,
+          receiver_id: msgPayload.receiver_id || msgPayload.sender_id,
+          content: msgPayload.ticket_id 
+            ? `[TICKET:${msgPayload.ticket_id}]\n${msgPayload.content}` 
+            : msgPayload.content,
+          read: false,
+          created_at: msgPayload.created_at || new Date().toISOString()
+        };
+
+        const { error: fallbackErr } = await supabase.from('messages').insert([fallbackPayload]);
+        if (fallbackErr) {
+          console.error('Errore inserimento messaggio fallback:', fallbackErr);
+          throw fallbackErr;
+        }
+      }
+    } catch (err) {
+      console.error('Errore definitivo inserimento messaggio:', err);
+      throw err;
+    }
+  };
+
   // 1. Carica la lista degli Amministratori
   useEffect(() => {
     const fetchAdmins = async () => {
@@ -121,7 +150,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
   useEffect(() => {
     if (!user) return;
 
-    // Funzione caricamento ticket da Supabase DB
     const fetchDbTickets = async () => {
       try {
         const { data: dbTickets, error } = await supabase
@@ -133,7 +161,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
           setTickets(dbTickets);
           try { localStorage.setItem('support_tickets_v2', JSON.stringify(dbTickets)); } catch(e){}
         } else {
-          // Fallback a localStorage se la tabella non è popolate
           const stored = localStorage.getItem('support_tickets_v2');
           if (stored) setTickets(JSON.parse(stored));
         }
@@ -311,7 +338,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
           setMessages(prev => [...prev, newMsg]);
           scrollToBottom();
 
-          // Se la chat è aperta, segna subito come letto e diminuisci il pallino
           if (newMsg.receiver_id === user.id) {
             supabase.from('messages').update({ read: true }).eq('id', newMsg.id);
             setUnreadCounts(prev => {
@@ -407,7 +433,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
         });
       }
 
-      // 📨 4. Invia primo messaggio nel DB
+      // 📨 4. Invia primo messaggio nel DB via helper resiliente
       const targetAdmin = newTicketAdminId !== 'ALL' ? newTicketAdminId : (adminsList[0]?.id || user.id);
       
       let initialContent = `🎫 **NUOVO TICKET #${ticketId.slice(-4).toUpperCase()}**: ${newTicketSubject.trim()}\n\n📝 **Priorità**: ${newTicketPriority}\n\n${newTicketDescription.trim()}`;
@@ -424,7 +450,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
         created_at: new Date().toISOString()
       };
 
-      await supabase.from('messages').insert([initialMessage]);
+      await insertMessageToSupabase(initialMessage);
 
       setSelectedTicketId(ticketId);
       setShowNewTicketModal(false);
@@ -447,7 +473,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
   const handleChangeTicketStatus = async (newStatus) => {
     if (!selectedTicketId) return;
 
-    // 💾 1. Aggiorna in Supabase DB
     try {
       await supabase
         .from('support_tickets')
@@ -457,7 +482,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
       console.warn('Database update status:', errDb);
     }
 
-    // 💾 2. Aggiorna stato locale
     const updatedTickets = tickets.map(t => 
       t.id === selectedTicketId ? { ...t, status: newStatus, updated_at: new Date().toISOString() } : t
     );
@@ -467,7 +491,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
       localStorage.setItem('support_tickets_v2', JSON.stringify(updatedTickets));
     } catch (e) {}
 
-    // 📡 3. Broadcast realtime
     if (ticketSyncChannelRef.current) {
       ticketSyncChannelRef.current.send({
         type: 'broadcast',
@@ -491,14 +514,14 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
       : (currentTicket?.assigned_admin_id !== 'ALL' ? currentTicket?.assigned_admin_id : adminsList[0]?.id || user.id);
 
     try {
-      await supabase.from('messages').insert([{
+      await insertMessageToSupabase({
         ticket_id: selectedTicketId,
         sender_id: user.id,
         receiver_id: targetReceiver,
         content: `📌 Stato del ticket modificato in: ${label}`,
         read: false,
         created_at: new Date().toISOString()
-      }]);
+      });
     } catch (err) {
       console.warn('Errore log cambio stato:', err);
     }
@@ -548,14 +571,10 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
       setNewMessage('');
       setChatFiles([]);
 
-      const { error } = await supabase.from('messages').insert([msgPayload]);
-      if (error) {
-        console.error('Errore invio messaggio:', error);
-        toast.error('Errore nell\'invio del messaggio.');
-      }
+      await insertMessageToSupabase(msgPayload);
     } catch (err) {
-      console.error(err);
-      toast.error('Impossibile inviare gli allegati.');
+      console.error('Errore invio messaggio:', err);
+      toast.error('Errore nell\'invio del messaggio.');
     } finally {
       setUploadingFiles(false);
     }
@@ -602,14 +621,12 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     setDeleting(true);
 
     try {
-      // 💾 1. Elimina da Supabase DB
       try {
         await supabase.from('support_tickets').delete().eq('id', selectedTicketId);
       } catch (dbErr) {
         console.warn('Database delete ticket:', dbErr);
       }
 
-      // 💾 2. Elimina da stato locale
       const updatedTickets = tickets.filter(t => t.id !== selectedTicketId);
       setTickets(updatedTickets);
       try {
@@ -768,7 +785,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
             </div>
           ) : (
             visibleTickets.map(t => {
-              // ✅ IL PALLINO DEI MESSAGGI NON LETTI PER QUESTO TICKET
               const unreadCount = unreadCounts[t.id] || unreadCounts[t.user_id] || 0;
 
               return (
@@ -780,7 +796,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
                   <div className="flex items-center justify-between w-full">
                     <span className="font-bold text-xs text-gray-900 dark:text-gray-100 truncate max-w-[150px] flex items-center gap-1.5">
                       {t.subject}
-                      {/* ✅ PALLINO CON NUMERO NON LETTI (SI RIDUCE / SCOMPARE ALLA VISUALIZZAZIONE) */}
                       {unreadCount > 0 && selectedTicketId !== t.id && (
                         <span className="min-w-[1.1rem] h-4 px-1 rounded-full bg-rose-500 text-white font-bold text-[9px] flex items-center justify-center shadow-2xs animate-pulse">
                           {unreadCount}
@@ -883,7 +898,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
                 <span className="font-bold text-indigo-900 dark:text-indigo-100 block mb-0.5">Descrizione Iniziale del Ticket:</span>
                 <p className="whitespace-pre-wrap text-indigo-800 dark:text-indigo-300 mb-2">{selectedTicket.description}</p>
                 
-                {/* Visualizzazione allegati iniziali del ticket */}
                 {selectedTicket.attachments && selectedTicket.attachments.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-indigo-200/60 dark:border-indigo-800/60 space-y-1">
                     <span className="font-bold text-[11px] text-indigo-900 dark:text-indigo-200 flex items-center gap-1">

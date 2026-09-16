@@ -29974,23 +29974,25 @@ if (loadingProfile && !user && !authUser) {
         </div>
       )}
 
-      {/* 🟢 FLOATING ACTION BUTTON CHAT SUPPORTO (Stile WhatsApp - Sempre Visibile in Basso a Destra) */}
-      <div className="fixed bottom-6 right-6 z-[999999] flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setIsChatOpen(prev => !prev)}
-          className="px-4 py-3 bg-gradient-to-r from-emerald-500 via-teal-600 to-indigo-600 hover:from-emerald-600 hover:to-indigo-700 text-white rounded-full shadow-2xl hover:shadow-emerald-500/50 transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2.5 border-2 border-white/40 cursor-pointer group"
-          title="Chat di Supporto"
-        >
-          <div className="relative flex items-center justify-center">
-            <MessageCircle className="w-6 h-6 animate-bounce" />
-            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-green-400 border-2 border-white rounded-full shadow-xs"></span>
-          </div>
-          <span className="text-xs font-extrabold tracking-wide uppercase">
-            Chat Supporto
-          </span>
-        </button>
-      </div>
+      {/* 🟢 FLOATING ACTION BUTTON CHAT SUPPORTO (Nascondi quando la chat è aperta per evitare sovrapposizioni) */}
+      {!isChatOpen && (
+        <div className="fixed bottom-6 right-6 z-[190] flex items-center gap-2 animate-in fade-in zoom-in duration-200">
+          <button
+            type="button"
+            onClick={() => setIsChatOpen(true)}
+            className="px-4 py-3 bg-gradient-to-r from-emerald-500 via-teal-600 to-indigo-600 hover:from-emerald-600 hover:to-indigo-700 text-white rounded-full shadow-2xl hover:shadow-emerald-500/50 transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2.5 border-2 border-white/40 cursor-pointer group"
+            title="Chat di Supporto"
+          >
+            <div className="relative flex items-center justify-center">
+              <MessageCircle className="w-6 h-6 animate-bounce" />
+              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-green-400 border-2 border-white rounded-full shadow-xs"></span>
+            </div>
+            <span className="text-xs font-extrabold tracking-wide uppercase">
+              Chat Supporto
+            </span>
+          </button>
+        </div>
+      )}
 
 <ContactModal />
 <div style={{ display: showProfileModal ? 'block' : 'none' }}>
