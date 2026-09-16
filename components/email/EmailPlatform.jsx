@@ -1153,15 +1153,26 @@ const [contactLabels, setContactLabels] = useState([]);
   useEffect(() => {
     if (!currentUser) return;
     
+    const isAdminUser = currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'super_admin';
+
     const fetchUnreadCount = async () => {
-      const { count, error } = await supabase
-        .from('messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('receiver_id', currentUser.id)
-        .eq('read', false);
+      try {
+        let query = supabase.from('messages').select('id', { count: 'exact', head: true }).eq('read', false);
         
-      if (!error) {
-        setUnreadSupportCount(count || 0);
+        if (isAdminUser) {
+          // Per l'amministratore, conta i messaggi inviati dagli utenti non ancora letti
+          query = query.neq('sender_id', currentUser.id);
+        } else {
+          // Per l'utente cliente, conta i messaggi a lui destinati non letti
+          query = query.eq('receiver_id', currentUser.id);
+        }
+
+        const { count, error } = await query;
+        if (!error && count !== null) {
+          setUnreadSupportCount(count || 0);
+        }
+      } catch (err) {
+        console.warn('Errore unread count:', err);
       }
     };
 
@@ -1189,18 +1200,27 @@ const [contactLabels, setContactLabels] = useState([]);
     fetchUnreadCount();
     fetchTicketCount();
     
-    // Subscribe to new messages
-    const channel = supabase.channel('public:messages')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `receiver_id=eq.${currentUser.id}` }, payload => {
-        setUnreadSupportCount(prev => prev + 1);
+    // Iscrizione globale in Realtime sia per il database Postgres che per eventi broadcast
+    const channel = supabase.channel('public:messages_global')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
+        fetchUnreadCount();
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `receiver_id=eq.${currentUser.id}` }, payload => {
+      .on('broadcast', { event: 'global_new_message' }, () => {
+        fetchUnreadCount();
+      })
+      .on('broadcast', { event: 'messages_read' }, () => {
         fetchUnreadCount();
       })
       .subscribe();
 
     const ticketChannel = supabase.channel('public:support_tickets_count')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, () => {
+        fetchTicketCount();
+      })
+      .on('broadcast', { event: 'ticket_created' }, () => {
+        fetchTicketCount();
+      })
+      .on('broadcast', { event: 'ticket_deleted' }, () => {
         fetchTicketCount();
       })
       .subscribe();

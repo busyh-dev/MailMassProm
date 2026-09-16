@@ -52,6 +52,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
   const typingTimeoutRef = useRef({});
   const typingChannelRef = useRef(null);
   const ticketSyncChannelRef = useRef(null);
+  const chatChannelRef = useRef(null);
   const lastTypingTimeRef = useRef(0);
 
   // Helper per l'upload degli allegati (con fallback a Data URL)
@@ -235,6 +236,12 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
           setMessages([]);
         }
       })
+      .on('broadcast', { event: 'global_new_message' }, () => {
+        fetchUnread();
+      })
+      .on('broadcast', { event: 'messages_read' }, () => {
+        fetchUnread();
+      })
       .subscribe();
 
     return () => {
@@ -321,11 +328,31 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
         }
 
         // ✅ DIMINUZIONE / AZZERAMENTO PALLINO NON LETTI ALLA VISUALIZZAZIONE DEL TICKET
-        await supabase
-          .from('messages')
-          .update({ read: true })
-          .eq('receiver_id', user.id)
-          .eq('read', false);
+        try {
+          if (isAdmin) {
+            await supabase
+              .from('messages')
+              .update({ read: true })
+              .neq('sender_id', user.id)
+              .eq('read', false);
+          } else {
+            await supabase
+              .from('messages')
+              .update({ read: true })
+              .eq('receiver_id', user.id)
+              .eq('read', false);
+          }
+
+          if (ticketSyncChannelRef.current) {
+            ticketSyncChannelRef.current.send({
+              type: 'broadcast',
+              event: 'messages_read',
+              payload: { ticketId: selectedTicketId, userId: user.id }
+            });
+          }
+        } catch (readErr) {
+          console.warn('Errore aggiornamento stato lettura:', readErr);
+        }
 
         setUnreadCounts(prev => {
           const updated = { ...prev };
@@ -344,33 +371,49 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
 
     fetchTicketMessages();
 
-    // Iscrizione al canale realtime dei messaggi per questo ticket
-    const channel = supabase
-      .channel(`ticket_chat_${selectedTicketId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
-        const newMsg = payload.new;
-        if (
-          newMsg.ticket_id === selectedTicketId ||
-          (newMsg.content && newMsg.content.includes(`[TICKET:${selectedTicketId}]`))
-        ) {
-          setMessages(prev => [...prev, newMsg]);
-          scrollToBottom();
+    // Iscrizione al canale realtime DUAL-MODE (Broadcast + Postgres Changes) per questo ticket
+    const channel = supabase.channel(`ticket_chat_${selectedTicketId}`);
+    chatChannelRef.current = channel;
 
-          if (newMsg.receiver_id === user.id) {
-            supabase.from('messages').update({ read: true }).eq('id', newMsg.id);
-            setUnreadCounts(prev => {
-              const updated = { ...prev };
-              delete updated[selectedTicketId];
-              if (currentTicket?.user_id) delete updated[currentTicket.user_id];
-              return updated;
-            });
+    const handleIncomingMessage = (newMsg) => {
+      if (!newMsg) return;
+      if (
+        newMsg.ticket_id === selectedTicketId ||
+        (newMsg.content && newMsg.content.includes(`[TICKET:${selectedTicketId}]`))
+      ) {
+        setMessages(prev => {
+          // Evita aggiunta duplicata se il messaggio con lo stesso ID o contenuto esiste già
+          if (prev.some(m => m.id === newMsg.id || (m.created_at === newMsg.created_at && m.sender_id === newMsg.sender_id && m.content === newMsg.content))) {
+            return prev;
           }
+          return [...prev, newMsg];
+        });
+        scrollToBottom();
+
+        if (newMsg.sender_id !== user.id) {
+          supabase.from('messages').update({ read: true }).eq('id', newMsg.id);
+          setUnreadCounts(prev => {
+            const updated = { ...prev };
+            delete updated[selectedTicketId];
+            if (currentTicket?.user_id) delete updated[currentTicket.user_id];
+            return updated;
+          });
         }
+      }
+    };
+
+    channel
+      .on('broadcast', { event: 'new_message' }, payload => {
+        handleIncomingMessage(payload.payload);
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+        handleIncomingMessage(payload.new);
       })
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
+      chatChannelRef.current = null;
     };
   }, [selectedTicketId, user, tickets]);
 
@@ -578,6 +621,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
       }
 
       const msgPayload = {
+        id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         ticket_id: selectedTicketId,
         sender_id: user.id,
         receiver_id: targetReceiver,
@@ -586,9 +630,27 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
         created_at: new Date().toISOString()
       };
 
-      setMessages(prev => [...prev, { ...msgPayload, id: Math.random().toString() }]);
+      setMessages(prev => [...prev, msgPayload]);
       setNewMessage('');
       setChatFiles([]);
+
+      // 📡 Broadcast istantaneo sul canale locale della chat per aggiornamento immediato
+      if (chatChannelRef.current) {
+        chatChannelRef.current.send({
+          type: 'broadcast',
+          event: 'new_message',
+          payload: msgPayload
+        });
+      }
+
+      // 📡 Broadcast globale per aggiornare il badge dei messaggi non letti negli altri client
+      if (ticketSyncChannelRef.current) {
+        ticketSyncChannelRef.current.send({
+          type: 'broadcast',
+          event: 'global_new_message',
+          payload: msgPayload
+        });
+      }
 
       await insertMessageToSupabase(msgPayload);
     } catch (err) {
@@ -986,13 +1048,14 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
               ) : (
                 messages.map((msg, idx) => {
                   const isMe = msg.sender_id === user.id;
-                  const isSystem = msg.content?.startsWith('📌 Stato del ticket');
+                  const displayContent = msg.content ? msg.content.replace(/\[TICKET:[^\]]+\]\n?/gi, '').trim() : '';
+                  const isSystem = displayContent.startsWith('📌 Stato del ticket');
 
                   if (isSystem) {
                     return (
                       <div key={msg.id || idx} className="flex justify-center my-2">
                         <span className="px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-xs font-semibold rounded-full border border-amber-200 dark:border-amber-800/60 shadow-2xs flex items-center gap-1.5">
-                          {msg.content}
+                          {displayContent}
                         </span>
                       </div>
                     );
@@ -1005,7 +1068,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
                           ? 'bg-indigo-600 text-white rounded-tr-xs' 
                           : 'bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-slate-700 rounded-tl-xs'
                       }`}>
-                        <p className="text-xs sm:text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                        <p className="text-xs sm:text-sm whitespace-pre-wrap leading-relaxed">{displayContent}</p>
                         
                         <div className={`flex items-center justify-end gap-1 mt-1.5 text-[10px] ${isMe ? 'text-indigo-200' : 'text-gray-400'}`}>
                           <Clock className="w-3 h-3" />
