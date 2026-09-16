@@ -171,6 +171,7 @@ import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { $getRoot } from "lexical";
 import ImportContactsModal from "./ImportContactsModal";
 import SuccessModal from "../common/SuccessModal"; // ⚠️ importa il componente
+import BulkAssignElementsModal from "../contacts/BulkAssignElementsModal";
 
 
 // const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -9304,6 +9305,7 @@ const Contacts = ({
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [contactToDeactivate, setContactToDeactivate] = useState(null);
   const [showContactLabelsModal, setShowContactLabelsModal] = useState(false);
+  const [showBulkAssignModal, setShowBulkAssignModal] = useState(false);
 
   // ✅ USA PROPS invece di stati locali — evita reset al re-render
   const showListsModal = showListsModalProp ?? false;
@@ -10686,11 +10688,19 @@ return (
         <span className="ml-2 text-xs text-blue-600">(tutti i risultati filtrati)</span>
       )}
     </span>
-    <div className="flex gap-2">
+    <div className="flex gap-2 flex-wrap">
+      {/* ✅ Bottone per assegnare elementi (Etichette, Tag, Sotto-etichette) */}
+      <button
+        onClick={() => setShowBulkAssignModal(true)}
+        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium shadow-xs"
+      >
+        <Tag className="w-4 h-4" />
+        Assegna Elementi (Tag & Etichette)
+      </button>
       {/* ✅ Bottone per aggiungere alle liste */}
       <button
         onClick={() => setShowListsModal(true)}
-        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm"
+        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium shadow-xs"
       >
         <List className="w-4 h-4" />
         Aggiungi a lista
@@ -10701,7 +10711,7 @@ return (
             handleDeleteSelected();
           }
         }}
-        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium shadow-xs"
       >
         <Trash2 className="w-4 h-4" />
         Elimina selezionati
@@ -11086,6 +11096,25 @@ return (
 
 
       {/* MODALI */}
+      {showBulkAssignModal && (
+        <BulkAssignElementsModal
+          show={showBulkAssignModal}
+          onClose={() => setShowBulkAssignModal(false)}
+          selectedContactIds={selectedContacts}
+          contacts={contacts}
+          contactLabels={contactLabels}
+          tags={tags}
+          tagLabels={tagLabels}
+          onSuccess={(updatedMap) => {
+            setContacts(prev => prev.map(c => {
+              if (updatedMap[c.id]) {
+                return { ...c, ...updatedMap[c.id] };
+              }
+              return c;
+            }));
+          }}
+        />
+      )}
       {showListsModal && (
   <ContactListsModal
     show={showListsModal}
