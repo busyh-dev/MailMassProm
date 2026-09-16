@@ -5,7 +5,7 @@ import {
   Send, User, Search, MessageCircle, Clock, Trash2, 
   Download, X, CheckCircle, AlertCircle, XCircle, Filter, 
   ShieldCheck, ChevronDown, Plus, Tag, RefreshCw, AlertTriangle,
-  LifeBuoy, FileText, CornerDownRight, Check
+  LifeBuoy, FileText, CornerDownRight, Check, Paperclip, File, Image as ImageIcon
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -36,16 +36,64 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
   const [newTicketDescription, setNewTicketDescription] = useState('');
   const [newTicketPriority, setNewTicketPriority] = useState('Media');
   const [newTicketAdminId, setNewTicketAdminId] = useState('ALL');
+  const [newTicketFiles, setNewTicketFiles] = useState([]);
   const [creatingTicket, setCreatingTicket] = useState(false);
+
+  // Allegati per la chat risposte
+  const [chatFiles, setChatFiles] = useState([]);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
 
   // Modale per la conferma d'eliminazione ticket
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const fileInputRef = useRef(null);
+  const ticketFileInputRef = useRef(null);
   const typingTimeoutRef = useRef({});
   const typingChannelRef = useRef(null);
   const ticketSyncChannelRef = useRef(null);
   const lastTypingTimeRef = useRef(0);
+
+  // Helper per l'upload degli allegati (con fallback a Data URL)
+  const uploadFilesToStorage = async (fileList) => {
+    if (!fileList || fileList.length === 0) return [];
+    const uploaded = [];
+
+    for (const file of fileList) {
+      try {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `ticket-file-${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const filePath = `ticket-attachments/${fileName}`;
+
+        const { error } = await supabase.storage
+          .from('campaign-images')
+          .upload(filePath, file, { cacheControl: '3600', upsert: true });
+
+        if (error) {
+          const dataUrl = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(file);
+          });
+          uploaded.push({ name: file.name, url: dataUrl, type: file.type });
+        } else {
+          const { data: { publicUrl } } = supabase.storage
+            .from('campaign-images')
+            .getPublicUrl(filePath);
+          uploaded.push({ name: file.name, url: publicUrl, type: file.type });
+        }
+      } catch (err) {
+        console.warn('Fallback lettura file localmente:', err);
+        const dataUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(file);
+        });
+        uploaded.push({ name: file.name, url: dataUrl, type: file.type });
+      }
+    }
+    return uploaded;
+  };
 
   // 1. Carica la lista degli Amministratori
   useEffect(() => {
@@ -69,19 +117,56 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     fetchAdmins();
   }, []);
 
-  // 2. Sincronizzazione Realtime Ticket (Broadcast & Storage)
+  // 2. Carica i Ticket da SUPABASE DATABASE & Sincronizzazione Realtime
   useEffect(() => {
     if (!user) return;
 
-    // Carica ticket salvati da localStorage
-    try {
-      const stored = localStorage.getItem('support_tickets_v2');
-      if (stored) {
-        setTickets(JSON.parse(stored));
+    // Funzione caricamento ticket da Supabase DB
+    const fetchDbTickets = async () => {
+      try {
+        const { data: dbTickets, error } = await supabase
+          .from('support_tickets')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (!error && dbTickets && dbTickets.length > 0) {
+          setTickets(dbTickets);
+          try { localStorage.setItem('support_tickets_v2', JSON.stringify(dbTickets)); } catch(e){}
+        } else {
+          // Fallback a localStorage se la tabella non è popolate
+          const stored = localStorage.getItem('support_tickets_v2');
+          if (stored) setTickets(JSON.parse(stored));
+        }
+      } catch (err) {
+        console.warn('Fallback a cache ticket locale:', err);
+        const stored = localStorage.getItem('support_tickets_v2');
+        if (stored) setTickets(JSON.parse(stored));
       }
-    } catch (e) {
-      console.warn('Errore lettura localStorage ticket:', e);
-    }
+    };
+
+    fetchDbTickets();
+
+    const fetchUnread = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .select('sender_id, ticket_id')
+          .eq('receiver_id', user.id)
+          .eq('read', false);
+
+        if (!error && data) {
+          const counts = {};
+          data.forEach(msg => {
+            if (msg.ticket_id) counts[msg.ticket_id] = (counts[msg.ticket_id] || 0) + 1;
+            if (msg.sender_id) counts[msg.sender_id] = (counts[msg.sender_id] || 0) + 1;
+          });
+          setUnreadCounts(counts);
+        }
+      } catch (err) {
+        console.error('Errore unread counts:', err);
+      }
+    };
+    fetchUnread();
 
     const ticketSyncChannel = supabase.channel('support_tickets_realtime');
     ticketSyncChannelRef.current = ticketSyncChannel;
@@ -163,39 +248,24 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     };
   }, [user]);
 
-  const handleTyping = () => {
-    const now = Date.now();
-    if (now - lastTypingTimeRef.current > 1000) {
-      lastTypingTimeRef.current = now;
-      if (typingChannelRef.current) {
-        typingChannelRef.current.send({
-          type: 'broadcast',
-          event: 'typing',
-          payload: { userId: user?.id, isTyping: true }
-        });
-      }
-    }
-  };
-
-  // 4. Carica i messaggi del ticket selezionato
+  // 4. Carica i messaggi E DIMINUISCE IL PALLINO NON LETTI alla visualizzazione del ticket!
   useEffect(() => {
     if (!user || !selectedTicketId) {
       setMessages([]);
       return;
     }
 
+    const currentTicket = tickets.find(t => t.id === selectedTicketId);
+
     const fetchTicketMessages = async () => {
       setLoading(true);
       try {
-        // Cerca i messaggi nel DB associati a questo ticket
         const { data, error } = await supabase
           .from('messages')
           .select('*')
           .order('created_at', { ascending: true });
 
         if (!error && data) {
-          // Filtra i messaggi di questo specifico ticket (oppure messaggi dell'utente legato al ticket)
-          const currentTicket = tickets.find(t => t.id === selectedTicketId);
           const filtered = data.filter(m => 
             m.ticket_id === selectedTicketId || 
             (m.content && m.content.includes(`[TICKET:${selectedTicketId}]`)) ||
@@ -203,6 +273,21 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
           );
           setMessages(filtered);
         }
+
+        // ✅ DIMINUZIONE / AZZERAMENTO PALLINO NON LETTI ALLA VISUALIZZAZIONE DEL TICKET
+        await supabase
+          .from('messages')
+          .update({ read: true })
+          .eq('receiver_id', user.id)
+          .eq('read', false);
+
+        setUnreadCounts(prev => {
+          const updated = { ...prev };
+          delete updated[selectedTicketId];
+          if (currentTicket?.user_id) delete updated[currentTicket.user_id];
+          return updated;
+        });
+
       } catch (err) {
         console.error('Errore caricamento messaggi ticket:', err);
       } finally {
@@ -218,7 +303,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
       .channel(`ticket_chat_${selectedTicketId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
         const newMsg = payload.new;
-        const currentTicket = tickets.find(t => t.id === selectedTicketId);
         if (
           newMsg.ticket_id === selectedTicketId ||
           (newMsg.content && newMsg.content.includes(`[TICKET:${selectedTicketId}]`)) ||
@@ -226,6 +310,17 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
         ) {
           setMessages(prev => [...prev, newMsg]);
           scrollToBottom();
+
+          // Se la chat è aperta, segna subito come letto e diminuisci il pallino
+          if (newMsg.receiver_id === user.id) {
+            supabase.from('messages').update({ read: true }).eq('id', newMsg.id);
+            setUnreadCounts(prev => {
+              const updated = { ...prev };
+              delete updated[selectedTicketId];
+              if (currentTicket?.user_id) delete updated[currentTicket.user_id];
+              return updated;
+            });
+          }
         }
       })
       .subscribe();
@@ -243,7 +338,21 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // 5. Creazione di un Nuovo Ticket
+  const handleTyping = () => {
+    const now = Date.now();
+    if (now - lastTypingTimeRef.current > 1000) {
+      lastTypingTimeRef.current = now;
+      if (typingChannelRef.current) {
+        typingChannelRef.current.send({
+          type: 'broadcast',
+          event: 'typing',
+          payload: { userId: user?.id, isTyping: true }
+        });
+      }
+    }
+  };
+
+  // 5. Creazione Nuovo Ticket con SALVATAGGIO IN TABELLA SUPABASE DB
   const handleCreateTicket = async (e) => {
     e.preventDefault();
     if (!newTicketSubject.trim() || !newTicketDescription.trim() || !user) {
@@ -255,7 +364,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
 
     try {
       const ticketId = `ticket-${Date.now().toString(36)}`;
-      const { data: profile } = await supabase.auth.getUser();
+      const uploadedFiles = await uploadFilesToStorage(newTicketFiles);
 
       const newTicketObj = {
         id: ticketId,
@@ -264,21 +373,32 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
         user_email: user.email,
         subject: newTicketSubject.trim(),
         description: newTicketDescription.trim(),
-        priority: newTicketPriority, // Bassa, Media, Alta, Urgente
-        status: 'non_completato', // non_completato, completato, annullato
+        priority: newTicketPriority,
+        status: 'non_completato',
         assigned_admin_id: newTicketAdminId,
+        attachments: uploadedFiles,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
 
-      // 1. Aggiorna lista ticket locali
+      // 💾 1. Salva nella tabella support_tickets del DATABASE SUPABASE
+      try {
+        const { error: dbErr } = await supabase
+          .from('support_tickets')
+          .insert([newTicketObj]);
+        if (dbErr) console.warn('Database support_tickets insert info:', dbErr.message);
+      } catch (dbEx) {
+        console.warn('Fallback local storage per support_tickets:', dbEx);
+      }
+
+      // 💾 2. Aggiorna stato locale e cache localStorage
       const updatedTickets = [newTicketObj, ...tickets];
       setTickets(updatedTickets);
       try {
         localStorage.setItem('support_tickets_v2', JSON.stringify(updatedTickets));
       } catch (e) {}
 
-      // 2. Notifica realtime via broadcast a tutti gli admin connessi
+      // 📡 3. Broadcast realtime
       if (ticketSyncChannelRef.current) {
         ticketSyncChannelRef.current.send({
           type: 'broadcast',
@@ -287,27 +407,34 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
         });
       }
 
-      // 3. Invia il primo messaggio con la descrizione del ticket nel DB Supabase
+      // 📨 4. Invia primo messaggio nel DB
       const targetAdmin = newTicketAdminId !== 'ALL' ? newTicketAdminId : (adminsList[0]?.id || user.id);
+      
+      let initialContent = `🎫 **NUOVO TICKET #${ticketId.slice(-4).toUpperCase()}**: ${newTicketSubject.trim()}\n\n📝 **Priorità**: ${newTicketPriority}\n\n${newTicketDescription.trim()}`;
+      if (uploadedFiles.length > 0) {
+        initialContent += `\n\n📎 **Allegati (${uploadedFiles.length})**:\n` + uploadedFiles.map(f => `• [${f.name}](${f.url})`).join('\n');
+      }
+
       const initialMessage = {
+        ticket_id: ticketId,
         sender_id: user.id,
         receiver_id: targetAdmin,
-        content: `🎫 **NUOVO TICKET #${ticketId.slice(-4).toUpperCase()}**: ${newTicketSubject.trim()}\n\n📝 **Priorità**: ${newTicketPriority}\n\n${newTicketDescription.trim()}`,
+        content: initialContent,
         read: false,
         created_at: new Date().toISOString()
       };
 
       await supabase.from('messages').insert([initialMessage]);
 
-      // 4. Seleziona il ticket creato e attiva la chat del ticket
       setSelectedTicketId(ticketId);
       setShowNewTicketModal(false);
       setNewTicketSubject('');
       setNewTicketDescription('');
       setNewTicketPriority('Media');
       setNewTicketAdminId('ALL');
+      setNewTicketFiles([]);
 
-      toast.success('🎉 Nuovo ticket di supporto aperto con successo!');
+      toast.success('🎉 Nuovo ticket salvato nel database ed aperto con successo!');
     } catch (err) {
       console.error('Errore creazione ticket:', err);
       toast.error('Si è verificato un errore durante la creazione del ticket.');
@@ -316,10 +443,21 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     }
   };
 
-  // 6. Cambio di Stato del Ticket ('non_completato', 'completato', 'annullato')
+  // 6. Cambio Stato Ticket con AGGIORNAMENTO SUPABASE DATABASE
   const handleChangeTicketStatus = async (newStatus) => {
     if (!selectedTicketId) return;
 
+    // 💾 1. Aggiorna in Supabase DB
+    try {
+      await supabase
+        .from('support_tickets')
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', selectedTicketId);
+    } catch (errDb) {
+      console.warn('Database update status:', errDb);
+    }
+
+    // 💾 2. Aggiorna stato locale
     const updatedTickets = tickets.map(t => 
       t.id === selectedTicketId ? { ...t, status: newStatus, updated_at: new Date().toISOString() } : t
     );
@@ -329,7 +467,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
       localStorage.setItem('support_tickets_v2', JSON.stringify(updatedTickets));
     } catch (e) {}
 
-    // Notifica broadcast realtime
+    // 📡 3. Broadcast realtime
     if (ticketSyncChannelRef.current) {
       ticketSyncChannelRef.current.send({
         type: 'broadcast',
@@ -347,7 +485,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     const label = statusLabels[newStatus] || newStatus;
     toast.success(`Stato del ticket aggiornato: ${label}`);
 
-    // Inserisci log di cambio stato nei messaggi
     const currentTicket = tickets.find(t => t.id === selectedTicketId);
     const targetReceiver = isAdmin 
       ? (currentTicket?.user_id || user.id) 
@@ -355,6 +492,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
 
     try {
       await supabase.from('messages').insert([{
+        ticket_id: selectedTicketId,
         sender_id: user.id,
         receiver_id: targetReceiver,
         content: `📌 Stato del ticket modificato in: ${label}`,
@@ -366,50 +504,60 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     }
   };
 
-  // 7. Invio Messaggio nella Chat del Ticket
+  // 7. Invio Messaggio con Allegati
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !user || !selectedTicketId) return;
+    if ((!newMessage.trim() && chatFiles.length === 0) || !user || !selectedTicketId) return;
 
-    if (typingChannelRef.current) {
-      typingChannelRef.current.send({
-        type: 'broadcast',
-        event: 'typing',
-        payload: { userId: user?.id, isTyping: false }
-      });
-    }
+    setUploadingFiles(true);
 
-    const currentTicket = tickets.find(t => t.id === selectedTicketId);
-    let targetReceiver = null;
+    try {
+      if (typingChannelRef.current) {
+        typingChannelRef.current.send({
+          type: 'broadcast',
+          event: 'typing',
+          payload: { userId: user?.id, isTyping: false }
+        });
+      }
 
-    if (isAdmin) {
-      targetReceiver = currentTicket?.user_id;
-    } else {
-      targetReceiver = currentTicket?.assigned_admin_id !== 'ALL' 
-        ? currentTicket?.assigned_admin_id 
-        : adminsList[0]?.id;
-    }
+      const currentTicket = tickets.find(t => t.id === selectedTicketId);
+      let targetReceiver = isAdmin 
+        ? currentTicket?.user_id 
+        : (currentTicket?.assigned_admin_id !== 'ALL' ? currentTicket?.assigned_admin_id : adminsList[0]?.id);
 
-    if (!targetReceiver) {
-      targetReceiver = user.id;
-    }
+      if (!targetReceiver) targetReceiver = user.id;
 
-    const msgPayload = {
-      sender_id: user.id,
-      receiver_id: targetReceiver,
-      content: newMessage.trim(),
-      read: false,
-      created_at: new Date().toISOString()
-    };
+      const uploadedFiles = await uploadFilesToStorage(chatFiles);
 
-    // Optimistic UI
-    setMessages(prev => [...prev, { ...msgPayload, id: Math.random().toString() }]);
-    setNewMessage('');
+      let fullContent = newMessage.trim();
+      if (uploadedFiles.length > 0) {
+        const fileLinks = uploadedFiles.map(f => `📎 Allegato: [${f.name}](${f.url})`).join('\n');
+        fullContent = fullContent ? `${fullContent}\n\n${fileLinks}` : fileLinks;
+      }
 
-    const { error } = await supabase.from('messages').insert([msgPayload]);
-    if (error) {
-      console.error('Errore invio messaggio:', error);
-      toast.error('Errore nell\'invio del messaggio.');
+      const msgPayload = {
+        ticket_id: selectedTicketId,
+        sender_id: user.id,
+        receiver_id: targetReceiver,
+        content: fullContent,
+        read: false,
+        created_at: new Date().toISOString()
+      };
+
+      setMessages(prev => [...prev, { ...msgPayload, id: Math.random().toString() }]);
+      setNewMessage('');
+      setChatFiles([]);
+
+      const { error } = await supabase.from('messages').insert([msgPayload]);
+      if (error) {
+        console.error('Errore invio messaggio:', error);
+        toast.error('Errore nell\'invio del messaggio.');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Impossibile inviare gli allegati.');
+    } finally {
+      setUploadingFiles(false);
     }
   };
 
@@ -448,12 +596,20 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     toast.success('📥 Chat del ticket esportata con successo!');
   };
 
-  // 9. Eliminazione Ticket
+  // 9. Eliminazione Ticket da SUPABASE DATABASE
   const confirmDeleteTicket = async () => {
     if (!selectedTicketId) return;
     setDeleting(true);
 
     try {
+      // 💾 1. Elimina da Supabase DB
+      try {
+        await supabase.from('support_tickets').delete().eq('id', selectedTicketId);
+      } catch (dbErr) {
+        console.warn('Database delete ticket:', dbErr);
+      }
+
+      // 💾 2. Elimina da stato locale
       const updatedTickets = tickets.filter(t => t.id !== selectedTicketId);
       setTickets(updatedTickets);
       try {
@@ -471,7 +627,10 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     }
   };
 
-  // Helper per badges di stato e priorità
+  const formatTime = (dateStr) => {
+    return new Date(dateStr).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  };
+
   const getStatusBadge = (statusKey) => {
     switch (statusKey) {
       case 'completato':
@@ -513,12 +672,10 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     }
   };
 
-  // Ticket filtrati per utente/admin
+  // Ticket filtrati
   const visibleTickets = tickets.filter(t => {
-    // Se non è admin, mostra solo i ticket dell'utente loggato
     if (!isAdmin && t.user_id !== user?.id) return false;
 
-    // Filtro di ricerca per testo
     const matchesSearch = 
       (t.subject || '').toLowerCase().includes(search.toLowerCase()) ||
       (t.user_name || '').toLowerCase().includes(search.toLowerCase()) ||
@@ -527,7 +684,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
 
     if (!matchesSearch) return false;
 
-    // Filtro per stato ticket
     if (statusFilter === 'ALL') return true;
     return t.status === statusFilter;
   });
@@ -537,7 +693,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
   return (
     <div className="flex h-[calc(100vh-120px)] bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 overflow-hidden relative">
       
-      {/* SIDEBAR TICKET (Visibile sia a Admin che a Utenti) */}
+      {/* SIDEBAR TICKET */}
       <div className="w-80 border-r border-gray-200 dark:border-slate-800 flex flex-col bg-gray-50 dark:bg-slate-900/50">
         
         {/* Sidebar Header */}
@@ -548,7 +704,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
               {isAdmin ? 'Tutti i Ticket' : 'I miei Ticket'}
             </h2>
 
-            {/* Bottone per Aprire Nuovo Ticket (Utenti) */}
             {!isAdmin && (
               <button
                 onClick={() => setShowNewTicketModal(true)}
@@ -559,7 +714,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
             )}
           </div>
 
-          {/* Cerca Ticket */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
@@ -571,7 +725,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
             />
           </div>
 
-          {/* Filtro Stato Ticket */}
+          {/* Filtri stato ticket */}
           <div className="flex items-center gap-1 bg-gray-200/60 dark:bg-slate-800 p-1 rounded-lg text-[10px] font-semibold">
             <button
               type="button"
@@ -597,7 +751,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
           </div>
         </div>
 
-        {/* Lista dei Ticket */}
+        {/* Lista dei Ticket con Pallino dei Non Letti dinamico */}
         <div className="flex-1 overflow-y-auto">
           {visibleTickets.length === 0 ? (
             <div className="p-6 text-center text-xs text-gray-400 italic space-y-2">
@@ -613,27 +767,43 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
               )}
             </div>
           ) : (
-            visibleTickets.map(t => (
-              <button
-                key={t.id}
-                onClick={() => setSelectedTicketId(t.id)}
-                className={`w-full p-3.5 flex flex-col gap-1.5 border-b border-gray-100 dark:border-slate-800/50 hover:bg-white dark:hover:bg-slate-800 transition-colors text-left ${selectedTicketId === t.id ? 'bg-white dark:bg-slate-800 border-l-4 border-l-indigo-600 shadow-2xs' : ''}`}
-              >
-                <div className="flex items-center justify-between w-full">
-                  <span className="font-bold text-xs text-gray-900 dark:text-gray-100 truncate max-w-[160px]">
-                    {t.subject}
-                  </span>
-                  {getStatusBadge(t.status)}
-                </div>
+            visibleTickets.map(t => {
+              // ✅ IL PALLINO DEI MESSAGGI NON LETTI PER QUESTO TICKET
+              const unreadCount = unreadCounts[t.id] || unreadCounts[t.user_id] || 0;
 
-                <div className="flex items-center justify-between w-full text-[11px] text-gray-500">
-                  <span className="truncate max-w-[140px] font-medium text-gray-600 dark:text-gray-400">
-                    {isAdmin ? `👤 ${t.user_name}` : `📌 #${t.id.slice(-4).toUpperCase()}`}
-                  </span>
-                  {getPriorityBadge(t.priority)}
-                </div>
-              </button>
-            ))
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setSelectedTicketId(t.id)}
+                  className={`w-full p-3.5 flex flex-col gap-1.5 border-b border-gray-100 dark:border-slate-800/50 hover:bg-white dark:hover:bg-slate-800 transition-colors text-left ${selectedTicketId === t.id ? 'bg-white dark:bg-slate-800 border-l-4 border-l-indigo-600 shadow-2xs' : ''}`}
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <span className="font-bold text-xs text-gray-900 dark:text-gray-100 truncate max-w-[150px] flex items-center gap-1.5">
+                      {t.subject}
+                      {/* ✅ PALLINO CON NUMERO NON LETTI (SI RIDUCE / SCOMPARE ALLA VISUALIZZAZIONE) */}
+                      {unreadCount > 0 && selectedTicketId !== t.id && (
+                        <span className="min-w-[1.1rem] h-4 px-1 rounded-full bg-rose-500 text-white font-bold text-[9px] flex items-center justify-center shadow-2xs animate-pulse">
+                          {unreadCount}
+                        </span>
+                      )}
+                    </span>
+                    {getStatusBadge(t.status)}
+                  </div>
+
+                  <div className="flex items-center justify-between w-full text-[11px] text-gray-500">
+                    <span className="truncate max-w-[140px] font-medium text-gray-600 dark:text-gray-400">
+                      {isAdmin ? `👤 ${t.user_name}` : `📌 #${t.id.slice(-4).toUpperCase()}`}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {t.attachments && t.attachments.length > 0 && (
+                        <Paperclip className="w-3 h-3 text-indigo-500" title={`${t.attachments.length} allegati`} />
+                      )}
+                      {getPriorityBadge(t.priority)}
+                    </div>
+                  </div>
+                </button>
+              );
+            })
           )}
         </div>
 
@@ -680,7 +850,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
                   </select>
                 </div>
 
-                {/* Azioni Esporta / Elimina */}
                 <button
                   onClick={handleExportChat}
                   className="p-2 text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors"
@@ -707,12 +876,36 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
               </div>
             </div>
 
-            {/* Descrizione Iniziale del Ticket */}
+            {/* Descrizione Iniziale + Allegati Iniziali */}
             <div className="bg-indigo-50/60 dark:bg-indigo-950/30 border-b border-indigo-100 dark:border-indigo-900/50 p-3.5 px-6 text-xs text-indigo-950 dark:text-indigo-200 flex items-start gap-2.5 shrink-0">
               <CornerDownRight className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-              <div>
+              <div className="flex-1 min-w-0">
                 <span className="font-bold text-indigo-900 dark:text-indigo-100 block mb-0.5">Descrizione Iniziale del Ticket:</span>
-                <p className="whitespace-pre-wrap text-indigo-800 dark:text-indigo-300">{selectedTicket.description}</p>
+                <p className="whitespace-pre-wrap text-indigo-800 dark:text-indigo-300 mb-2">{selectedTicket.description}</p>
+                
+                {/* Visualizzazione allegati iniziali del ticket */}
+                {selectedTicket.attachments && selectedTicket.attachments.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-indigo-200/60 dark:border-indigo-800/60 space-y-1">
+                    <span className="font-bold text-[11px] text-indigo-900 dark:text-indigo-200 flex items-center gap-1">
+                      <Paperclip className="w-3.5 h-3.5" /> Allegati del Ticket ({selectedTicket.attachments.length}):
+                    </span>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {selectedTicket.attachments.map((att, idx) => (
+                        <a
+                          key={idx}
+                          href={att.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2.5 py-1 bg-white dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 rounded-lg border border-indigo-200 dark:border-indigo-700 text-xs font-semibold hover:bg-indigo-100 transition flex items-center gap-1.5 shadow-2xs"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                          <span className="truncate max-w-[160px]">{att.name}</span>
+                          <Download className="w-3 h-3 text-indigo-400" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -731,9 +924,9 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
               ) : (
                 messages.map((msg, idx) => {
                   const isMe = msg.sender_id === user.id;
-                  const isSystem = msg.content?.startsWith('📌 Stato del ticket') || msg.content?.startsWith('🎫 **NUOVO TICKET');
+                  const isSystem = msg.content?.startsWith('📌 Stato del ticket');
 
-                  if (isSystem && msg.content?.startsWith('📌 Stato del ticket')) {
+                  if (isSystem) {
                     return (
                       <div key={msg.id || idx} className="flex justify-center my-2">
                         <span className="px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-xs font-semibold rounded-full border border-amber-200 dark:border-amber-800/60 shadow-2xs flex items-center gap-1.5">
@@ -751,6 +944,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
                           : 'bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-slate-700 rounded-tl-xs'
                       }`}>
                         <p className="text-xs sm:text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                        
                         <div className={`flex items-center justify-end gap-1 mt-1.5 text-[10px] ${isMe ? 'text-indigo-200' : 'text-gray-400'}`}>
                           <Clock className="w-3 h-3" />
                           {formatTime(msg.created_at)}
@@ -776,19 +970,52 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Form Risposta Chat */}
+            {/* Preview Allegati Selezionati nella Risposta Chat */}
+            {chatFiles.length > 0 && (
+              <div className="px-4 py-2 bg-indigo-50/80 dark:bg-slate-800 border-t border-indigo-100 dark:border-slate-700 flex flex-wrap gap-2">
+                {chatFiles.map((file, i) => (
+                  <span key={i} className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-slate-600 text-indigo-900 dark:text-white rounded-lg text-xs font-medium flex items-center gap-1.5 shadow-2xs">
+                    <Paperclip className="w-3.5 h-3.5 text-indigo-600" />
+                    <span className="truncate max-w-[150px]">{file.name}</span>
+                    <button type="button" onClick={() => setChatFiles(chatFiles.filter((_, idx) => idx !== i))} className="hover:text-red-500">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Input Form Risposta Chat con Tasto Allegato */}
             <div className="p-4 bg-white dark:bg-slate-900 border-t border-gray-200 dark:border-slate-800">
-              <form onSubmit={handleSendMessage} className="flex gap-2">
+              <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+                
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  multiple
+                  onChange={e => setChatFiles(prev => [...prev, ...Array.from(e.target.files)])}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-2.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-800 rounded-full transition"
+                  title="Allega file o immagini"
+                >
+                  <Paperclip className="w-5 h-5" />
+                </button>
+
                 <input
                   type="text"
                   value={newMessage}
                   onChange={(e) => { setNewMessage(e.target.value); handleTyping(); }}
-                  placeholder="Scrivi una risposta per questo ticket..."
+                  placeholder="Scrivi una risposta o inserisci allegati..."
                   className="flex-1 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-full px-5 py-2.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
                 />
+
                 <button
                   type="submit"
-                  disabled={!newMessage.trim()}
+                  disabled={(!newMessage.trim() && chatFiles.length === 0) || uploadingFiles}
                   className="w-10 h-10 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0 shadow-2xs"
                 >
                   <Send className="w-4 h-4 ml-0.5" />
@@ -819,12 +1046,11 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
         )}
       </div>
 
-      {/* FORM MODALE PER CREARE UN NUOVO TICKET (Lato Utente) */}
+      {/* FORM MODALE PER CREARE UN NUOVO TICKET CON ALLEGATI (Lato Utente) */}
       {showNewTicketModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[80] p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-100 dark:border-slate-700">
             
-            {/* Header Modale */}
             <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 text-white flex justify-between items-center">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center shrink-0">
@@ -832,7 +1058,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
                 </div>
                 <div>
                   <h3 className="text-base font-bold">Apri Nuovo Ticket di Supporto</h3>
-                  <p className="text-indigo-100 text-xs">Richiedi assistenza tecnica agli amministratori</p>
+                  <p className="text-indigo-100 text-xs">Richiedi assistenza ed inserisci allegati se necessario</p>
                 </div>
               </div>
               <button onClick={() => setShowNewTicketModal(false)} className="p-1.5 hover:bg-white/20 rounded-lg transition">
@@ -840,10 +1066,8 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
               </button>
             </div>
 
-            {/* Form Modale */}
             <form onSubmit={handleCreateTicket} className="p-5 space-y-4 text-xs">
               
-              {/* Oggetto Ticket */}
               <div>
                 <label className="block font-bold text-gray-800 dark:text-gray-200 mb-1">
                   Oggetto del Ticket *
@@ -858,7 +1082,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
                 />
               </div>
 
-              {/* Seleziona Priorità & Destinatario Admin */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-gray-800 dark:text-gray-200 mb-1">
@@ -895,14 +1118,13 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
                 </div>
               </div>
 
-              {/* Descrizione / Messaggio iniziale */}
               <div>
                 <label className="block font-bold text-gray-800 dark:text-gray-200 mb-1">
                   Descrizione Iniziale del Problema *
                 </label>
                 <textarea
                   required
-                  rows={4}
+                  rows={3}
                   value={newTicketDescription}
                   onChange={e => setNewTicketDescription(e.target.value)}
                   placeholder="Descrivi dettagliatamente la tua richiesta di supporto..."
@@ -910,7 +1132,44 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
                 />
               </div>
 
-              {/* Actions Footer */}
+              {/* Upload Allegati del Ticket */}
+              <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1.5 text-xs">
+                    <Paperclip className="w-4 h-4 text-indigo-600" />
+                    Allegati Ticket (Opzionale)
+                  </label>
+                  <input
+                    type="file"
+                    ref={ticketFileInputRef}
+                    multiple
+                    onChange={e => setNewTicketFiles(prev => [...prev, ...Array.from(e.target.files)])}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => ticketFileInputRef.current?.click()}
+                    className="px-2.5 py-1 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-lg text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50 transition flex items-center gap-1 shadow-2xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Aggiungi File
+                  </button>
+                </div>
+
+                {newTicketFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {newTicketFiles.map((file, i) => (
+                      <span key={i} className="px-2 py-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-[11px] font-medium flex items-center gap-1 shadow-2xs">
+                        <FileText className="w-3 h-3 text-indigo-500" />
+                        <span className="truncate max-w-[130px]">{file.name}</span>
+                        <button type="button" onClick={() => setNewTicketFiles(newTicketFiles.filter((_, idx) => idx !== i))} className="hover:text-red-500">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="pt-2 flex gap-3">
                 <button
                   type="button"
