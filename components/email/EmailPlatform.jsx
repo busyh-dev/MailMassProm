@@ -33,6 +33,7 @@ import { useUserSettings } from '../../hooks/useUserSettings';
 import { useTags } from "../../hooks/useTags";
 // 1. IMPORT in cima al file (insieme agli altri import)
 import { useAutoLogout } from '../../hooks/useAutoLogout';
+import SessionTimeoutWarningModal from '../modals/SessionTimeoutWarningModal';
 import Papa from "papaparse";
   // ✅ Aggiungi in cima al componente Dashboard
   import * as XLSX from 'xlsx';
@@ -1105,19 +1106,16 @@ const loadNotifications = useCallback(async () => {
   }
 }, [user?.id]);
 
-// ── AGGIUNGI QUI l'hook ──
-useAutoLogout({
-  timeoutMinutes: profile?.session_timeout_minutes || 30,
+// ── HOOK TIMEOUT INATTIVITÀ (DEFAULT: 60 MINUTI CONFIGURABILE DA ADMIN) ──
+const { forceReset } = useAutoLogout({
+  timeoutMinutes: profile?.session_timeout_minutes || 60,
   enabled: profile?.session_timeout_enabled !== false,
   onWarning: () => setShowTimeoutWarning(true),
-  onLogout: () => {
+  onLogout: async () => {
     setShowTimeoutWarning(false);
-    setShowTimeoutLogout(true);
-    setTimeout(() => {
-      setShowTimeoutLogout(false);
-      sessionStorage.setItem('logout_reason', 'inactivity');
-      window.location.href = '/login';
-    }, 4000);
+    sessionStorage.setItem('logout_reason', 'inactivity');
+    await supabase.auth.signOut();
+    window.location.href = '/login';
   }
 });
 
@@ -29910,6 +29908,22 @@ if (loadingProfile && !user && !authUser) {
 
 
    {/* Modals */}
+      {/* ⏳ Modale Avviso Inattività (60s Countdown + Pulsanti Esci subito / Continua sessione) */}
+      <SessionTimeoutWarningModal
+        show={showTimeoutWarning}
+        timeoutMinutes={profile?.session_timeout_minutes || 60}
+        onContinue={() => {
+          setShowTimeoutWarning(false);
+          forceReset();
+        }}
+        onLogoutImmediately={async () => {
+          setShowTimeoutWarning(false);
+          sessionStorage.setItem('logout_reason', 'manual');
+          await supabase.auth.signOut();
+          window.location.href = '/login';
+        }}
+      />
+
       {/* Modale Dettaglio Notifica */}
       {showNotificationDetailModal && (
         <NotificationDetailModal 
@@ -29959,6 +29973,24 @@ if (loadingProfile && !user && !authUser) {
           </div>
         </div>
       )}
+
+      {/* 🟢 FLOATING ACTION BUTTON CHAT SUPPORTO (Stile WhatsApp - Sempre Visibile in Basso a Destra) */}
+      <div className="fixed bottom-6 right-6 z-[999999] flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setIsChatOpen(prev => !prev)}
+          className="px-4 py-3 bg-gradient-to-r from-emerald-500 via-teal-600 to-indigo-600 hover:from-emerald-600 hover:to-indigo-700 text-white rounded-full shadow-2xl hover:shadow-emerald-500/50 transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2.5 border-2 border-white/40 cursor-pointer group"
+          title="Chat di Supporto"
+        >
+          <div className="relative flex items-center justify-center">
+            <MessageCircle className="w-6 h-6 animate-bounce" />
+            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-green-400 border-2 border-white rounded-full shadow-xs"></span>
+          </div>
+          <span className="text-xs font-extrabold tracking-wide uppercase">
+            Chat Supporto
+          </span>
+        </button>
+      </div>
 
 <ContactModal />
 <div style={{ display: showProfileModal ? 'block' : 'none' }}>

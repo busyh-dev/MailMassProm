@@ -145,10 +145,10 @@ const SessionTimeoutSettings = () => {
                           <input
                             type="number" min="0" max="24"
                             key={`${u.id}-hours`}
-                            defaultValue={Math.floor((u.session_timeout_minutes || 30) / 60)}
+                            defaultValue={Math.floor((u.session_timeout_minutes || 60) / 60)}
                             onBlur={(e) => {
                               const h = parseInt(e.target.value) || 0;
-                              const m = (u.session_timeout_minutes || 30) % 60;
+                              const m = (u.session_timeout_minutes || 60) % 60;
                               updateUserSession(u.id, 'session_timeout_minutes', h * 60 + m);
                             }}
                             className="w-12 text-center text-sm font-medium focus:outline-none"
@@ -160,9 +160,9 @@ const SessionTimeoutSettings = () => {
                           <input
                             type="number" min="0" max="59"
                             key={`${u.id}-minutes`}
-                            defaultValue={(u.session_timeout_minutes || 30) % 60}
+                            defaultValue={(u.session_timeout_minutes || 60) % 60}
                             onBlur={(e) => {
-                              const h = Math.floor((u.session_timeout_minutes || 30) / 60);
+                              const h = Math.floor((u.session_timeout_minutes || 60) / 60);
                               const m = parseInt(e.target.value) || 0;
                               updateUserSession(u.id, 'session_timeout_minutes', h * 60 + m);
                             }}
@@ -171,7 +171,7 @@ const SessionTimeoutSettings = () => {
                         </div>
                       </div>
                       <span className="text-xs text-gray-400">
-                        = {formatTime(u.session_timeout_minutes || 30)}
+                        = {formatTime(u.session_timeout_minutes || 60)}
                       </span>
                     </div>
                   ) : (
