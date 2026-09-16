@@ -95,19 +95,26 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     return uploaded;
   };
 
-  // Helper resiliente per l'inserimento dei messaggi nel DB (con fallback automatico se ticket_id non esiste nel DB)
+  // Helper resiliente per l'inserimento dei messaggi nel DB (con tagging unico del ticket)
   const insertMessageToSupabase = async (msgPayload) => {
     try {
-      const { error } = await supabase.from('messages').insert([msgPayload]);
+      const contentWithTicketTag = msgPayload.ticket_id && !msgPayload.content?.includes(`[TICKET:${msgPayload.ticket_id}]`)
+        ? `[TICKET:${msgPayload.ticket_id}]\n${msgPayload.content}`
+        : msgPayload.content;
+
+      const payloadWithTag = {
+        ...msgPayload,
+        content: contentWithTicketTag
+      };
+
+      const { error } = await supabase.from('messages').insert([payloadWithTag]);
       if (error) {
         console.warn('Inserimento diretto fallito, esecuzione fallback senza colonna ticket_id:', error.message);
         
         const fallbackPayload = {
           sender_id: msgPayload.sender_id,
           receiver_id: msgPayload.receiver_id || msgPayload.sender_id,
-          content: msgPayload.ticket_id 
-            ? `[TICKET:${msgPayload.ticket_id}]\n${msgPayload.content}` 
-            : msgPayload.content,
+          content: contentWithTicketTag,
           read: false,
           created_at: msgPayload.created_at || new Date().toISOString()
         };
@@ -216,6 +223,18 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
           return updated;
         });
       })
+      .on('broadcast', { event: 'ticket_deleted' }, payload => {
+        const { ticketId } = payload.payload;
+        setTickets(prev => {
+          const updated = prev.filter(t => t.id !== ticketId);
+          try { localStorage.setItem('support_tickets_v2', JSON.stringify(updated)); } catch(e){}
+          return updated;
+        });
+        if (selectedTicketId === ticketId) {
+          setSelectedTicketId(null);
+          setMessages([]);
+        }
+      })
       .subscribe();
 
     return () => {
@@ -275,7 +294,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     };
   }, [user]);
 
-  // 4. Carica i messaggi E DIMINUISCE IL PALLINO NON LETTI alla visualizzazione del ticket!
+  // 4. Carica i messaggi STRICTLY FILTRATI PER QUESTO SPECIFICO TICKET!
   useEffect(() => {
     if (!user || !selectedTicketId) {
       setMessages([]);
@@ -293,10 +312,10 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
           .order('created_at', { ascending: true });
 
         if (!error && data) {
+          // ✅ FILTRAGGIO RIGOROSO ESCLUSIVO PER QUESTO SPECIFICO TICKET (Nessuna sovrapposizione con altri ticket)
           const filtered = data.filter(m => 
             m.ticket_id === selectedTicketId || 
-            (m.content && m.content.includes(`[TICKET:${selectedTicketId}]`)) ||
-            (currentTicket && (m.sender_id === currentTicket.user_id || m.receiver_id === currentTicket.user_id))
+            (m.content && m.content.includes(`[TICKET:${selectedTicketId}]`))
           );
           setMessages(filtered);
         }
@@ -325,15 +344,14 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
 
     fetchTicketMessages();
 
-    // Iscrizione al canale realtime dei messaggi
+    // Iscrizione al canale realtime dei messaggi per questo ticket
     const channel = supabase
       .channel(`ticket_chat_${selectedTicketId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
         const newMsg = payload.new;
         if (
           newMsg.ticket_id === selectedTicketId ||
-          (newMsg.content && newMsg.content.includes(`[TICKET:${selectedTicketId}]`)) ||
-          (currentTicket && (newMsg.sender_id === currentTicket.user_id || newMsg.receiver_id === currentTicket.user_id))
+          (newMsg.content && newMsg.content.includes(`[TICKET:${selectedTicketId}]`))
         ) {
           setMessages(prev => [...prev, newMsg]);
           scrollToBottom();
@@ -378,7 +396,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     }
   };
 
-  // 5. Creazione Nuovo Ticket con SALVATAGGIO IN TABELLA SUPABASE DB
+  // 5. Creazione Nuovo Ticket (Genera ID Univoco ed Isola la Conversazione)
   const handleCreateTicket = async (e) => {
     e.preventDefault();
     if (!newTicketSubject.trim() || !newTicketDescription.trim() || !user) {
@@ -389,7 +407,8 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     setCreatingTicket(true);
 
     try {
-      const ticketId = `ticket-${Date.now().toString(36)}`;
+      // ID Ticket Univoco
+      const ticketId = `ticket-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
       const uploadedFiles = await uploadFilesToStorage(newTicketFiles);
 
       const newTicketObj = {
@@ -407,7 +426,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
         updated_at: new Date().toISOString()
       };
 
-      // 💾 1. Salva nella tabella support_tickets del DATABASE SUPABASE
+      // 💾 1. Salva nel Database Supabase
       try {
         const { error: dbErr } = await supabase
           .from('support_tickets')
@@ -615,18 +634,37 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     toast.success('📥 Chat del ticket esportata con successo!');
   };
 
-  // 9. Eliminazione Ticket da SUPABASE DATABASE
+  // 9. Eliminazione Ticket E CANCELLAZIONE DEFINITIVA DI TUTTI I MESSAGGI DEL TICKET
   const confirmDeleteTicket = async () => {
     if (!selectedTicketId) return;
     setDeleting(true);
 
     try {
+      // 💾 1. Elimina ticket dal DB
       try {
         await supabase.from('support_tickets').delete().eq('id', selectedTicketId);
       } catch (dbErr) {
         console.warn('Database delete ticket:', dbErr);
       }
 
+      // 💾 2. Elimina TUTTI I MESSAGGI legati a questo specifico ticket dal DB
+      try {
+        await supabase.from('messages').delete().eq('ticket_id', selectedTicketId);
+        await supabase.from('messages').delete().ilike('content', `%[TICKET:${selectedTicketId}]%`);
+      } catch (msgErr) {
+        console.warn('Database delete messages:', msgErr);
+      }
+
+      // 📡 3. Broadcast realtime eliminazione
+      if (ticketSyncChannelRef.current) {
+        ticketSyncChannelRef.current.send({
+          type: 'broadcast',
+          event: 'ticket_deleted',
+          payload: { ticketId: selectedTicketId }
+        });
+      }
+
+      // 💾 4. Elimina da stato locale e localStorage
       const updatedTickets = tickets.filter(t => t.id !== selectedTicketId);
       setTickets(updatedTickets);
       try {
@@ -635,8 +673,9 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
 
       setSelectedTicketId(null);
       setMessages([]);
-      toast.success('🗑️ Ticket eliminato con successo!');
+      toast.success('🗑️ Ticket e relativa conversazione eliminati definitivamente!');
     } catch (err) {
+      console.error('Errore eliminazione ticket:', err);
       toast.error('Impossibile eliminare il ticket.');
     } finally {
       setDeleting(false);
@@ -1217,7 +1256,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
             <div>
               <h3 className="text-sm font-bold text-gray-900 dark:text-white">Eliminare questo ticket?</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Il ticket e i relativi messaggi verranno rimossi permanentemente.
+                Il ticket e tutti i relativi messaggi verranno rimossi permanentemente.
               </p>
             </div>
             <div className="flex gap-2 pt-2">
