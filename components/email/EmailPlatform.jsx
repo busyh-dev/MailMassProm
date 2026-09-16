@@ -1148,6 +1148,7 @@ const [contactLabels, setContactLabels] = useState([]);
   const [chatInitialUser, setChatInitialUser] = useState(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [unreadSupportCount, setUnreadSupportCount] = useState(0);
+  const [userTicketCount, setUserTicketCount] = useState(0);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -1163,8 +1164,30 @@ const [contactLabels, setContactLabels] = useState([]);
         setUnreadSupportCount(count || 0);
       }
     };
+
+    const fetchTicketCount = async () => {
+      try {
+        const { count, error } = await supabase
+          .from('support_tickets')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', currentUser.id);
+        if (!error && count !== null) {
+          setUserTicketCount(count);
+        } else {
+          const stored = localStorage.getItem('support_tickets_v2');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            const myTickets = parsed.filter(t => t.user_id === currentUser.id);
+            setUserTicketCount(myTickets.length);
+          }
+        }
+      } catch (e) {
+        console.warn('Ticket count fetch err:', e);
+      }
+    };
     
     fetchUnreadCount();
+    fetchTicketCount();
     
     // Subscribe to new messages
     const channel = supabase.channel('public:messages')
@@ -1175,9 +1198,16 @@ const [contactLabels, setContactLabels] = useState([]);
         fetchUnreadCount();
       })
       .subscribe();
+
+    const ticketChannel = supabase.channel('public:support_tickets_count')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, () => {
+        fetchTicketCount();
+      })
+      .subscribe();
       
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(ticketChannel);
     };
   }, [currentUser]);
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -29173,15 +29203,25 @@ if (loadingProfile && !user && !authUser) {
             <div className="flex items-center">
               <div className="relative mr-2 sm:mr-3">
                 <MessageCircle className={`w-4 h-4 sm:w-5 sm:h-5 transition-transform duration-200 ${isChatOpen ? 'scale-110' : ''}`} />
-                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full"></div>
+                {unreadSupportCount > 0 ? (
+                  <span className="absolute -top-1.5 -right-2 min-w-[1.1rem] h-4 px-1 rounded-full bg-rose-500 text-white font-bold text-[9px] flex items-center justify-center shadow-xs animate-pulse border border-white dark:border-slate-900">
+                    {unreadSupportCount > 99 ? '99+' : unreadSupportCount}
+                  </span>
+                ) : (
+                  <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full"></div>
+                )}
               </div>
               Chat Supporto
             </div>
-            {unreadSupportCount > 0 && (
+            {unreadSupportCount > 0 ? (
               <div className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-rose-500 flex items-center justify-center text-[10px] font-bold text-white shadow-[0_0_8px_rgba(244,63,94,0.6)] animate-pulse ml-2" title={`${unreadSupportCount} nuovi messaggi`}>
                 {unreadSupportCount > 99 ? '99+' : unreadSupportCount}
               </div>
-            )}
+            ) : (!isAdmin && !isSuperAdmin && userTicketCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold border border-indigo-200/60 dark:border-indigo-800/60 ml-2">
+                {userTicketCount === 1 ? '1 ticket' : `${userTicketCount} ticket`}
+              </span>
+            ))}
           </button>
 
 
@@ -29968,8 +30008,19 @@ if (loadingProfile && !user && !authUser) {
                 <MessageCircle className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Chat Supporto</h2>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{(isAdmin || isSuperAdmin) ? 'Gestisci richieste' : 'Parla con il team'}</p>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  Chat Supporto
+                  {!isAdmin && !isSuperAdmin && userTicketCount > 0 && (
+                    <span className="px-2 py-0.5 text-xs rounded-full font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300">
+                      {userTicketCount === 1 ? 'Esiste 1 ticket' : `${userTicketCount} Ticket`}
+                    </span>
+                  )}
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {(isAdmin || isSuperAdmin) 
+                    ? 'Gestisci richieste' 
+                    : (userTicketCount === 1 ? 'Esiste 1 ticket registrato per il tuo account' : (userTicketCount === 0 ? 'Parla con il team di supporto' : `Esistono ${userTicketCount} ticket per il tuo account`))}
+                </p>
               </div>
             </div>
             <button onClick={() => setIsChatOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl transition-colors">
@@ -29982,7 +30033,7 @@ if (loadingProfile && !user && !authUser) {
         </div>
       </div>
 
-      {/* 🟢 FLOATING ACTION BUTTON CHAT SUPPORTO (Transizione fluida in entrata e uscita per evitare sovrapposizioni) */}
+      {/* 🟢 FLOATING ACTION BUTTON CHAT SUPPORTO (Transizione fluida in entrata e uscita con badge numerico unread/ticket) */}
       <div 
         className={`fixed bottom-6 right-6 z-[190] flex items-center gap-2 transition-all duration-300 transform ${
           !isChatOpen ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-90 pointer-events-none'
@@ -29991,15 +30042,30 @@ if (loadingProfile && !user && !authUser) {
         <button
           type="button"
           onClick={() => setIsChatOpen(true)}
-          className="px-4 py-3 bg-gradient-to-r from-emerald-500 via-teal-600 to-indigo-600 hover:from-emerald-600 hover:to-indigo-700 text-white rounded-full shadow-2xl hover:shadow-emerald-500/50 transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2.5 border-2 border-white/40 cursor-pointer group"
+          className="px-4 py-3 bg-gradient-to-r from-emerald-500 via-teal-600 to-indigo-600 hover:from-emerald-600 hover:to-indigo-700 text-white rounded-full shadow-2xl hover:shadow-emerald-500/50 transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2.5 border-2 border-white/40 cursor-pointer group relative"
           title="Chat di Supporto"
         >
           <div className="relative flex items-center justify-center">
             <MessageCircle className="w-6 h-6 animate-bounce" />
-            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-green-400 border-2 border-white rounded-full shadow-xs"></span>
+            {unreadSupportCount > 0 ? (
+              <span className="absolute -top-2.5 -right-2.5 min-w-[1.35rem] h-5 px-1 bg-rose-500 text-white font-extrabold text-[10px] rounded-full flex items-center justify-center border-2 border-white shadow-lg animate-pulse">
+                {unreadSupportCount > 99 ? '99+' : unreadSupportCount}
+              </span>
+            ) : (
+              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-green-400 border-2 border-white rounded-full shadow-xs"></span>
+            )}
           </div>
-          <span className="text-xs font-extrabold tracking-wide uppercase">
+          <span className="text-xs font-extrabold tracking-wide uppercase flex items-center gap-1.5">
             Chat Supporto
+            {unreadSupportCount > 0 ? (
+              <span className="px-1.5 py-0.5 bg-rose-500 text-white font-bold text-[10px] rounded-full shadow-2xs">
+                {unreadSupportCount}
+              </span>
+            ) : (!isAdmin && !isSuperAdmin && userTicketCount > 0 && (
+              <span className="px-1.5 py-0.5 bg-white/20 text-white text-[10px] rounded-full font-bold backdrop-blur-xs">
+                {userTicketCount === 1 ? 'Esiste 1 ticket' : `Esistono ${userTicketCount} ticket`}
+              </span>
+            ))}
           </span>
         </button>
       </div>

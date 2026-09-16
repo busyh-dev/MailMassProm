@@ -755,15 +755,24 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
         {/* Sidebar Header */}
         <div className="p-4 border-b border-gray-200 dark:border-slate-800 space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-              <LifeBuoy className="w-5 h-5 text-indigo-600" />
-              {isAdmin ? 'Tutti i Ticket' : 'I miei Ticket'}
-            </h2>
+            <div className="flex flex-col">
+              <h2 className="text-base font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                <LifeBuoy className="w-5 h-5 text-indigo-600" />
+                {isAdmin 
+                  ? 'Tutti i Ticket' 
+                  : (tickets.length === 1 ? 'Esiste 1 ticket' : (tickets.length === 0 ? 'I miei Ticket' : `Esistono ${tickets.length} ticket`))}
+              </h2>
+              {!isAdmin && (
+                <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 mt-0.5">
+                  {tickets.length === 1 ? '1 ticket registrato' : (tickets.length === 0 ? 'Nessun ticket aperto' : `${tickets.length} ticket registrati`)}
+                </span>
+              )}
+            </div>
 
             {!isAdmin && (
               <button
                 onClick={() => setShowNewTicketModal(true)}
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-xs"
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-xs shrink-0 ml-2"
               >
                 <Plus className="w-4 h-4" /> Nuovo Ticket
               </button>
@@ -788,7 +797,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
               onClick={() => setStatusFilter('ALL')}
               className={`flex-1 py-1 rounded text-center transition ${statusFilter === 'ALL' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-2xs font-bold' : 'text-gray-600 dark:text-gray-400'}`}
             >
-              Tutti ({visibleTickets.length})
+              {!isAdmin ? (tickets.length === 1 ? 'Esiste 1 ticket' : `Tutti (${tickets.length})`) : `Tutti (${visibleTickets.length})`}
             </button>
             <button
               type="button"
