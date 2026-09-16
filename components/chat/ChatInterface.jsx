@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
-import { Send, User, Search, MessageCircle, Clock, Trash2, Download, X } from 'lucide-react';
+import { 
+  Send, User, Search, MessageCircle, Clock, Trash2, 
+  Download, X, CheckCircle, AlertCircle, XCircle, Filter, 
+  ShieldCheck, ChevronDown, PlusCircle, Tag, RefreshCw, AlertTriangle
+} from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }) => {
   const { user } = useAuth();
@@ -17,10 +22,69 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
   const [typingUsers, setTypingUsers] = useState(new Set());
   const typingTimeoutRef = useRef({});
   const typingChannelRef = useRef(null);
+  const statusChannelRef = useRef(null);
   const lastTypingTimeRef = useRef(0);
 
+  // Stati per Amministratori e Ticket
+  const [adminsList, setAdminsList] = useState([]);
+  const [selectedAdminId, setSelectedAdminId] = useState('ALL'); // 'ALL' o ID admin specifico
+  const [ticketStatuses, setTicketStatuses] = useState({}); // { [userId]: 'non_completato' | 'completato' | 'annullato' }
+  const [statusFilter, setStatusFilter] = useState('ALL'); // Filtro admin: 'ALL', 'non_completato', 'completato', 'annullato'
   
-  // Gestione Typing Status (Broadcast)
+  // Modale di conferma eliminazione chat (al posto di window.confirm native)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // 1. Caricamento Amministratori (Per la Select Utente)
+  useEffect(() => {
+    const fetchAdmins = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, full_name, email, name, role:roles(name)');
+
+        if (!error && data) {
+          const admins = data.filter(u => {
+            const roleName = u.role?.name || u.role || '';
+            return ['super_admin', 'superAdmin', 'SuperAdmin', 'admin', 'Admin'].includes(roleName) || u.role_id === 1;
+          });
+          setAdminsList(admins);
+        }
+      } catch (err) {
+        console.error('Errore nel caricamento amministratori:', err);
+      }
+    };
+    fetchAdmins();
+  }, []);
+
+  // 2. Canale Broadcast per gli aggiornamenti dello Stato del Ticket in tempo reale
+  useEffect(() => {
+    if (!user) return;
+
+    const statusChannel = supabase.channel('ticket_status_updates');
+    statusChannelRef.current = statusChannel;
+
+    statusChannel
+      .on('broadcast', { event: 'status_update' }, payload => {
+        const { targetUserId, newStatus, updatedBy } = payload.payload;
+        setTicketStatuses(prev => ({
+          ...prev,
+          [targetUserId]: newStatus
+        }));
+        
+        // Salva anche in localStorage per persistenza locale
+        try {
+          localStorage.setItem(`ticket_status_${targetUserId}`, newStatus);
+        } catch (e) {}
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(statusChannel);
+    };
+  }, [user]);
+
+  // 3. Gestione Typing Status (Broadcast)
   useEffect(() => {
     if (!user) return;
 
@@ -30,7 +94,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     typingChannel
       .on('broadcast', { event: 'typing' }, payload => {
         const { userId, isTyping } = payload.payload;
-        if (userId === user.id) return; // Ignora i propri eventi
+        if (userId === user.id) return;
 
         setTypingUsers(prev => {
           const newSet = new Set(prev);
@@ -42,7 +106,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
           return newSet;
         });
 
-        // Auto-clear typing status
         if (isTyping) {
           if (typingTimeoutRef.current[userId]) {
             clearTimeout(typingTimeoutRef.current[userId]);
@@ -66,7 +129,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
 
   const handleTyping = () => {
     const now = Date.now();
-    // Invia un broadcast al massimo una volta al secondo
     if (now - lastTypingTimeRef.current > 1000) {
       lastTypingTimeRef.current = now;
       if (typingChannelRef.current) {
@@ -79,8 +141,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     }
   };
 
-  
-  // Gestione messaggi non letti per l'admin
+  // 4. Gestione messaggi non letti per l'admin
   useEffect(() => {
     if (!isAdmin || !user) return;
     
@@ -124,9 +185,9 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
       };
       markAsRead();
     }
-  }, [selectedUser, isAdmin, user, messages.length]); // include messages.length so when a new message arrives while chat is open it gets marked as read too
+  }, [selectedUser, isAdmin, user, messages.length]);
 
-  // Gestione Presence
+  // 5. Gestione Presence
   useEffect(() => {
     if (!user) return;
     
@@ -151,20 +212,20 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     };
   }, [user]);
 
-  // Per gli admin: Carica la lista degli utenti con cui c'è una conversazione
+  // 6. Per gli admin: Carica la lista degli utenti con conversazioni
   useEffect(() => {
     if (!isAdmin) return;
 
     const fetchConversations = async () => {
-      // In una chat reale, prenderesti gli ultimi messaggi per utente.
-      // Per semplicità, qui carichiamo tutti gli utenti che hanno inviato o ricevuto messaggi dall'admin
       const { data: users, error } = await supabase
         .from('profiles')
-        .select('id, full_name, email, roles(name)');
+        .select('id, full_name, email, name, role:roles(name)');
       
       if (!error && users) {
-        // Escludiamo gli altri admin dalla lista (o no, a discrezione)
-        const clients = users.filter(u => u.roles?.name !== 'super_admin' && u.roles?.name !== 'admin');
+        const clients = users.filter(u => {
+          const roleName = u.role?.name || u.role || '';
+          return !['super_admin', 'superAdmin', 'SuperAdmin', 'admin', 'Admin'].includes(roleName);
+        });
         setConversations(clients);
       }
     };
@@ -172,13 +233,9 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     fetchConversations();
   }, [isAdmin]);
 
-  // Carica i messaggi per la conversazione selezionata
+  // 7. Carica i messaggi per la conversazione selezionata
   useEffect(() => {
     if (!user) return;
-    
-    // Se non è admin, l'interlocutore è sempre l'admin (o il sistema in generale)
-    // Per ora facciamo che i messaggi sono salvati con receiver_id = l'admin che ha risposto.
-    // Oppure, più semplicemente: sender_id e receiver_id.
     
     const fetchMessages = async () => {
       setLoading(true);
@@ -191,16 +248,24 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
           setLoading(false);
           return;
         }
-        // Messaggi tra l'admin loggato e l'utente selezionato
         query = query.or(`and(sender_id.eq.${user.id},receiver_id.eq.${selectedUser}),and(sender_id.eq.${selectedUser},receiver_id.eq.${user.id})`);
       } else {
-        // Messaggi dove l'utente è sender o receiver
         query = query.or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`);
       }
       
       const { data, error } = await query;
-      if (!error) {
+      if (!error && data) {
         setMessages(data || []);
+
+        // Cerca lo stato del ticket nei messaggi di sistema o in localStorage
+        const activeUserId = isAdmin ? selectedUser : user.id;
+        const savedStatus = localStorage.getItem(`ticket_status_${activeUserId}`);
+        if (savedStatus) {
+          setTicketStatuses(prev => ({ ...prev, [activeUserId]: savedStatus }));
+        } else {
+          // Default status: non_completato
+          setTicketStatuses(prev => ({ ...prev, [activeUserId]: prev[activeUserId] || 'non_completato' }));
+        }
       }
       setLoading(false);
       scrollToBottom();
@@ -218,7 +283,6 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
             setMessages(prev => [...prev, newMessage]);
             scrollToBottom();
           } else if (newMessage.receiver_id === user.id) {
-            // Nuovi messaggi da altri utenti
             setUnreadCounts(prev => ({ ...prev, [newMessage.sender_id]: (prev[newMessage.sender_id] || 0) + 1 }));
           }
         } else {
@@ -239,14 +303,18 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     scrollToBottom();
   }, [messages]);
 
-  
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  // 8. Esportazione Chat professionale con Toast
   const handleExportChat = () => {
     if (!messages.length) {
-      alert("Nessun messaggio da esportare.");
+      toast.error('Nessun messaggio da esportare nella conversazione.');
       return;
     }
     
-    let text = "=== CRONOLOGIA CHAT ===\n\n";
+    let text = "=== CRONOLOGIA CHAT SUPPORTO ===\n\n";
     messages.forEach(m => {
       const isMe = m.sender_id === user?.id;
       const date = new Date(m.created_at).toLocaleString('it-IT');
@@ -258,35 +326,96 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `ChatExport_${new Date().getTime()}.txt`;
+    link.download = `Supporto_Chat_${new Date().getTime()}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+
+    toast.success('📥 Cronologia chat esportata con successo!');
   };
 
-  const handleDeleteChat = async () => {
+  // 9. Eliminazione Chat (Sostituita finestra native window.confirm con Popup Tailwind)
+  const confirmDeleteChat = async () => {
     if (!messages.length) return;
-    if (!window.confirm("Sei sicuro di voler eliminare l'intera conversazione? Questa azione è irreversibile per entrambi.")) return;
+    setDeleting(true);
 
-    const messageIds = messages.map(m => m.id);
-    
-    const { error } = await supabase
-      .from('messages')
-      .delete()
-      .in('id', messageIds);
+    try {
+      const messageIds = messages.map(m => m.id);
+      
+      const { error } = await supabase
+        .from('messages')
+        .delete()
+        .in('id', messageIds);
 
-    if (!error) {
-      setMessages([]);
-    } else {
-      alert("Errore durante l'eliminazione della chat.");
+      if (!error) {
+        setMessages([]);
+        toast.success('🗑️ Conversazione eliminata con successo!');
+      } else {
+        toast.error('Errore durante l\'eliminazione della chat.');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Impossibile eliminare la chat.');
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
     }
   };
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // 10. Modifica Stato del Ticket ('non_completato', 'completato', 'annullato')
+  const handleChangeTicketStatus = async (newStatus) => {
+    const activeUserId = isAdmin ? selectedUser : user.id;
+    if (!activeUserId) return;
+
+    setTicketStatuses(prev => ({
+      ...prev,
+      [activeUserId]: newStatus
+    }));
+
+    try {
+      localStorage.setItem(`ticket_status_${activeUserId}`, newStatus);
+    } catch (e) {}
+
+    // Notifica broadcast a tutti i client aperti
+    if (statusChannelRef.current) {
+      statusChannelRef.current.send({
+        type: 'broadcast',
+        event: 'status_update',
+        payload: {
+          targetUserId: activeUserId,
+          newStatus,
+          updatedBy: user.id
+        }
+      });
+    }
+
+    // Messaggio automatico di sistema nella chat
+    const statusLabels = {
+      non_completato: '🟠 In corso / Non completato',
+      completato: '🟢 Completato',
+      annullato: '🔴 Annullato'
+    };
+
+    const label = statusLabels[newStatus] || newStatus;
+    toast.success(`Stato del ticket aggiornato: ${label}`);
+
+    // Inserisci messaggio informativo in chat
+    const sysMsg = {
+      sender_id: user.id,
+      receiver_id: isAdmin ? selectedUser : (adminsList[0]?.id || user.id),
+      content: `📌 Stato del ticket modificato in: ${label}`,
+      read: false
+    };
+
+    try {
+      await supabase.from('messages').insert([sysMsg]);
+    } catch (err) {
+      console.warn('Errore inserimento log stato:', err);
+    }
   };
 
+  // 11. Invio Messaggio
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !user) return;
@@ -299,30 +428,27 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
       });
     }
 
-    // Se l'utente è un admin, il receiver è selectedUser.
-    // Se l'utente è un cliente, il receiver deve essere un admin. Nel DB, possiamo fare che i messaggi verso l'assistenza
-    // abbiano un receiver_id specifico o null. Per ora inviamo ad un admin di default o lasciamo che il primo admin risponda.
-    // Poiché serve un UUID valido in `receiver_id`, per gli utenti standard potremmo dover scegliere un admin_id.
-    // Soluzione temporanea: l'utente non manda al primo avvio, o manda ad un admin noto.
-    // In questo piano, assumiamo che l'admin_id venga recuperato dal backend o l'utente stia rispondendo.
-    
     let targetReceiver = null;
     if (isAdmin) {
       targetReceiver = selectedUser;
     } else {
-      // Se c'è già una conversazione, prendi l'ID dell'admin che ha scritto per ultimo
-      const lastAdminMsg = messages.slice().reverse().find(m => m.sender_id !== user.id);
-      targetReceiver = lastAdminMsg?.sender_id; 
-      
-      if (!targetReceiver) {
-        // Fallback: Ottieni un admin
-        const { data } = await supabase.from('profiles').select('id, roles(name)').eq('roles.name', 'super_admin').limit(1).single();
-        targetReceiver = data?.id;
+      // Se l'utente ha scelto un admin specifico dalla select:
+      if (selectedAdminId && selectedAdminId !== 'ALL') {
+        targetReceiver = selectedAdminId;
+      } else {
+        // Se c'è già una conversazione attiva, prendi l'admin che ha risposto
+        const lastAdminMsg = messages.slice().reverse().find(m => m.sender_id !== user.id);
+        targetReceiver = lastAdminMsg?.sender_id; 
+
+        if (!targetReceiver) {
+          // Fallback sul primo admin disponibile nella lista
+          targetReceiver = adminsList[0]?.id;
+        }
       }
     }
 
     if (!targetReceiver) {
-      alert("Nessun amministratore disponibile a ricevere il messaggio.");
+      toast.error('Nessun amministratore selezionato o disponibile a ricevere il messaggio.');
       return;
     }
 
@@ -340,6 +466,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     const { error } = await supabase.from('messages').insert([msg]);
     if (error) {
       console.error("Errore invio messaggio:", error);
+      toast.error("Errore nell'invio del messaggio");
     }
   };
 
@@ -347,59 +474,143 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     return new Date(dateStr).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   };
 
-  const filteredConversations = conversations.filter(c => 
-    (c.full_name || '').toLowerCase().includes(search.toLowerCase()) || 
-    (c.email || '').toLowerCase().includes(search.toLowerCase())
-  );
+  // Helper badge stato
+  const getStatusBadge = (statusKey) => {
+    switch (statusKey) {
+      case 'completato':
+        return (
+          <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1 shadow-2xs">
+            <CheckCircle className="w-3 h-3 text-emerald-600" />
+            Completato
+          </span>
+        );
+      case 'annullato':
+        return (
+          <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1 shadow-2xs">
+            <XCircle className="w-3 h-3 text-rose-600" />
+            Annullato
+          </span>
+        );
+      case 'non_completato':
+      default:
+        return (
+          <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1 shadow-2xs">
+            <Clock className="w-3 h-3 text-amber-600" />
+            Non completato
+          </span>
+        );
+    }
+  };
+
+  // Filtro conversazioni per l'admin
+  const filteredConversations = conversations.filter(c => {
+    const matchesSearch = 
+      (c.full_name || '').toLowerCase().includes(search.toLowerCase()) || 
+      (c.email || '').toLowerCase().includes(search.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    if (statusFilter === 'ALL') return true;
+    const cStatus = ticketStatuses[c.id] || 'non_completato';
+    return cStatus === statusFilter;
+  });
+
+  const activeUserId = isAdmin ? selectedUser : user?.id;
+  const currentTicketStatus = ticketStatuses[activeUserId] || 'non_completato';
 
   return (
-    <div className="flex h-[calc(100vh-120px)] bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 overflow-hidden">
+    <div className="flex h-[calc(100vh-120px)] bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 overflow-hidden relative">
       
       {/* SIDEBAR (Solo Admin) */}
       {isAdmin && (
         <div className="w-80 border-r border-gray-200 dark:border-slate-800 flex flex-col bg-gray-50 dark:bg-slate-900/50">
-          <div className="p-4 border-b border-gray-200 dark:border-slate-800">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-              <MessageCircle className="w-5 h-5 text-indigo-500" />
-              Conversazioni
+          <div className="p-4 border-b border-gray-200 dark:border-slate-800 space-y-3">
+            <h2 className="text-base font-bold text-gray-900 dark:text-gray-100 flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <MessageCircle className="w-5 h-5 text-indigo-500" />
+                Ticket & Chat
+              </span>
+              <span className="text-xs bg-indigo-100 text-indigo-700 font-semibold px-2 py-0.5 rounded-full">
+                {filteredConversations.length}
+              </span>
             </h2>
-            <div className="mt-4 relative">
+
+            {/* Cerca utente */}
+            <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
                 placeholder="Cerca utente..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 text-sm bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full pl-9 pr-4 py-1.5 text-xs bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            {filteredConversations.map(c => (
+
+            {/* Filtro Stato Ticket */}
+            <div className="flex items-center gap-1 bg-gray-200/60 dark:bg-slate-800 p-1 rounded-lg text-[10px] font-medium">
               <button
-                key={c.id}
-                onClick={() => setSelectedUser(c.id)}
-                className={`w-full p-4 flex items-center gap-3 border-b border-gray-100 dark:border-slate-800/50 hover:bg-white dark:hover:bg-slate-800 transition-colors ${selectedUser === c.id ? 'bg-white dark:bg-slate-800 border-l-4 border-l-indigo-500' : ''}`}
+                type="button"
+                onClick={() => setStatusFilter('ALL')}
+                className={`flex-1 py-1 rounded text-center transition ${statusFilter === 'ALL' ? 'bg-white dark:bg-slate-700 font-bold text-indigo-600 shadow-2xs' : 'text-gray-600 dark:text-gray-400'}`}
               >
-                <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold">
-                  {(c.full_name || c.email).charAt(0).toUpperCase()}
-                </div>
-                <div className="text-left flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center justify-between w-full">
-                    <span className="flex items-center gap-2 truncate">
-                      {c.full_name || 'Utente'}
-                      {onlineUsers.has(c.id) && <span className="w-2 h-2 min-w-[8px] rounded-full bg-green-500 shadow-sm" title="Online"></span>}
-                    </span>
-                    {unreadCounts[c.id] > 0 && (
-                      <span className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-rose-500 flex items-center justify-center text-[10px] font-bold text-white shadow-sm ml-2">
-                        {unreadCounts[c.id]}
-                      </span>
-                    )}
-                  </p>
-                  <p className="text-xs text-gray-500 truncate">{c.email}</p>
-                </div>
+                Tutti
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={() => setStatusFilter('non_completato')}
+                className={`flex-1 py-1 rounded text-center transition ${statusFilter === 'non_completato' ? 'bg-amber-500 text-white font-bold shadow-2xs' : 'text-gray-600 dark:text-gray-400'}`}
+              >
+                In corso
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('completato')}
+                className={`flex-1 py-1 rounded text-center transition ${statusFilter === 'completato' ? 'bg-emerald-600 text-white font-bold shadow-2xs' : 'text-gray-600 dark:text-gray-400'}`}
+              >
+                Chiusi
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            {filteredConversations.length === 0 ? (
+              <div className="p-6 text-center text-xs text-gray-400 italic">
+                Nessun ticket trovato con questo filtro
+              </div>
+            ) : (
+              filteredConversations.map(c => {
+                const status = ticketStatuses[c.id] || 'non_completato';
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => setSelectedUser(c.id)}
+                    className={`w-full p-3.5 flex items-center gap-3 border-b border-gray-100 dark:border-slate-800/50 hover:bg-white dark:hover:bg-slate-800 transition-colors ${selectedUser === c.id ? 'bg-white dark:bg-slate-800 border-l-4 border-l-indigo-500 shadow-2xs' : ''}`}
+                  >
+                    <div className="w-9 h-9 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-xs shrink-0">
+                      {(c.full_name || c.email).charAt(0).toUpperCase()}
+                    </div>
+                    <div className="text-left flex-1 min-w-0">
+                      <div className="flex items-center justify-between w-full mb-1">
+                        <span className="flex items-center gap-1.5 truncate font-semibold text-xs text-gray-900 dark:text-gray-100">
+                          {c.full_name || 'Utente'}
+                          {onlineUsers.has(c.id) && <span className="w-2 h-2 rounded-full bg-green-500" title="Online"></span>}
+                        </span>
+                        {unreadCounts[c.id] > 0 && (
+                          <span className="min-w-[1.1rem] h-4 px-1 rounded-full bg-rose-500 flex items-center justify-center text-[9px] font-bold text-white shadow-2xs">
+                            {unreadCounts[c.id]}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] text-gray-400 truncate max-w-[110px]">{c.email}</p>
+                        {getStatusBadge(status)}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
           </div>
         </div>
       )}
@@ -409,65 +620,125 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
         {(!isAdmin || selectedUser) ? (
           <>
             {/* Chat Header */}
-            <div className="p-4 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between shadow-sm z-10">
+            <div className="p-4 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-wrap items-center justify-between gap-3 shadow-2xs z-10">
+              
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white shrink-0">
                   <User className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-900 dark:text-white">
-                    {isAdmin ? 'Utente Selezionato' : 'Assistenza Tecnica'}
+                  <h3 className="font-semibold text-sm text-gray-900 dark:text-white flex items-center gap-2">
+                    {isAdmin ? 'Utente Selezionato' : 'Assistenza Tecnica Supporto'}
                   </h3>
-                  {isAdmin ? (
+                  
+                  {/* Per utente standard: Select Amministratore */}
+                  {!isAdmin && (
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-indigo-500" />
+                      <span className="text-xs text-gray-500 font-medium">Invia a:</span>
+                      <select
+                        value={selectedAdminId}
+                        onChange={(e) => setSelectedAdminId(e.target.value)}
+                        className="text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md px-2 py-0.5 focus:ring-1 focus:ring-indigo-500"
+                      >
+                        <option value="ALL">📢 Tutti gli Amministratori</option>
+                        {adminsList.map(a => (
+                          <option key={a.id} value={a.id}>
+                            👤 {a.full_name || a.name || a.email}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {isAdmin && (
                     onlineUsers.has(selectedUser) 
-                      ? <p className="text-xs text-green-500 font-medium">Online</p>
-                      : <p className="text-xs text-gray-400 font-medium">Offline</p>
-                  ) : (
-                    onlineUsers.size > 1 
-                      ? <p className="text-xs text-green-500 font-medium">Supporto Online</p>
-                      : <p className="text-xs text-gray-400 font-medium">Supporto Offline</p>
+                      ? <p className="text-xs text-green-500 font-medium">Utente Online</p>
+                      : <p className="text-xs text-gray-400 font-medium">Utente Offline</p>
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-1 sm:gap-2">
-                <button onClick={handleExportChat} className="p-2 text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors" title="Esporta Chat">
-                  <Download className="w-5 h-5" />
+
+              {/* Selettore Stato Ticket (Visibile sia ad Admin che a Utente) */}
+              <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1.5 rounded-xl">
+                <span className="text-xs font-bold text-gray-600 dark:text-gray-300 hidden sm:inline">
+                  Stato Ticket:
+                </span>
+                <select
+                  value={currentTicketStatus}
+                  onChange={(e) => handleChangeTicketStatus(e.target.value)}
+                  className="text-xs font-bold bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded-lg px-2.5 py-1 focus:ring-2 focus:ring-indigo-500 shadow-2xs"
+                >
+                  <option value="non_completato">🟠 Non completato (In corso)</option>
+                  <option value="completato">🟢 Completato</option>
+                  <option value="annullato">🔴 Annullato</option>
+                </select>
+              </div>
+
+              {/* Azioni Esporta / Elimina */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleExportChat}
+                  className="p-2 text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors"
+                  title="Esporta Chat (.txt)"
+                >
+                  <Download className="w-4 h-4" />
                 </button>
-                <button onClick={handleDeleteChat} className="p-2 text-gray-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-colors" title="Svuota Chat">
-                  <Trash2 className="w-5 h-5" />
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="p-2 text-gray-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-colors"
+                  title="Elimina Conversazione"
+                >
+                  <Trash2 className="w-4 h-4" />
                 </button>
                 {onClose && (
-                  <button onClick={onClose} className="p-2 text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors" title="Chiudi">
-                    <X className="w-5 h-5" />
+                  <button
+                    onClick={onClose}
+                    className="p-2 text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                    title="Chiudi"
+                  >
+                    <X className="w-4 h-4" />
                   </button>
                 )}
               </div>
             </div>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 bg-slate-50 dark:bg-slate-900/50">
+            {/* Messages Area */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-slate-50 dark:bg-slate-900/50">
               {loading && messages.length === 0 ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                  <MessageCircle className="w-12 h-12 mb-3 text-gray-300 dark:text-gray-600" />
-                  <p>Nessun messaggio in questa conversazione.</p>
-                  <p className="text-sm">Invia il primo messaggio per iniziare!</p>
+                <div className="flex flex-col items-center justify-center h-full text-gray-400 space-y-2">
+                  <MessageCircle className="w-12 h-12 text-gray-300 dark:text-gray-600" />
+                  <p className="font-semibold text-sm text-gray-600 dark:text-gray-300">Nessun messaggio in questo ticket</p>
+                  <p className="text-xs text-gray-400">Scrivi qui sotto per inviare la richiesta all'amministratore</p>
                 </div>
               ) : (
                 messages.map((msg, idx) => {
                   const isMe = msg.sender_id === user.id;
+                  const isSystem = msg.content?.startsWith('📌 Stato del ticket');
+
+                  if (isSystem) {
+                    return (
+                      <div key={msg.id || idx} className="flex justify-center my-2">
+                        <span className="px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-xs font-semibold rounded-full border border-amber-200 dark:border-amber-800/60 shadow-2xs flex items-center gap-1.5">
+                          {msg.content}
+                        </span>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div key={msg.id || idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[75%] rounded-2xl p-4 shadow-sm ${
+                      <div className={`max-w-[75%] rounded-2xl p-3.5 shadow-2xs ${
                         isMe 
-                          ? 'bg-indigo-600 text-white rounded-tr-sm' 
-                          : 'bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-slate-700 rounded-tl-sm'
+                          ? 'bg-indigo-600 text-white rounded-tr-xs' 
+                          : 'bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-slate-700 rounded-tl-xs'
                       }`}>
-                        <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                        <div className={`flex items-center justify-end gap-1 mt-2 text-[10px] ${isMe ? 'text-indigo-200' : 'text-gray-400'}`}>
+                        <p className="text-xs sm:text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                        <div className={`flex items-center justify-end gap-1 mt-1.5 text-[10px] ${isMe ? 'text-indigo-200' : 'text-gray-400'}`}>
                           <Clock className="w-3 h-3" />
                           {formatTime(msg.created_at)}
                         </div>
@@ -477,19 +748,19 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
                 })
               )}
               
-        {typingUsers.size > 0 && (
-          <div className="flex justify-start">
-            <div className="bg-gray-100 dark:bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 flex items-center space-x-2 w-max shadow-sm border border-gray-200/50 dark:border-slate-700/50">
-              <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Sta scrivendo</span>
-              <div className="flex space-x-1.5 ml-1">
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              </div>
-            </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
+              {typingUsers.size > 0 && (
+                <div className="flex justify-start">
+                  <div className="bg-gray-100 dark:bg-slate-800 rounded-2xl rounded-tl-xs px-4 py-2.5 flex items-center space-x-2 w-max shadow-2xs border border-gray-200/50 dark:border-slate-700/50">
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Sta scrivendo</span>
+                    <div className="flex space-x-1.5 ml-1">
+                      <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
             </div>
 
             {/* Input Area */}
@@ -499,27 +770,65 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
                   type="text"
                   value={newMessage}
                   onChange={(e) => { setNewMessage(e.target.value); handleTyping(); }}
-                  placeholder="Scrivi un messaggio..."
-                  className="flex-1 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-full px-6 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
+                  placeholder="Scrivi un messaggio al supporto..."
+                  className="flex-1 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-full px-5 py-2.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
                 />
                 <button
                   type="submit"
                   disabled={!newMessage.trim()}
-                  className="w-12 h-12 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 shadow-sm"
+                  className="w-10 h-10 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0 shadow-2xs"
                 >
-                  <Send className="w-5 h-5 ml-1" />
+                  <Send className="w-4 h-4 ml-0.5" />
                 </button>
               </form>
             </div>
           </>
         ) : (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400">
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 p-6 text-center">
             <MessageCircle className="w-16 h-16 mb-4 text-gray-200 dark:text-gray-700" />
-            <h3 className="text-xl font-medium text-gray-600 dark:text-gray-300">Seleziona una conversazione</h3>
-            <p className="text-sm mt-2">Scegli un utente dalla lista a sinistra per iniziare a chattare</p>
+            <h3 className="text-base font-bold text-gray-700 dark:text-gray-300">Seleziona un Ticket o Utente</h3>
+            <p className="text-xs text-gray-400 mt-1 max-w-sm">
+              Scegli un cliente dalla colonna di sinistra per iniziare la conversazione ed aggiornarne lo stato.
+            </p>
           </div>
         )}
       </div>
+
+      {/* POPUP MODALE CONFERMA ELIMINAZIONE CHAT (Al posto di window.confirm) */}
+      {showDeleteConfirm && (
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-gray-100 dark:border-slate-700 text-center space-y-4 animate-in fade-in duration-150">
+            <div className="w-12 h-12 bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 rounded-full flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-gray-900 dark:text-white">Eliminare l'intera conversazione?</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Tutti i messaggi in questo ticket verranno eliminati in modo permanente.
+              </p>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+                className="flex-1 px-4 py-2 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-200 rounded-xl text-xs font-semibold transition"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteChat}
+                disabled={deleting}
+                className="flex-1 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md shadow-rose-600/20"
+              >
+                {deleting ? 'Eliminazione...' : 'Sì, elimina'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
