@@ -29945,54 +29945,64 @@ if (loadingProfile && !user && !authUser) {
         />
       )}
 
-      {/* Sliding Chat Panel */}
-      {isChatOpen && (
-        <div className="fixed inset-0 z-[200] flex justify-end">
-          <div 
-            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity"
-            onClick={() => setIsChatOpen(false)}
-          />
-          <div className="relative w-full max-w-4xl h-full bg-white dark:bg-slate-900 shadow-2xl animate-in slide-in-from-right duration-300 flex flex-col border-l border-gray-200 dark:border-slate-700">
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
-                  <MessageCircle className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">Chat Supporto</h2>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{(isAdmin || isSuperAdmin) ? 'Gestisci richieste' : 'Parla con il team'}</p>
-                </div>
+      {/* Sliding Chat Panel con transizione delicata sia in apertura che in chiusura */}
+      <div 
+        className={`fixed inset-0 z-[200] flex justify-end transition-all duration-300 ease-in-out ${
+          isChatOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0 delay-100'
+        }`}
+      >
+        <div 
+          className={`absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity duration-300 ease-in-out ${
+            isChatOpen ? 'opacity-100' : 'opacity-0'
+          }`}
+          onClick={() => setIsChatOpen(false)}
+        />
+        <div 
+          className={`relative w-full max-w-4xl h-full bg-white dark:bg-slate-900 shadow-2xl flex flex-col border-l border-gray-200 dark:border-slate-700 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] transform ${
+            isChatOpen ? 'translate-x-0' : 'translate-x-full'
+          }`}
+        >
+          <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
+                <MessageCircle className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
               </div>
-              <button onClick={() => setIsChatOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl transition-colors">
-                <X className="w-5 h-5" />
-              </button>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Chat Supporto</h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{(isAdmin || isSuperAdmin) ? 'Gestisci richieste' : 'Parla con il team'}</p>
+              </div>
             </div>
-            <div className="flex-1 overflow-hidden p-4">
-              <ChatInterface initialUserId={chatInitialUser} isAdmin={(isAdmin || isSuperAdmin)} onClose={() => setIsChatOpen(false)} />
-            </div>
+            <button onClick={() => setIsChatOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-hidden p-4">
+            <ChatInterface initialUserId={chatInitialUser} isAdmin={(isAdmin || isSuperAdmin)} onClose={() => setIsChatOpen(false)} />
           </div>
         </div>
-      )}
+      </div>
 
-      {/* 🟢 FLOATING ACTION BUTTON CHAT SUPPORTO (Nascondi quando la chat è aperta per evitare sovrapposizioni) */}
-      {!isChatOpen && (
-        <div className="fixed bottom-6 right-6 z-[190] flex items-center gap-2 animate-in fade-in zoom-in duration-200">
-          <button
-            type="button"
-            onClick={() => setIsChatOpen(true)}
-            className="px-4 py-3 bg-gradient-to-r from-emerald-500 via-teal-600 to-indigo-600 hover:from-emerald-600 hover:to-indigo-700 text-white rounded-full shadow-2xl hover:shadow-emerald-500/50 transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2.5 border-2 border-white/40 cursor-pointer group"
-            title="Chat di Supporto"
-          >
-            <div className="relative flex items-center justify-center">
-              <MessageCircle className="w-6 h-6 animate-bounce" />
-              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-green-400 border-2 border-white rounded-full shadow-xs"></span>
-            </div>
-            <span className="text-xs font-extrabold tracking-wide uppercase">
-              Chat Supporto
-            </span>
-          </button>
-        </div>
-      )}
+      {/* 🟢 FLOATING ACTION BUTTON CHAT SUPPORTO (Transizione fluida in entrata e uscita per evitare sovrapposizioni) */}
+      <div 
+        className={`fixed bottom-6 right-6 z-[190] flex items-center gap-2 transition-all duration-300 transform ${
+          !isChatOpen ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-90 pointer-events-none'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setIsChatOpen(true)}
+          className="px-4 py-3 bg-gradient-to-r from-emerald-500 via-teal-600 to-indigo-600 hover:from-emerald-600 hover:to-indigo-700 text-white rounded-full shadow-2xl hover:shadow-emerald-500/50 transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2.5 border-2 border-white/40 cursor-pointer group"
+          title="Chat di Supporto"
+        >
+          <div className="relative flex items-center justify-center">
+            <MessageCircle className="w-6 h-6 animate-bounce" />
+            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-green-400 border-2 border-white rounded-full shadow-xs"></span>
+          </div>
+          <span className="text-xs font-extrabold tracking-wide uppercase">
+            Chat Supporto
+          </span>
+        </button>
+      </div>
 
 <ContactModal />
 <div style={{ display: showProfileModal ? 'block' : 'none' }}>
