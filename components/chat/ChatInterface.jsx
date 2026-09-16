@@ -4,38 +4,50 @@ import { supabase } from '../../lib/supabaseClient';
 import { 
   Send, User, Search, MessageCircle, Clock, Trash2, 
   Download, X, CheckCircle, AlertCircle, XCircle, Filter, 
-  ShieldCheck, ChevronDown, PlusCircle, Tag, RefreshCw, AlertTriangle
+  ShieldCheck, ChevronDown, Plus, Tag, RefreshCw, AlertTriangle,
+  LifeBuoy, FileText, CornerDownRight, Check
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }) => {
   const { user } = useAuth();
-  const [conversations, setConversations] = useState([]);
-  const [selectedUser, setSelectedUser] = useState(initialUserId);
+  
+  // Lista ticket e conversazioni
+  const [tickets, setTickets] = useState([]);
+  const [selectedTicketId, setSelectedTicketId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const messagesEndRef = useRef(null);
+
+  // Amministratori e utenti online
+  const [adminsList, setAdminsList] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [unreadCounts, setUnreadCounts] = useState({});
   const [typingUsers, setTypingUsers] = useState(new Set());
-  const typingTimeoutRef = useRef({});
-  const typingChannelRef = useRef(null);
-  const statusChannelRef = useRef(null);
-  const lastTypingTimeRef = useRef(0);
-
-  // Stati per Amministratori e Ticket
-  const [adminsList, setAdminsList] = useState([]);
-  const [selectedAdminId, setSelectedAdminId] = useState('ALL'); // 'ALL' o ID admin specifico
-  const [ticketStatuses, setTicketStatuses] = useState({}); // { [userId]: 'non_completato' | 'completato' | 'annullato' }
-  const [statusFilter, setStatusFilter] = useState('ALL'); // Filtro admin: 'ALL', 'non_completato', 'completato', 'annullato'
   
-  // Modale di conferma eliminazione chat (al posto di window.confirm native)
+  // Filtro stato ticket nella sidebar (ALL, non_completato, completato, annullato)
+  const [statusFilter, setStatusFilter] = useState('ALL');
+
+  // Modale per la creazione di un Nuovo Ticket
+  const [showNewTicketModal, setShowNewTicketModal] = useState(false);
+  const [newTicketSubject, setNewTicketSubject] = useState('');
+  const [newTicketDescription, setNewTicketDescription] = useState('');
+  const [newTicketPriority, setNewTicketPriority] = useState('Media');
+  const [newTicketAdminId, setNewTicketAdminId] = useState('ALL');
+  const [creatingTicket, setCreatingTicket] = useState(false);
+
+  // Modale per la conferma d'eliminazione ticket
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // 1. Caricamento Amministratori (Per la Select Utente)
+  const typingTimeoutRef = useRef({});
+  const typingChannelRef = useRef(null);
+  const ticketSyncChannelRef = useRef(null);
+  const lastTypingTimeRef = useRef(0);
+
+  // 1. Carica la lista degli Amministratori
   useEffect(() => {
     const fetchAdmins = async () => {
       try {
@@ -57,36 +69,66 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     fetchAdmins();
   }, []);
 
-  // 2. Canale Broadcast per gli aggiornamenti dello Stato del Ticket in tempo reale
+  // 2. Sincronizzazione Realtime Ticket (Broadcast & Storage)
   useEffect(() => {
     if (!user) return;
 
-    const statusChannel = supabase.channel('ticket_status_updates');
-    statusChannelRef.current = statusChannel;
+    // Carica ticket salvati da localStorage
+    try {
+      const stored = localStorage.getItem('support_tickets_v2');
+      if (stored) {
+        setTickets(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.warn('Errore lettura localStorage ticket:', e);
+    }
 
-    statusChannel
-      .on('broadcast', { event: 'status_update' }, payload => {
-        const { targetUserId, newStatus, updatedBy } = payload.payload;
-        setTicketStatuses(prev => ({
-          ...prev,
-          [targetUserId]: newStatus
-        }));
-        
-        // Salva anche in localStorage per persistenza locale
-        try {
-          localStorage.setItem(`ticket_status_${targetUserId}`, newStatus);
-        } catch (e) {}
+    const ticketSyncChannel = supabase.channel('support_tickets_realtime');
+    ticketSyncChannelRef.current = ticketSyncChannel;
+
+    ticketSyncChannel
+      .on('broadcast', { event: 'ticket_created' }, payload => {
+        const newT = payload.payload;
+        setTickets(prev => {
+          if (prev.some(t => t.id === newT.id)) return prev;
+          const updated = [newT, ...prev];
+          try { localStorage.setItem('support_tickets_v2', JSON.stringify(updated)); } catch(e){}
+          return updated;
+        });
+      })
+      .on('broadcast', { event: 'ticket_status_changed' }, payload => {
+        const { ticketId, newStatus } = payload.payload;
+        setTickets(prev => {
+          const updated = prev.map(t => t.id === ticketId ? { ...t, status: newStatus } : t);
+          try { localStorage.setItem('support_tickets_v2', JSON.stringify(updated)); } catch(e){}
+          return updated;
+        });
       })
       .subscribe();
 
     return () => {
-      supabase.removeChannel(statusChannel);
+      supabase.removeChannel(ticketSyncChannel);
     };
   }, [user]);
 
-  // 3. Gestione Typing Status (Broadcast)
+  // 3. Presence & Typing Broadcast
   useEffect(() => {
     if (!user) return;
+
+    const presenceChannel = supabase.channel('chat_presence', {
+      config: { presence: { key: user.id } }
+    });
+
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = presenceChannel.presenceState();
+        setOnlineUsers(new Set(Object.keys(state)));
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await presenceChannel.track({ online_at: new Date().toISOString() });
+        }
+      });
 
     const typingChannel = supabase.channel('chat_typing_status');
     typingChannelRef.current = typingChannel;
@@ -98,18 +140,12 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
 
         setTypingUsers(prev => {
           const newSet = new Set(prev);
-          if (isTyping) {
-            newSet.add(userId);
-          } else {
-            newSet.delete(userId);
-          }
+          if (isTyping) newSet.add(userId); else newSet.delete(userId);
           return newSet;
         });
 
         if (isTyping) {
-          if (typingTimeoutRef.current[userId]) {
-            clearTimeout(typingTimeoutRef.current[userId]);
-          }
+          if (typingTimeoutRef.current[userId]) clearTimeout(typingTimeoutRef.current[userId]);
           typingTimeoutRef.current[userId] = setTimeout(() => {
             setTypingUsers(prev => {
               const newSet = new Set(prev);
@@ -122,8 +158,8 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
       .subscribe();
 
     return () => {
+      supabase.removeChannel(presenceChannel);
       supabase.removeChannel(typingChannel);
-      Object.values(typingTimeoutRef.current).forEach(clearTimeout);
     };
   }, [user]);
 
@@ -141,155 +177,55 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     }
   };
 
-  // 4. Gestione messaggi non letti per l'admin
+  // 4. Carica i messaggi del ticket selezionato
   useEffect(() => {
-    if (!isAdmin || !user) return;
-    
-    const fetchUnreadCounts = async () => {
-      const { data, error } = await supabase
-        .from('messages')
-        .select('sender_id')
-        .eq('receiver_id', user.id)
-        .eq('read', false);
-        
-      if (!error && data) {
-        const counts = {};
-        data.forEach(msg => {
-          counts[msg.sender_id] = (counts[msg.sender_id] || 0) + 1;
-        });
-        setUnreadCounts(counts);
-      }
-    };
-    
-    fetchUnreadCounts();
-  }, [user, isAdmin]);
-
-  // Segna come letti quando si apre la conversazione
-  useEffect(() => {
-    if (isAdmin && selectedUser && user) {
-      const markAsRead = async () => {
-        const { error } = await supabase
-          .from('messages')
-          .update({ read: true })
-          .eq('sender_id', selectedUser)
-          .eq('receiver_id', user.id)
-          .eq('read', false);
-          
-        if (!error) {
-          setUnreadCounts(prev => {
-            const newCounts = { ...prev };
-            delete newCounts[selectedUser];
-            return newCounts;
-          });
-        }
-      };
-      markAsRead();
+    if (!user || !selectedTicketId) {
+      setMessages([]);
+      return;
     }
-  }, [selectedUser, isAdmin, user, messages.length]);
 
-  // 5. Gestione Presence
-  useEffect(() => {
-    if (!user) return;
-    
-    const presenceChannel = supabase.channel('chat_presence', {
-      config: { presence: { key: user.id } }
-    });
-
-    presenceChannel
-      .on('presence', { event: 'sync' }, () => {
-        const state = presenceChannel.presenceState();
-        const onlineIds = new Set(Object.keys(state));
-        setOnlineUsers(onlineIds);
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await presenceChannel.track({ online_at: new Date().toISOString() });
-        }
-      });
-
-    return () => {
-      supabase.removeChannel(presenceChannel);
-    };
-  }, [user]);
-
-  // 6. Per gli admin: Carica la lista degli utenti con conversazioni
-  useEffect(() => {
-    if (!isAdmin) return;
-
-    const fetchConversations = async () => {
-      const { data: users, error } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, name, role:roles(name)');
-      
-      if (!error && users) {
-        const clients = users.filter(u => {
-          const roleName = u.role?.name || u.role || '';
-          return !['super_admin', 'superAdmin', 'SuperAdmin', 'admin', 'Admin'].includes(roleName);
-        });
-        setConversations(clients);
-      }
-    };
-    
-    fetchConversations();
-  }, [isAdmin]);
-
-  // 7. Carica i messaggi per la conversazione selezionata
-  useEffect(() => {
-    if (!user) return;
-    
-    const fetchMessages = async () => {
+    const fetchTicketMessages = async () => {
       setLoading(true);
-      
-      let query = supabase.from('messages').select('*').order('created_at', { ascending: true });
-      
-      if (isAdmin) {
-        if (!selectedUser) {
-          setMessages([]);
-          setLoading(false);
-          return;
-        }
-        query = query.or(`and(sender_id.eq.${user.id},receiver_id.eq.${selectedUser}),and(sender_id.eq.${selectedUser},receiver_id.eq.${user.id})`);
-      } else {
-        query = query.or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`);
-      }
-      
-      const { data, error } = await query;
-      if (!error && data) {
-        setMessages(data || []);
+      try {
+        // Cerca i messaggi nel DB associati a questo ticket
+        const { data, error } = await supabase
+          .from('messages')
+          .select('*')
+          .order('created_at', { ascending: true });
 
-        // Cerca lo stato del ticket nei messaggi di sistema o in localStorage
-        const activeUserId = isAdmin ? selectedUser : user.id;
-        const savedStatus = localStorage.getItem(`ticket_status_${activeUserId}`);
-        if (savedStatus) {
-          setTicketStatuses(prev => ({ ...prev, [activeUserId]: savedStatus }));
-        } else {
-          // Default status: non_completato
-          setTicketStatuses(prev => ({ ...prev, [activeUserId]: prev[activeUserId] || 'non_completato' }));
+        if (!error && data) {
+          // Filtra i messaggi di questo specifico ticket (oppure messaggi dell'utente legato al ticket)
+          const currentTicket = tickets.find(t => t.id === selectedTicketId);
+          const filtered = data.filter(m => 
+            m.ticket_id === selectedTicketId || 
+            (m.content && m.content.includes(`[TICKET:${selectedTicketId}]`)) ||
+            (currentTicket && (m.sender_id === currentTicket.user_id || m.receiver_id === currentTicket.user_id))
+          );
+          setMessages(filtered);
         }
+      } catch (err) {
+        console.error('Errore caricamento messaggi ticket:', err);
+      } finally {
+        setLoading(false);
+        scrollToBottom();
       }
-      setLoading(false);
-      scrollToBottom();
     };
 
-    fetchMessages();
+    fetchTicketMessages();
 
-    // Iscrizione al canale realtime
+    // Iscrizione al canale realtime dei messaggi
     const channel = supabase
-      .channel('public:messages')
+      .channel(`ticket_chat_${selectedTicketId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
-        const newMessage = payload.new;
-        if (isAdmin) {
-          if (newMessage.sender_id === selectedUser || newMessage.receiver_id === selectedUser) {
-            setMessages(prev => [...prev, newMessage]);
-            scrollToBottom();
-          } else if (newMessage.receiver_id === user.id) {
-            setUnreadCounts(prev => ({ ...prev, [newMessage.sender_id]: (prev[newMessage.sender_id] || 0) + 1 }));
-          }
-        } else {
-          if (newMessage.sender_id === user.id || newMessage.receiver_id === user.id) {
-            setMessages(prev => [...prev, newMessage]);
-            scrollToBottom();
-          }
+        const newMsg = payload.new;
+        const currentTicket = tickets.find(t => t.id === selectedTicketId);
+        if (
+          newMsg.ticket_id === selectedTicketId ||
+          (newMsg.content && newMsg.content.includes(`[TICKET:${selectedTicketId}]`)) ||
+          (currentTicket && (newMsg.sender_id === currentTicket.user_id || newMsg.receiver_id === currentTicket.user_id))
+        ) {
+          setMessages(prev => [...prev, newMsg]);
+          scrollToBottom();
         }
       })
       .subscribe();
@@ -297,7 +233,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, selectedUser, isAdmin]);
+  }, [selectedTicketId, user, tickets]);
 
   useEffect(() => {
     scrollToBottom();
@@ -307,118 +243,133 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // 8. Esportazione Chat professionale con Toast
-  const handleExportChat = () => {
-    if (!messages.length) {
-      toast.error('Nessun messaggio da esportare nella conversazione.');
+  // 5. Creazione di un Nuovo Ticket
+  const handleCreateTicket = async (e) => {
+    e.preventDefault();
+    if (!newTicketSubject.trim() || !newTicketDescription.trim() || !user) {
+      toast.error('Inserisci sia l\'oggetto che la descrizione del ticket.');
       return;
     }
-    
-    let text = "=== CRONOLOGIA CHAT SUPPORTO ===\n\n";
-    messages.forEach(m => {
-      const isMe = m.sender_id === user?.id;
-      const date = new Date(m.created_at).toLocaleString('it-IT');
-      const senderName = isMe ? "Io" : (isAdmin ? "Cliente" : "Supporto");
-      text += `[${date}] ${senderName}:\n${m.content}\n\n`;
-    });
 
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Supporto_Chat_${new Date().getTime()}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    toast.success('📥 Cronologia chat esportata con successo!');
-  };
-
-  // 9. Eliminazione Chat (Sostituita finestra native window.confirm con Popup Tailwind)
-  const confirmDeleteChat = async () => {
-    if (!messages.length) return;
-    setDeleting(true);
+    setCreatingTicket(true);
 
     try {
-      const messageIds = messages.map(m => m.id);
-      
-      const { error } = await supabase
-        .from('messages')
-        .delete()
-        .in('id', messageIds);
+      const ticketId = `ticket-${Date.now().toString(36)}`;
+      const { data: profile } = await supabase.auth.getUser();
 
-      if (!error) {
-        setMessages([]);
-        toast.success('🗑️ Conversazione eliminata con successo!');
-      } else {
-        toast.error('Errore durante l\'eliminazione della chat.');
+      const newTicketObj = {
+        id: ticketId,
+        user_id: user.id,
+        user_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Utente',
+        user_email: user.email,
+        subject: newTicketSubject.trim(),
+        description: newTicketDescription.trim(),
+        priority: newTicketPriority, // Bassa, Media, Alta, Urgente
+        status: 'non_completato', // non_completato, completato, annullato
+        assigned_admin_id: newTicketAdminId,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      // 1. Aggiorna lista ticket locali
+      const updatedTickets = [newTicketObj, ...tickets];
+      setTickets(updatedTickets);
+      try {
+        localStorage.setItem('support_tickets_v2', JSON.stringify(updatedTickets));
+      } catch (e) {}
+
+      // 2. Notifica realtime via broadcast a tutti gli admin connessi
+      if (ticketSyncChannelRef.current) {
+        ticketSyncChannelRef.current.send({
+          type: 'broadcast',
+          event: 'ticket_created',
+          payload: newTicketObj
+        });
       }
+
+      // 3. Invia il primo messaggio con la descrizione del ticket nel DB Supabase
+      const targetAdmin = newTicketAdminId !== 'ALL' ? newTicketAdminId : (adminsList[0]?.id || user.id);
+      const initialMessage = {
+        sender_id: user.id,
+        receiver_id: targetAdmin,
+        content: `🎫 **NUOVO TICKET #${ticketId.slice(-4).toUpperCase()}**: ${newTicketSubject.trim()}\n\n📝 **Priorità**: ${newTicketPriority}\n\n${newTicketDescription.trim()}`,
+        read: false,
+        created_at: new Date().toISOString()
+      };
+
+      await supabase.from('messages').insert([initialMessage]);
+
+      // 4. Seleziona il ticket creato e attiva la chat del ticket
+      setSelectedTicketId(ticketId);
+      setShowNewTicketModal(false);
+      setNewTicketSubject('');
+      setNewTicketDescription('');
+      setNewTicketPriority('Media');
+      setNewTicketAdminId('ALL');
+
+      toast.success('🎉 Nuovo ticket di supporto aperto con successo!');
     } catch (err) {
-      console.error(err);
-      toast.error('Impossibile eliminare la chat.');
+      console.error('Errore creazione ticket:', err);
+      toast.error('Si è verificato un errore durante la creazione del ticket.');
     } finally {
-      setDeleting(false);
-      setShowDeleteConfirm(false);
+      setCreatingTicket(false);
     }
   };
 
-  // 10. Modifica Stato del Ticket ('non_completato', 'completato', 'annullato')
+  // 6. Cambio di Stato del Ticket ('non_completato', 'completato', 'annullato')
   const handleChangeTicketStatus = async (newStatus) => {
-    const activeUserId = isAdmin ? selectedUser : user.id;
-    if (!activeUserId) return;
+    if (!selectedTicketId) return;
 
-    setTicketStatuses(prev => ({
-      ...prev,
-      [activeUserId]: newStatus
-    }));
+    const updatedTickets = tickets.map(t => 
+      t.id === selectedTicketId ? { ...t, status: newStatus, updated_at: new Date().toISOString() } : t
+    );
 
+    setTickets(updatedTickets);
     try {
-      localStorage.setItem(`ticket_status_${activeUserId}`, newStatus);
+      localStorage.setItem('support_tickets_v2', JSON.stringify(updatedTickets));
     } catch (e) {}
 
-    // Notifica broadcast a tutti i client aperti
-    if (statusChannelRef.current) {
-      statusChannelRef.current.send({
+    // Notifica broadcast realtime
+    if (ticketSyncChannelRef.current) {
+      ticketSyncChannelRef.current.send({
         type: 'broadcast',
-        event: 'status_update',
-        payload: {
-          targetUserId: activeUserId,
-          newStatus,
-          updatedBy: user.id
-        }
+        event: 'ticket_status_changed',
+        payload: { ticketId: selectedTicketId, newStatus }
       });
     }
 
-    // Messaggio automatico di sistema nella chat
     const statusLabels = {
-      non_completato: '🟠 In corso / Non completato',
-      completato: '🟢 Completato',
+      non_completato: '🟠 Non completato (Aperto)',
+      completato: '🟢 Completato (Risolto)',
       annullato: '🔴 Annullato'
     };
 
     const label = statusLabels[newStatus] || newStatus;
     toast.success(`Stato del ticket aggiornato: ${label}`);
 
-    // Inserisci messaggio informativo in chat
-    const sysMsg = {
-      sender_id: user.id,
-      receiver_id: isAdmin ? selectedUser : (adminsList[0]?.id || user.id),
-      content: `📌 Stato del ticket modificato in: ${label}`,
-      read: false
-    };
+    // Inserisci log di cambio stato nei messaggi
+    const currentTicket = tickets.find(t => t.id === selectedTicketId);
+    const targetReceiver = isAdmin 
+      ? (currentTicket?.user_id || user.id) 
+      : (currentTicket?.assigned_admin_id !== 'ALL' ? currentTicket?.assigned_admin_id : adminsList[0]?.id || user.id);
 
     try {
-      await supabase.from('messages').insert([sysMsg]);
+      await supabase.from('messages').insert([{
+        sender_id: user.id,
+        receiver_id: targetReceiver,
+        content: `📌 Stato del ticket modificato in: ${label}`,
+        read: false,
+        created_at: new Date().toISOString()
+      }]);
     } catch (err) {
-      console.warn('Errore inserimento log stato:', err);
+      console.warn('Errore log cambio stato:', err);
     }
   };
 
-  // 11. Invio Messaggio
+  // 7. Invio Messaggio nella Chat del Ticket
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !user) return;
+    if (!newMessage.trim() || !user || !selectedTicketId) return;
 
     if (typingChannelRef.current) {
       typingChannelRef.current.send({
@@ -428,65 +379,111 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
       });
     }
 
+    const currentTicket = tickets.find(t => t.id === selectedTicketId);
     let targetReceiver = null;
-    if (isAdmin) {
-      targetReceiver = selectedUser;
-    } else {
-      // Se l'utente ha scelto un admin specifico dalla select:
-      if (selectedAdminId && selectedAdminId !== 'ALL') {
-        targetReceiver = selectedAdminId;
-      } else {
-        // Se c'è già una conversazione attiva, prendi l'admin che ha risposto
-        const lastAdminMsg = messages.slice().reverse().find(m => m.sender_id !== user.id);
-        targetReceiver = lastAdminMsg?.sender_id; 
 
-        if (!targetReceiver) {
-          // Fallback sul primo admin disponibile nella lista
-          targetReceiver = adminsList[0]?.id;
-        }
-      }
+    if (isAdmin) {
+      targetReceiver = currentTicket?.user_id;
+    } else {
+      targetReceiver = currentTicket?.assigned_admin_id !== 'ALL' 
+        ? currentTicket?.assigned_admin_id 
+        : adminsList[0]?.id;
     }
 
     if (!targetReceiver) {
-      toast.error('Nessun amministratore selezionato o disponibile a ricevere il messaggio.');
-      return;
+      targetReceiver = user.id;
     }
 
-    const msg = {
+    const msgPayload = {
       sender_id: user.id,
       receiver_id: targetReceiver,
       content: newMessage.trim(),
-      read: false
+      read: false,
+      created_at: new Date().toISOString()
     };
 
     // Optimistic UI
-    setMessages(prev => [...prev, { ...msg, id: Math.random().toString(), created_at: new Date().toISOString() }]);
+    setMessages(prev => [...prev, { ...msgPayload, id: Math.random().toString() }]);
     setNewMessage('');
 
-    const { error } = await supabase.from('messages').insert([msg]);
+    const { error } = await supabase.from('messages').insert([msgPayload]);
     if (error) {
-      console.error("Errore invio messaggio:", error);
-      toast.error("Errore nell'invio del messaggio");
+      console.error('Errore invio messaggio:', error);
+      toast.error('Errore nell\'invio del messaggio.');
     }
   };
 
-  const formatTime = (dateStr) => {
-    return new Date(dateStr).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  // 8. Esportazione della chat del ticket
+  const handleExportChat = () => {
+    if (!messages.length) {
+      toast.error('Nessun messaggio da esportare.');
+      return;
+    }
+
+    const currentTicket = tickets.find(t => t.id === selectedTicketId);
+    let text = `=== TICKET #${selectedTicketId} ===\n`;
+    text += `Oggetto: ${currentTicket?.subject || 'Supporto'}\n`;
+    text += `Cliente: ${currentTicket?.user_name} (${currentTicket?.user_email})\n`;
+    text += `Priorità: ${currentTicket?.priority || 'Media'}\n`;
+    text += `Stato: ${currentTicket?.status || 'non_completato'}\n\n`;
+    text += `=== CRONOLOGIA MESSAGGI ===\n\n`;
+
+    messages.forEach(m => {
+      const isMe = m.sender_id === user?.id;
+      const date = new Date(m.created_at).toLocaleString('it-IT');
+      const senderName = isMe ? "Io" : (isAdmin ? "Cliente" : "Supporto Admin");
+      text += `[${date}] ${senderName}:\n${m.content}\n\n`;
+    });
+
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Ticket_${selectedTicketId}_Export.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast.success('📥 Chat del ticket esportata con successo!');
   };
 
-  // Helper badge stato
+  // 9. Eliminazione Ticket
+  const confirmDeleteTicket = async () => {
+    if (!selectedTicketId) return;
+    setDeleting(true);
+
+    try {
+      const updatedTickets = tickets.filter(t => t.id !== selectedTicketId);
+      setTickets(updatedTickets);
+      try {
+        localStorage.setItem('support_tickets_v2', JSON.stringify(updatedTickets));
+      } catch(e){}
+
+      setSelectedTicketId(null);
+      setMessages([]);
+      toast.success('🗑️ Ticket eliminato con successo!');
+    } catch (err) {
+      toast.error('Impossibile eliminare il ticket.');
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
+  // Helper per badges di stato e priorità
   const getStatusBadge = (statusKey) => {
     switch (statusKey) {
       case 'completato':
         return (
-          <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1 shadow-2xs">
+          <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1 shrink-0">
             <CheckCircle className="w-3 h-3 text-emerald-600" />
             Completato
           </span>
         );
       case 'annullato':
         return (
-          <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1 shadow-2xs">
+          <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1 shrink-0">
             <XCircle className="w-3 h-3 text-rose-600" />
             Annullato
           </span>
@@ -494,200 +491,207 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
       case 'non_completato':
       default:
         return (
-          <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1 shadow-2xs">
+          <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1 shrink-0">
             <Clock className="w-3 h-3 text-amber-600" />
-            Non completato
+            Aperto
           </span>
         );
     }
   };
 
-  // Filtro conversazioni per l'admin
-  const filteredConversations = conversations.filter(c => {
+  const getPriorityBadge = (prio) => {
+    switch (prio) {
+      case 'Urgente':
+        return <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">🔴 Urgente</span>;
+      case 'Alta':
+        return <span className="text-[10px] font-bold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200">🟠 Alta</span>;
+      case 'Bassa':
+        return <span className="text-[10px] font-bold text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">🟢 Bassa</span>;
+      case 'Media':
+      default:
+        return <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">🔵 Media</span>;
+    }
+  };
+
+  // Ticket filtrati per utente/admin
+  const visibleTickets = tickets.filter(t => {
+    // Se non è admin, mostra solo i ticket dell'utente loggato
+    if (!isAdmin && t.user_id !== user?.id) return false;
+
+    // Filtro di ricerca per testo
     const matchesSearch = 
-      (c.full_name || '').toLowerCase().includes(search.toLowerCase()) || 
-      (c.email || '').toLowerCase().includes(search.toLowerCase());
+      (t.subject || '').toLowerCase().includes(search.toLowerCase()) ||
+      (t.user_name || '').toLowerCase().includes(search.toLowerCase()) ||
+      (t.user_email || '').toLowerCase().includes(search.toLowerCase()) ||
+      (t.id || '').toLowerCase().includes(search.toLowerCase());
 
     if (!matchesSearch) return false;
 
+    // Filtro per stato ticket
     if (statusFilter === 'ALL') return true;
-    const cStatus = ticketStatuses[c.id] || 'non_completato';
-    return cStatus === statusFilter;
+    return t.status === statusFilter;
   });
 
-  const activeUserId = isAdmin ? selectedUser : user?.id;
-  const currentTicketStatus = ticketStatuses[activeUserId] || 'non_completato';
+  const selectedTicket = tickets.find(t => t.id === selectedTicketId);
 
   return (
     <div className="flex h-[calc(100vh-120px)] bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 overflow-hidden relative">
       
-      {/* SIDEBAR (Solo Admin) */}
-      {isAdmin && (
-        <div className="w-80 border-r border-gray-200 dark:border-slate-800 flex flex-col bg-gray-50 dark:bg-slate-900/50">
-          <div className="p-4 border-b border-gray-200 dark:border-slate-800 space-y-3">
-            <h2 className="text-base font-bold text-gray-900 dark:text-gray-100 flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <MessageCircle className="w-5 h-5 text-indigo-500" />
-                Ticket & Chat
-              </span>
-              <span className="text-xs bg-indigo-100 text-indigo-700 font-semibold px-2 py-0.5 rounded-full">
-                {filteredConversations.length}
-              </span>
+      {/* SIDEBAR TICKET (Visibile sia a Admin che a Utenti) */}
+      <div className="w-80 border-r border-gray-200 dark:border-slate-800 flex flex-col bg-gray-50 dark:bg-slate-900/50">
+        
+        {/* Sidebar Header */}
+        <div className="p-4 border-b border-gray-200 dark:border-slate-800 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+              <LifeBuoy className="w-5 h-5 text-indigo-600" />
+              {isAdmin ? 'Tutti i Ticket' : 'I miei Ticket'}
             </h2>
 
-            {/* Cerca utente */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Cerca utente..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-1.5 text-xs bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-
-            {/* Filtro Stato Ticket */}
-            <div className="flex items-center gap-1 bg-gray-200/60 dark:bg-slate-800 p-1 rounded-lg text-[10px] font-medium">
+            {/* Bottone per Aprire Nuovo Ticket (Utenti) */}
+            {!isAdmin && (
               <button
-                type="button"
-                onClick={() => setStatusFilter('ALL')}
-                className={`flex-1 py-1 rounded text-center transition ${statusFilter === 'ALL' ? 'bg-white dark:bg-slate-700 font-bold text-indigo-600 shadow-2xs' : 'text-gray-600 dark:text-gray-400'}`}
+                onClick={() => setShowNewTicketModal(true)}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-xs"
               >
-                Tutti
+                <Plus className="w-4 h-4" /> Nuovo Ticket
               </button>
-              <button
-                type="button"
-                onClick={() => setStatusFilter('non_completato')}
-                className={`flex-1 py-1 rounded text-center transition ${statusFilter === 'non_completato' ? 'bg-amber-500 text-white font-bold shadow-2xs' : 'text-gray-600 dark:text-gray-400'}`}
-              >
-                In corso
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatusFilter('completato')}
-                className={`flex-1 py-1 rounded text-center transition ${statusFilter === 'completato' ? 'bg-emerald-600 text-white font-bold shadow-2xs' : 'text-gray-600 dark:text-gray-400'}`}
-              >
-                Chiusi
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            {filteredConversations.length === 0 ? (
-              <div className="p-6 text-center text-xs text-gray-400 italic">
-                Nessun ticket trovato con questo filtro
-              </div>
-            ) : (
-              filteredConversations.map(c => {
-                const status = ticketStatuses[c.id] || 'non_completato';
-                return (
-                  <button
-                    key={c.id}
-                    onClick={() => setSelectedUser(c.id)}
-                    className={`w-full p-3.5 flex items-center gap-3 border-b border-gray-100 dark:border-slate-800/50 hover:bg-white dark:hover:bg-slate-800 transition-colors ${selectedUser === c.id ? 'bg-white dark:bg-slate-800 border-l-4 border-l-indigo-500 shadow-2xs' : ''}`}
-                  >
-                    <div className="w-9 h-9 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-xs shrink-0">
-                      {(c.full_name || c.email).charAt(0).toUpperCase()}
-                    </div>
-                    <div className="text-left flex-1 min-w-0">
-                      <div className="flex items-center justify-between w-full mb-1">
-                        <span className="flex items-center gap-1.5 truncate font-semibold text-xs text-gray-900 dark:text-gray-100">
-                          {c.full_name || 'Utente'}
-                          {onlineUsers.has(c.id) && <span className="w-2 h-2 rounded-full bg-green-500" title="Online"></span>}
-                        </span>
-                        {unreadCounts[c.id] > 0 && (
-                          <span className="min-w-[1.1rem] h-4 px-1 rounded-full bg-rose-500 flex items-center justify-center text-[9px] font-bold text-white shadow-2xs">
-                            {unreadCounts[c.id]}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <p className="text-[11px] text-gray-400 truncate max-w-[110px]">{c.email}</p>
-                        {getStatusBadge(status)}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })
             )}
           </div>
-        </div>
-      )}
 
-      {/* CHAT AREA */}
+          {/* Cerca Ticket */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder={isAdmin ? "Cerca utente, oggetto..." : "Cerca tra i tuoi ticket..."}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-1.5 text-xs bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          {/* Filtro Stato Ticket */}
+          <div className="flex items-center gap-1 bg-gray-200/60 dark:bg-slate-800 p-1 rounded-lg text-[10px] font-semibold">
+            <button
+              type="button"
+              onClick={() => setStatusFilter('ALL')}
+              className={`flex-1 py-1 rounded text-center transition ${statusFilter === 'ALL' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-2xs font-bold' : 'text-gray-600 dark:text-gray-400'}`}
+            >
+              Tutti ({visibleTickets.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('non_completato')}
+              className={`flex-1 py-1 rounded text-center transition ${statusFilter === 'non_completato' ? 'bg-amber-500 text-white font-bold shadow-2xs' : 'text-gray-600 dark:text-gray-400'}`}
+            >
+              Aperti
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('completato')}
+              className={`flex-1 py-1 rounded text-center transition ${statusFilter === 'completato' ? 'bg-emerald-600 text-white font-bold shadow-2xs' : 'text-gray-600 dark:text-gray-400'}`}
+            >
+              Chiusi
+            </button>
+          </div>
+        </div>
+
+        {/* Lista dei Ticket */}
+        <div className="flex-1 overflow-y-auto">
+          {visibleTickets.length === 0 ? (
+            <div className="p-6 text-center text-xs text-gray-400 italic space-y-2">
+              <FileText className="w-8 h-8 mx-auto text-gray-300 dark:text-gray-600" />
+              <p>Nessun ticket presente in questa sezione</p>
+              {!isAdmin && (
+                <button
+                  onClick={() => setShowNewTicketModal(true)}
+                  className="mt-2 text-indigo-600 font-bold hover:underline block mx-auto text-xs"
+                >
+                  + Clicca qui per aprire un nuovo ticket
+                </button>
+              )}
+            </div>
+          ) : (
+            visibleTickets.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setSelectedTicketId(t.id)}
+                className={`w-full p-3.5 flex flex-col gap-1.5 border-b border-gray-100 dark:border-slate-800/50 hover:bg-white dark:hover:bg-slate-800 transition-colors text-left ${selectedTicketId === t.id ? 'bg-white dark:bg-slate-800 border-l-4 border-l-indigo-600 shadow-2xs' : ''}`}
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="font-bold text-xs text-gray-900 dark:text-gray-100 truncate max-w-[160px]">
+                    {t.subject}
+                  </span>
+                  {getStatusBadge(t.status)}
+                </div>
+
+                <div className="flex items-center justify-between w-full text-[11px] text-gray-500">
+                  <span className="truncate max-w-[140px] font-medium text-gray-600 dark:text-gray-400">
+                    {isAdmin ? `👤 ${t.user_name}` : `📌 #${t.id.slice(-4).toUpperCase()}`}
+                  </span>
+                  {getPriorityBadge(t.priority)}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+
+      </div>
+
+      {/* CHAT AREA DEL TICKET SELEZIONATO */}
       <div className="flex-1 flex flex-col bg-white dark:bg-slate-900">
-        {(!isAdmin || selectedUser) ? (
+        {selectedTicket ? (
           <>
-            {/* Chat Header */}
+            {/* Header del Ticket Attivo */}
             <div className="p-4 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-wrap items-center justify-between gap-3 shadow-2xs z-10">
               
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white shrink-0">
-                  <User className="w-5 h-5" />
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center text-white shrink-0 font-bold text-xs">
+                  #{selectedTicket.id.slice(-4).toUpperCase()}
                 </div>
                 <div>
-                  <h3 className="font-semibold text-sm text-gray-900 dark:text-white flex items-center gap-2">
-                    {isAdmin ? 'Utente Selezionato' : 'Assistenza Tecnica Supporto'}
-                  </h3>
-                  
-                  {/* Per utente standard: Select Amministratore */}
-                  {!isAdmin && (
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <ShieldCheck className="w-3.5 h-3.5 text-indigo-500" />
-                      <span className="text-xs text-gray-500 font-medium">Invia a:</span>
-                      <select
-                        value={selectedAdminId}
-                        onChange={(e) => setSelectedAdminId(e.target.value)}
-                        className="text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md px-2 py-0.5 focus:ring-1 focus:ring-indigo-500"
-                      >
-                        <option value="ALL">📢 Tutti gli Amministratori</option>
-                        {adminsList.map(a => (
-                          <option key={a.id} value={a.id}>
-                            👤 {a.full_name || a.name || a.email}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  {isAdmin && (
-                    onlineUsers.has(selectedUser) 
-                      ? <p className="text-xs text-green-500 font-medium">Utente Online</p>
-                      : <p className="text-xs text-gray-400 font-medium">Utente Offline</p>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-sm text-gray-900 dark:text-white">
+                      {selectedTicket.subject}
+                    </h3>
+                    {getPriorityBadge(selectedTicket.priority)}
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {isAdmin ? `Cliente: ${selectedTicket.user_name} (${selectedTicket.user_email})` : `Inviato il ${new Date(selectedTicket.created_at).toLocaleDateString('it-IT')}`}
+                  </p>
                 </div>
               </div>
 
-              {/* Selettore Stato Ticket (Visibile sia ad Admin che a Utente) */}
-              <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1.5 rounded-xl">
-                <span className="text-xs font-bold text-gray-600 dark:text-gray-300 hidden sm:inline">
-                  Stato Ticket:
-                </span>
-                <select
-                  value={currentTicketStatus}
-                  onChange={(e) => handleChangeTicketStatus(e.target.value)}
-                  className="text-xs font-bold bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded-lg px-2.5 py-1 focus:ring-2 focus:ring-indigo-500 shadow-2xs"
-                >
-                  <option value="non_completato">🟠 Non completato (In corso)</option>
-                  <option value="completato">🟢 Completato</option>
-                  <option value="annullato">🔴 Annullato</option>
-                </select>
-              </div>
+              {/* Selettore Modifica Stato del Ticket */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1 rounded-xl">
+                  <span className="text-xs font-bold text-gray-600 dark:text-gray-300 hidden sm:inline">
+                    Stato:
+                  </span>
+                  <select
+                    value={selectedTicket.status || 'non_completato'}
+                    onChange={(e) => handleChangeTicketStatus(e.target.value)}
+                    className="text-xs font-bold bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-600 rounded-lg px-2.5 py-1 focus:ring-2 focus:ring-indigo-500 shadow-2xs"
+                  >
+                    <option value="non_completato">🟠 Non completato (Aperto)</option>
+                    <option value="completato">🟢 Completato (Risolto)</option>
+                    <option value="annullato">🔴 Annullato</option>
+                  </select>
+                </div>
 
-              {/* Azioni Esporta / Elimina */}
-              <div className="flex items-center gap-1">
+                {/* Azioni Esporta / Elimina */}
                 <button
                   onClick={handleExportChat}
                   className="p-2 text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors"
-                  title="Esporta Chat (.txt)"
+                  title="Esporta Chat Ticket (.txt)"
                 >
                   <Download className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
                   className="p-2 text-gray-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-colors"
-                  title="Elimina Conversazione"
+                  title="Elimina Ticket"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -703,24 +707,33 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
               </div>
             </div>
 
-            {/* Messages Area */}
+            {/* Descrizione Iniziale del Ticket */}
+            <div className="bg-indigo-50/60 dark:bg-indigo-950/30 border-b border-indigo-100 dark:border-indigo-900/50 p-3.5 px-6 text-xs text-indigo-950 dark:text-indigo-200 flex items-start gap-2.5 shrink-0">
+              <CornerDownRight className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-indigo-900 dark:text-indigo-100 block mb-0.5">Descrizione Iniziale del Ticket:</span>
+                <p className="whitespace-pre-wrap text-indigo-800 dark:text-indigo-300">{selectedTicket.description}</p>
+              </div>
+            </div>
+
+            {/* Area Messaggi Chat */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-slate-50 dark:bg-slate-900/50">
-              {loading && messages.length === 0 ? (
+              {loading ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
                 </div>
               ) : messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-400 space-y-2">
                   <MessageCircle className="w-12 h-12 text-gray-300 dark:text-gray-600" />
-                  <p className="font-semibold text-sm text-gray-600 dark:text-gray-300">Nessun messaggio in questo ticket</p>
-                  <p className="text-xs text-gray-400">Scrivi qui sotto per inviare la richiesta all'amministratore</p>
+                  <p className="font-semibold text-sm text-gray-600 dark:text-gray-300">La chat di questo ticket è attiva</p>
+                  <p className="text-xs text-gray-400">Scrivi un messaggio per rispondere</p>
                 </div>
               ) : (
                 messages.map((msg, idx) => {
                   const isMe = msg.sender_id === user.id;
-                  const isSystem = msg.content?.startsWith('📌 Stato del ticket');
+                  const isSystem = msg.content?.startsWith('📌 Stato del ticket') || msg.content?.startsWith('🎫 **NUOVO TICKET');
 
-                  if (isSystem) {
+                  if (isSystem && msg.content?.startsWith('📌 Stato del ticket')) {
                     return (
                       <div key={msg.id || idx} className="flex justify-center my-2">
                         <span className="px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-xs font-semibold rounded-full border border-amber-200 dark:border-amber-800/60 shadow-2xs flex items-center gap-1.5">
@@ -763,14 +776,14 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Area */}
+            {/* Input Form Risposta Chat */}
             <div className="p-4 bg-white dark:bg-slate-900 border-t border-gray-200 dark:border-slate-800">
               <form onSubmit={handleSendMessage} className="flex gap-2">
                 <input
                   type="text"
                   value={newMessage}
                   onChange={(e) => { setNewMessage(e.target.value); handleTyping(); }}
-                  placeholder="Scrivi un messaggio al supporto..."
+                  placeholder="Scrivi una risposta per questo ticket..."
                   className="flex-1 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-full px-5 py-2.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
                 />
                 <button
@@ -784,17 +797,144 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
             </div>
           </>
         ) : (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400 p-6 text-center">
-            <MessageCircle className="w-16 h-16 mb-4 text-gray-200 dark:text-gray-700" />
-            <h3 className="text-base font-bold text-gray-700 dark:text-gray-300">Seleziona un Ticket o Utente</h3>
-            <p className="text-xs text-gray-400 mt-1 max-w-sm">
-              Scegli un cliente dalla colonna di sinistra per iniziare la conversazione ed aggiornarne lo stato.
+          <div className="flex flex-col items-center justify-center h-full text-gray-400 p-6 text-center space-y-3">
+            <LifeBuoy className="w-16 h-16 text-indigo-300 dark:text-slate-700" />
+            <h3 className="text-base font-bold text-gray-700 dark:text-gray-300">
+              Seleziona un Ticket o Apri un Nuovo Ticket
+            </h3>
+            <p className="text-xs text-gray-400 max-w-sm">
+              {isAdmin 
+                ? 'Scegli un ticket dalla lista a sinistra per chattare con il cliente e modificarne lo stato.'
+                : 'Seleziona un tuo ticket o clicca su "+ Nuovo Ticket" per ricevere assistenza.'}
             </p>
+            {!isAdmin && (
+              <button
+                onClick={() => setShowNewTicketModal(true)}
+                className="mt-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition shadow-md flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" /> Apri Nuovo Ticket di Supporto
+              </button>
+            )}
           </div>
         )}
       </div>
 
-      {/* POPUP MODALE CONFERMA ELIMINAZIONE CHAT (Al posto di window.confirm) */}
+      {/* FORM MODALE PER CREARE UN NUOVO TICKET (Lato Utente) */}
+      {showNewTicketModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[80] p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-100 dark:border-slate-700">
+            
+            {/* Header Modale */}
+            <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 text-white flex justify-between items-center">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center shrink-0">
+                  <LifeBuoy className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold">Apri Nuovo Ticket di Supporto</h3>
+                  <p className="text-indigo-100 text-xs">Richiedi assistenza tecnica agli amministratori</p>
+                </div>
+              </div>
+              <button onClick={() => setShowNewTicketModal(false)} className="p-1.5 hover:bg-white/20 rounded-lg transition">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form Modale */}
+            <form onSubmit={handleCreateTicket} className="p-5 space-y-4 text-xs">
+              
+              {/* Oggetto Ticket */}
+              <div>
+                <label className="block font-bold text-gray-800 dark:text-gray-200 mb-1">
+                  Oggetto del Ticket *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newTicketSubject}
+                  onChange={e => setNewTicketSubject(e.target.value)}
+                  placeholder="Es. Problema invio email campagna o chiarimento fattura"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 font-medium"
+                />
+              </div>
+
+              {/* Seleziona Priorità & Destinatario Admin */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-gray-800 dark:text-gray-200 mb-1">
+                    Priorità *
+                  </label>
+                  <select
+                    value={newTicketPriority}
+                    onChange={e => setNewTicketPriority(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 font-medium"
+                  >
+                    <option value="Bassa">🟢 Bassa</option>
+                    <option value="Media">🔵 Media (Predefinita)</option>
+                    <option value="Alta">🟠 Alta</option>
+                    <option value="Urgente">🔴 Urgente</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-gray-800 dark:text-gray-200 mb-1">
+                    Amministratore *
+                  </label>
+                  <select
+                    value={newTicketAdminId}
+                    onChange={e => setNewTicketAdminId(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 font-medium"
+                  >
+                    <option value="ALL">📢 Tutti gli Amministratori</option>
+                    {adminsList.map(a => (
+                      <option key={a.id} value={a.id}>
+                        👤 {a.full_name || a.name || a.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Descrizione / Messaggio iniziale */}
+              <div>
+                <label className="block font-bold text-gray-800 dark:text-gray-200 mb-1">
+                  Descrizione Iniziale del Problema *
+                </label>
+                <textarea
+                  required
+                  rows={4}
+                  value={newTicketDescription}
+                  onChange={e => setNewTicketDescription(e.target.value)}
+                  placeholder="Descrivi dettagliatamente la tua richiesta di supporto..."
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-800 dark:text-white focus:ring-2 focus:ring-indigo-500 font-medium"
+                />
+              </div>
+
+              {/* Actions Footer */}
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowNewTicketModal(false)}
+                  disabled={creatingTicket}
+                  className="flex-1 px-4 py-2.5 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-200 rounded-xl font-medium transition"
+                >
+                  Annulla
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingTicket}
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/20"
+                >
+                  {creatingTicket ? 'Creazione in corso...' : '🚀 Crea Ticket e Avvia Chat'}
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* POPUP MODALE CONFERMA ELIMINAZIONE TICKET */}
       {showDeleteConfirm && (
         <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-gray-100 dark:border-slate-700 text-center space-y-4 animate-in fade-in duration-150">
@@ -802,9 +942,9 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
               <AlertTriangle className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-gray-900 dark:text-white">Eliminare l'intera conversazione?</h3>
+              <h3 className="text-sm font-bold text-gray-900 dark:text-white">Eliminare questo ticket?</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Tutti i messaggi in questo ticket verranno eliminati in modo permanente.
+                Il ticket e i relativi messaggi verranno rimossi permanentemente.
               </p>
             </div>
             <div className="flex gap-2 pt-2">
@@ -818,7 +958,7 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
               </button>
               <button
                 type="button"
-                onClick={confirmDeleteChat}
+                onClick={confirmDeleteTicket}
                 disabled={deleting}
                 className="flex-1 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md shadow-rose-600/20"
               >
