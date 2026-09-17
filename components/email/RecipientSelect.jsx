@@ -61,7 +61,12 @@ const RecipientSelect = ({
   }, []);
 
   const activeContacts = useMemo(() => 
-    contacts.filter(c => c.status === 'active'), 
+    contacts.filter(c => {
+      if (!c) return false;
+      if (!c.status) return true;
+      const s = String(c.status).toLowerCase();
+      return s === 'active' || s === 'attivo' || s === 'approved';
+    }), 
     [contacts]
   );
 

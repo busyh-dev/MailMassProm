@@ -1500,11 +1500,18 @@ const fetchTagLabels = async () => {
 
 // ✅ NUOVA FUNZIONE - aggiungi prima di confirmSend
 // ✅ Aggiungi in EmailPlatform, fuori da tutti i componenti
+const isContactActive = (c) => {
+  if (!c) return false;
+  if (!c.status) return true;
+  const s = String(c.status).toLowerCase();
+  return s === 'active' || s === 'attivo' || s === 'approved';
+};
+
 const resolveRecipientEmails = (recipientList, contacts, tagLabels = []) => {
   if (!Array.isArray(recipientList)) return [];
   
   if (recipientList.includes('all')) {
-    return contacts.filter(c => c.status === 'active').map(c => c.email);
+    return contacts.filter(isContactActive).map(c => c.email);
   }
 
   const emailSet = new Set();
@@ -1513,19 +1520,19 @@ const resolveRecipientEmails = (recipientList, contacts, tagLabels = []) => {
     if (val.startsWith('tag:')) {
       const tagValue = val.replace('tag:', '');
       contacts
-        .filter(c => c.status === 'active' && c.tags?.includes(tagValue))
+        .filter(c => isContactActive(c) && c.tags?.includes(tagValue))
         .forEach(c => emailSet.add(c.email));
     } else if (val.startsWith('label:')) {
       const labelId = val.replace('label:', '');
       contacts
-        .filter(c => c.status === 'active' && c.contact_label_id === labelId)
+        .filter(c => isContactActive(c) && (c.contact_label_id === labelId || String(c.contact_label_id) === String(labelId)))
         .forEach(c => emailSet.add(c.email));
     } else if (val.startsWith('tag_label:')) {
       const tagLabelId = val.replace('tag_label:', '');
-      const tl = tagLabels.find(t => t.id === tagLabelId);
+      const tl = tagLabels.find(t => String(t.id) === String(tagLabelId));
       if (tl) {
         contacts
-          .filter(c => c.status === 'active' && c.tag_labels?.includes(tl.label))
+          .filter(c => isContactActive(c) && c.tag_labels?.includes(tl.label))
           .forEach(c => emailSet.add(c.email));
       }
     }
@@ -3348,9 +3355,16 @@ useEffect(() => {
     }
     try {
       const { data } = await supabase
-        .from('contacts')
+        .from('contacts_full')
         .select('id, name, email, contact_label_id, status, tags, tag_labels');
-      if (data) setLocalContacts(data);
+      if (data && data.length > 0) {
+        setLocalContacts(data);
+      } else {
+        const { data: fallback } = await supabase
+          .from('contacts')
+          .select('id, name, email, contact_label_id, status, tags, tag_labels');
+        setLocalContacts(fallback || []);
+      }
     } catch (err) {
       console.warn('Errore fetch localContacts per modal:', err);
     }
@@ -4212,13 +4226,9 @@ useEffect(() => {
       const [{ data: labels }, { data: tLabels }, { data: contactsData }] = await Promise.all([
         supabase.from('contact_labels').select('*').eq('user_id', session.user.id),
         supabase.from('tag_labels').select('*').eq('user_id', session.user.id),
-        // ✅ Carica SOLO i contatti rilevanti senza limite
         supabase
           .from('contacts_full')
           .select('id, name, email, contact_label_id, status, tags, tag_labels')
-          .eq('user_id', session.user.id)
-          .eq('status', 'active')
-          .in('contact_label_id', labelIds.length > 0 ? labelIds : ['__none__'])
       ]);
 
       setContactLabels(labels || []);
@@ -6033,7 +6043,9 @@ setTimeout(() => {
             </th>
           ))}
 
-          <th className="px-6 py-3"></th>
+          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase whitespace-nowrap min-w-[260px]">
+            Azioni
+          </th>
         </tr>
       </thead>
 
@@ -6043,7 +6055,7 @@ setTimeout(() => {
           const formatted = date ? new Date(date).toLocaleString("it-IT") : "-";
 
           return (
-            <tr key={campaigns.id}>
+            <tr key={campaigns.id} className="hover:bg-gray-50/80 transition-colors">
               <td className="px-6 py-4">
                 <input
                   type="checkbox"
@@ -6063,7 +6075,7 @@ setTimeout(() => {
                       : "bg-indigo-100 text-indigo-800"
                   }`}
                 >
-                  {campaigns.status}
+                  {campaigns.status === "sent" ? "Inviata" : campaigns.status === "draft" ? "Bozza" : campaigns.status}
                 </span>
               </td>
 
@@ -6071,72 +6083,74 @@ setTimeout(() => {
 
               <td className="px-6 py-4">{campaigns.opened_count || 0}</td>
 
-              <td className="px-6 py-4 text-gray-500">{formatted}</td>
+              <td className="px-6 py-4 text-gray-500 whitespace-nowrap">{formatted}</td>
 
-              <td className="px-6 py-4 space-x-2 text-right">
-  {/* ✨Å VEDI */}
+              <td className="px-6 py-4 text-right whitespace-nowrap">
+                <div className="flex justify-end items-center gap-1.5">
+                  <button
+                    onClick={() => {
+                      setSelectedCampaign(campaigns);
+                      setShowViewModal(true);
+                    }}
+                    className="px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-md transition-colors inline-flex items-center gap-1.5"
+                    title="Vedi dettagli"
+                  >
+                    <Eye className="w-3.5 h-3.5" /> Vedi
+                  </button>
 
-  <div className="flex justify-end items-center gap-2 text-sm">
+                  <button
+                    onClick={() => {
+                      setSelectedCampaign(campaigns);
+                      setShowEditModal(true);
+                    }}
+                    className="px-2.5 py-1 text-xs font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-md transition-colors inline-flex items-center gap-1.5"
+                    title="Modifica campagna"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" /> Modifica
+                  </button>
 
-    <button
-      onClick={() => {
-        setSelectedCampaign(campaigns);
-        setShowViewModal(true);
-      }}
-      className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800"
-    >
-      <Eye className="w-4 h-4" /> Vedi
-    </button>
+                  {campaigns.status === "draft" && (
+                    <button
+                      onClick={() => handleSendCampaign(campaigns)}
+                      className="px-2.5 py-1 text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-md transition-colors inline-flex items-center gap-1.5"
+                      title="Invia campagna"
+                    >
+                      <Send className="w-3.5 h-3.5" /> Invia
+                    </button>
+                  )}
 
-    <button
-      onClick={() => {
-        setSelectedCampaign(campaigns);
-        setShowEditModal(true);
-      }}
-      className="inline-flex items-center gap-1 text-gray-600 hover:text-gray-900"
-    >
-      <Edit3 className="w-4 h-4" /> Modifica
-    </button>
+                  {campaigns.status === "scheduled" && (
+                    <button
+                      onClick={() => handleSendCampaign(campaigns)}
+                      className="px-2.5 py-1 text-xs font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-md transition-colors inline-flex items-center gap-1.5"
+                      title="Invia ora"
+                    >
+                      <Send className="w-3.5 h-3.5" /> Invia
+                    </button>
+                  )}
 
-    {campaigns.status === "draft" && (
-      <button
-        onClick={() => handleSendCampaign(campaigns)}
-        className="inline-flex items-center gap-1 text-green-600 hover:text-green-800"
-      >
-        <Send className="w-4 h-4" /> Invia
-      </button>
-    )}
+                  {campaigns.status === "sent" && (
+                    <button
+                      onClick={() => handleResendCampaign(campaigns)}
+                      className="px-2.5 py-1 text-xs font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-md transition-colors inline-flex items-center gap-1.5"
+                      title="Re-invia campagna"
+                    >
+                      <Send className="w-3.5 h-3.5 rotate-180" /> Re-invia
+                    </button>
+                  )}
 
-{campaigns.status === "scheduled" && (
-  <button
-    onClick={() => handleSendCampaign(campaigns)}
-    className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-800"
-  >
-    <Send className="w-4 h-4" /> Invia
-  </button>
-)}
-
-    {campaigns.status === "sent" && (
-      <button
-        onClick={() => handleResendCampaign(campaigns)}
-        className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-800"
-      >
-        <Send className="w-4 h-4 rotate-180" /> Re-invia
-      </button>
-    )}
-
-    <button
-      onClick={() => {
-        setSelectedCampaign(campaigns);
-        setShowDeleteConfirm(true);
-      }}
-      className="inline-flex items-center gap-1 text-red-600 hover:text-red-800"
-    >
-      <Trash2 className="w-4 h-4" /> Elimina
-    </button>
-
-  </div>
-</td>
+                  <button
+                    onClick={() => {
+                      setSelectedCampaign(campaigns);
+                      setShowDeleteConfirm(true);
+                    }}
+                    className="px-2.5 py-1 text-xs font-medium bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-md transition-colors inline-flex items-center gap-1.5"
+                    title="Elimina campagna"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Elimina
+                  </button>
+                </div>
+              </td>
 
             </tr>
           );
