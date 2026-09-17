@@ -1507,7 +1507,21 @@ const isContactActive = (c) => {
   return s === 'active' || s === 'attivo' || s === 'approved';
 };
 
-const resolveRecipientEmails = (recipientList, contacts, tagLabels = []) => {
+const parseContactIds = (raw) => {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map(id => String(id));
+  if (typeof raw === 'string') {
+    try {
+      const p = JSON.parse(raw);
+      if (Array.isArray(p)) return p.map(id => String(id));
+    } catch {
+      return raw.split(',').map(s => s.trim()).filter(Boolean);
+    }
+  }
+  return [];
+};
+
+const resolveRecipientEmails = (recipientList, contacts, tagLabels = [], savedLists = []) => {
   if (!Array.isArray(recipientList)) return [];
   
   if (recipientList.includes('all')) {
@@ -1522,10 +1536,18 @@ const resolveRecipientEmails = (recipientList, contacts, tagLabels = []) => {
       contacts
         .filter(c => isContactActive(c) && c.tags?.includes(tagValue))
         .forEach(c => emailSet.add(c.email));
-    } else if (val.startsWith('label:')) {
-      const labelId = val.replace('label:', '');
+    } else if (val.startsWith('label:') || val.startsWith('list:')) {
+      const labelId = val.replace(/^label:|^list:/, '');
+      const listObj = (savedLists || []).find(l => String(l.id) === String(labelId));
+      const listIds = new Set(parseContactIds(listObj?.contact_ids));
+
       contacts
-        .filter(c => isContactActive(c) && (c.contact_label_id === labelId || String(c.contact_label_id) === String(labelId)))
+        .filter(c => isContactActive(c) && (
+          listIds.has(String(c.id)) || 
+          listIds.has(Number(c.id)) || 
+          String(c.contact_label_id) === String(labelId) ||
+          String(c.list_id) === String(labelId)
+        ))
         .forEach(c => emailSet.add(c.email));
     } else if (val.startsWith('tag_label:')) {
       const tagLabelId = val.replace('tag_label:', '');
@@ -15648,39 +15670,8 @@ try {
       toast.error("Errore nel salvataggio: " + error.message);
     }
   };
-// ✅ NUOVA FUNZIONE - aggiungi prima di confirmSend
-const resolveRecipientEmails = (recipientList, contacts, tagLabels = []) => {
-  if (!Array.isArray(recipientList)) return [];
-  
-  if (recipientList.includes('all')) {
-    return contacts.filter(c => c.status === 'active').map(c => c.email);
-  }
-
-  const emailSet = new Set();
-
-  recipientList.forEach(val => {
-    if (val.startsWith('tag:')) {
-      const tagValue = val.replace('tag:', '');
-      contacts
-        .filter(c => c.status === 'active' && c.tags?.includes(tagValue))
-        .forEach(c => emailSet.add(c.email));
-    } else if (val.startsWith('label:')) {
-      const labelId = val.replace('label:', '');
-      contacts
-        .filter(c => c.status === 'active' && c.contact_label_id === labelId)
-        .forEach(c => emailSet.add(c.email));
-    } else if (val.startsWith('tag_label:')) {
-      const tagLabelId = val.replace('tag_label:', '');
-      const tl = tagLabels.find(t => t.id === tagLabelId);
-      if (tl) {
-        contacts
-          .filter(c => c.status === 'active' && c.tag_labels?.includes(tl.label))
-          .forEach(c => emailSet.add(c.email));
-      }
-    }
-  });
-
-  return [...emailSet];
+const resolveRecipientEmailsModal = (recipientList, contacts, tagLabels = [], savedLists = []) => {
+  return resolveRecipientEmails(recipientList, contacts, tagLabels, savedLists);
 };
   // Conferma invio
   const confirmSend = async () => {

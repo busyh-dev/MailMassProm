@@ -36,23 +36,59 @@ const RecipientSelect = ({
   const [tagLabels, setTagLabels] = useState([]);
   const [loadingLabels, setLoadingLabels] = useState(false);
 
-  // ✅ Carica etichette e sotto-etichette al mount
+  // ✅ Carica etichette e liste contatti al mount
   React.useEffect(() => {
     const loadLabels = async () => {
       setLoadingLabels(true);
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-
-        const [{ data: labelsData }, { data: tagLabelsData }] = await Promise.all([
-          supabase.from('contact_labels').select('*').eq('user_id', user.id).order('nome'),
-          supabase.from('tag_labels').select('*, tags(id, label, color)').eq('user_id', user.id).order('label'),
+        const [{ data: listsData }, { data: labelsData }, { data: tagLabelsData }] = await Promise.all([
+          supabase.from('contact_lists').select('*').order('created_at', { ascending: false }),
+          supabase.from('contact_labels').select('*').order('nome'),
+          supabase.from('tag_labels').select('*, tags(id, label, color)').order('label'),
         ]);
 
-        setContactLabels(labelsData || []);
+        const parseIds = (raw) => {
+          if (!raw) return [];
+          if (Array.isArray(raw)) return raw.map(id => String(id));
+          if (typeof raw === 'string') {
+            try {
+              const p = JSON.parse(raw);
+              if (Array.isArray(p)) return p.map(id => String(id));
+            } catch {
+              return raw.split(',').map(s => s.trim()).filter(Boolean);
+            }
+          }
+          return [];
+        };
+
+        const combinedLists = [];
+        const seenIds = new Set();
+
+        (listsData || []).forEach(l => {
+          combinedLists.push({
+            id: l.id,
+            nome: l.name || l.title || l.label || l.nome || 'Lista',
+            contact_ids: parseIds(l.contact_ids),
+            color: l.color || '#3b82f6'
+          });
+          seenIds.add(String(l.id));
+        });
+
+        (labelsData || []).forEach(l => {
+          if (!seenIds.has(String(l.id))) {
+            combinedLists.push({
+              id: l.id,
+              nome: l.nome || l.name || l.title || 'Etichetta',
+              contact_ids: parseIds(l.contact_ids),
+              color: l.color || '#10b981'
+            });
+          }
+        });
+
+        setContactLabels(combinedLists);
         setTagLabels(tagLabelsData || []);
       } catch (err) {
-        console.error('Errore caricamento etichette:', err);
+        console.error('Errore caricamento liste in RecipientSelect:', err);
       } finally {
         setLoadingLabels(false);
       }
@@ -97,11 +133,15 @@ const RecipientSelect = ({
         });
       }
     } else if (filterMode === 'label') {
-      // Filtro per ETICHETTA CONTATTO
+      // Filtro per ETICHETTA / LISTA CONTATTO
       contactLabels.forEach(label => {
-        const count = activeContacts.filter(
-          c => c.contact_label_id === label.id
-        ).length;
+        const listIds = new Set(label.contact_ids || []);
+        const count = activeContacts.filter(c => {
+          if (listIds.has(String(c.id)) || listIds.has(Number(c.id))) return true;
+          if (label.id && (String(c.contact_label_id) === String(label.id) || String(c.list_id) === String(label.id))) return true;
+          return false;
+        }).length;
+
         options.push({
           value: `label:${label.id}`,
           label: `📌 ${label.nome} (${count})`,
