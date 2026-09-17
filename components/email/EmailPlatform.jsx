@@ -5005,6 +5005,7 @@ const [recipients, setRecipients] = useState([]);
   
     } catch (err) {
       console.error("❌ Errore invio:", err);
+      setSendingId(null);
       setSendingProgress({
         current: 0,
         total: 0,
@@ -5015,6 +5016,8 @@ const [recipients, setRecipients] = useState([]);
       setTimeout(() => {
         setShowSendingProgress(false);
       }, 3000);
+    } finally {
+      setSendingId(null);
     }
   };
 
@@ -6569,14 +6572,18 @@ setTimeout(() => {
             </p>
             <div className="flex justify-center gap-3">
               <button
-                onClick={() => setShowSendConfirm(false)}
-                className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg"
+                onClick={() => {
+                  setShowSendConfirm(false);
+                  setSelectedCampaign(null);
+                  setSendingId(null);
+                }}
+                className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition"
               >
                 Annulla
               </button>
               <button
                 onClick={confirmSend}
-                className="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg"
+                className="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition font-medium"
               >
                 Invia
               </button>
@@ -6597,14 +6604,18 @@ setTimeout(() => {
             </p>
             <div className="flex justify-center gap-3">
               <button
-                onClick={() => setShowResendConfirm(false)}
+                onClick={() => {
+                  setShowResendConfirm(false);
+                  setCampaignToResend(null);
+                  setSendingId(null);
+                }}
                 className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition"
               >
                 Annulla
               </button>
               <button
                 onClick={confirmResend}
-                className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition"
+                className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition font-medium"
               >
                 Re-invia ora
               </button>
