@@ -25649,6 +25649,15 @@ return (
         </div>
 
         {/* Modali interni */}
+        {showTagModal && (
+          <AddTagModal
+            show={showTagModal}
+            onClose={() => {
+              setShowTagModal(false);
+              fetchTags();
+            }}
+          />
+        )}
         {showContactLabelsModalLocal && (
           <ContactLabelsManagementModal show={showContactLabelsModalLocal}
             onClose={() => setShowContactLabelsModalLocal(false)}
