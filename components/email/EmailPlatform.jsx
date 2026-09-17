@@ -3641,19 +3641,22 @@ const confirmExit = () => {
               </select>
             ) : (
               <div className="w-full p-3 border border-yellow-300 bg-yellow-50 rounded-lg">
-                <p className="text-yellow-800 text-sm">
-                  ⚠️ Nessun account email configurato. 
-                  <button
-                    onClick={() => {
-                      // Naviga alla pagina settings o apri modal settings
-                      // window.location.hash = '#settings';
-                      onClose(); // ✅ Chiudi il modal
-                      setActiveTab('settings'); // ✅ Vai a settings
-                    }}
-                    className="text-blue-600 hover:underline ml-1"
-                  >
-                    Configura ora
-                  </button>
+                <p className="text-yellow-800 text-sm flex items-center justify-between">
+                  <span>⚠️ Nessun account email configurato.</span>
+                  {isAdmin ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        setActiveTab('settings');
+                      }}
+                      className="text-blue-600 hover:underline font-semibold ml-1"
+                    >
+                      Configura ora
+                    </button>
+                  ) : (
+                    <span className="text-xs text-yellow-700 italic">Contatta un amministratore</span>
+                  )}
                 </p>
               </div>
             )}
@@ -24253,17 +24256,22 @@ onClick={() => {
               </select>
             ) : (
               <div className="w-full p-3 border-2 border-yellow-300 bg-yellow-50 rounded-lg">
-                <p className="text-yellow-800 text-sm flex items-center gap-2">
+                <p className="text-yellow-800 text-sm flex items-center justify-between">
                   <span className="font-medium">⚠️ Nessun account email configurato.</span>
-                  <button
-                    onClick={() => {
-                      setShowCampaignModal(false);
-                      setActiveTab('settings');
-                    }}
-                    className="text-blue-600 hover:text-blue-800 underline font-semibold transition-colors"
-                  >
-                    Configura ora →
-                  </button>
+                  {isAdmin ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCampaignModal(false);
+                        setActiveTab('settings');
+                      }}
+                      className="text-blue-600 hover:text-blue-800 underline font-semibold transition-colors"
+                    >
+                      Configura ora →
+                    </button>
+                  ) : (
+                    <span className="text-xs text-yellow-700 italic">Contatta un amministratore</span>
+                  )}
                 </p>
               </div>
             )}

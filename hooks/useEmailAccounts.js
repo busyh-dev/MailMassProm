@@ -95,38 +95,22 @@ export const useEmailAccounts = (opts = {}) => {
         return { success: false, error: 'offline' };
       }
 
-      const { user } = await withRetry(async () => {
-        const { data, error } = await supabase.auth.getUser();
-        if (error) throw error;
-        return { user: data?.user || null };
-      }, { label: 'autenticazione' });
-
-      if (!user) {
-        // Nessun utente autenticato: uscita silenziosa (normale su pagine pubbliche come login)
-        safeSetAccounts([]);
-        return { success: false, error: 'not_authenticated' };
-      }
-
       const rows = await withRetry(async () => {
-        // ✅ Check ruolo utente per SuperAdmin
-        const { data: userProfile } = await supabase
-          .from('profiles')
-          .select('role_id, role:roles(name)')
-          .eq('id', user.id)
-          .maybeSingle();
-
-        const roleName = userProfile?.role?.name || userProfile?.role || '';
-        const isSuperAdminUser = ['super_admin', 'superAdmin', 'SuperAdmin'].includes(roleName) || userProfile?.role_id === 1;
-
-        let query = supabase
-          .from('email_accounts')
-          .select('*');
-
-        if (!isSuperAdminUser) {
-          query = query.eq('user_id', user.id);
+        try {
+          const res = await fetch('/api/email-accounts');
+          const result = await res.json();
+          if (result.success && Array.isArray(result.accounts) && result.accounts.length > 0) {
+            return result.accounts;
+          }
+        } catch (e) {
+          console.warn('API /api/email-accounts fallback in hook:', e);
         }
 
-        const { data, error } = await query.order('created_at', { ascending: false });
+        const { data, error } = await supabase
+          .from('email_accounts')
+          .select('*')
+          .order('created_at', { ascending: false });
+
         if (error) throw error;
         return data || [];
       }, { label: 'caricamento account' });
@@ -134,7 +118,7 @@ export const useEmailAccounts = (opts = {}) => {
       safeSetAccounts(rows);
       return { success: true, data: rows };
     } catch (err) {
-      toast.error(err?.message || 'Errore nel caricamento.');
+      console.warn('Errore nel caricamento account:', err);
       return { success: false, error: err?.message || 'unknown' };
     } finally {
       safeSetLoading(false);
