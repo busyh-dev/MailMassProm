@@ -3341,6 +3341,24 @@ const [tiptapEditor, setTiptapEditor] = useState(null);
 
 // ⚙️ Sincronizza i dati della campagna quando cambia o quando si apre la modale
 useEffect(() => {
+  const fetchModalContacts = async () => {
+    if (contacts && contacts.length > 0) {
+      setLocalContacts(contacts);
+      return;
+    }
+    try {
+      const { data } = await supabase
+        .from('contacts')
+        .select('id, name, email, contact_label_id, status, tags, tag_labels');
+      if (data) setLocalContacts(data);
+    } catch (err) {
+      console.warn('Errore fetch localContacts per modal:', err);
+    }
+  };
+  fetchModalContacts();
+}, [contacts]);
+
+useEffect(() => {
   if (!campaign) return;
 
   setEditorReady(false);
@@ -3852,7 +3870,7 @@ const confirmExit = () => {
 <RecipientSelect
   value={recipientList}
   onChange={setRecipientList}
-  contacts={localContacts}
+  contacts={contacts && contacts.length > 0 ? contacts : localContacts}
 />
             {/* 📎 Allegati */}
             <div>
