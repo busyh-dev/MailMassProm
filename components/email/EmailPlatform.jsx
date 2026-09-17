@@ -3365,16 +3365,16 @@ useEffect(() => {
   }) => {
     const saveCampaignFn = saveCampaignProp || saveCampaign;
     // 📋 Stati principali
-    const [campaignName, setCampaignName] = useState(campaign.name || "");
-    const [subject, setSubject] = useState(campaign.subject || "");
-    const [emailContent, setEmailContent] = useState(campaign.content || "<p></p>");
+    const [campaignName, setCampaignName] = useState(campaign?.campaign_name || campaign?.name || "");
+    const [subject, setSubject] = useState(campaign?.subject || "");
+    const [emailContent, setEmailContent] = useState(campaign?.email_content || campaign?.content || "<p></p>");
    // ✅ Usa recipient_list invece di recipients
 const [recipientList, setRecipientList] = useState(
-  Array.isArray(campaign.recipient_list) 
+  Array.isArray(campaign?.recipient_list) 
     ? campaign.recipient_list 
-    : (campaign.recipients || [])
+    : (campaign?.recipients || [])
 );
-    const [selectedAccount, setSelectedAccount] = useState(campaign.account || "");
+    const [selectedAccount, setSelectedAccount] = useState(campaign?.sender_email || campaign?.account || "");
     const [showLoadMessage, setShowLoadMessage] = useState(false);
     const [editorReady, setEditorReady] = useState(false);
     const [isBuilderTemplate, setIsBuilderTemplate] = useState(false);
@@ -3597,11 +3597,7 @@ const [attachments, setAttachments] = useState(campaign.attachments || []);
     
     try {
       // 🔍 Trova l'account selezionato per ottenere l'ID
-      const selectedAccountData = accounts.find(acc => acc.email === selectedAccount);
-      
-      if (!selectedAccountData) {
-        throw new Error("Account mittente non trovato");
-      }
+      const selectedAccountData = (accounts || []).find(acc => acc.email === selectedAccount) || {};
 
       const updatedCampaign = {
         id: campaign.id,
@@ -3609,8 +3605,9 @@ const [attachments, setAttachments] = useState(campaign.attachments || []);
         subject: subject,
         emailContent: emailContent,
         recipientList: recipientList,
-        senderEmail: selectedAccount,
-        senderEmailId: selectedAccountData.id,
+        senderEmail: selectedAccount || (accounts && accounts[0]?.email) || "",
+        senderEmailId: selectedAccountData.id || null,
+        status: campaign?.status || 'draft',
         cc: cc,
         bcc: bcc,
         attachments: attachments,
@@ -3628,8 +3625,7 @@ const [attachments, setAttachments] = useState(campaign.attachments || []);
         throw new Error(error);
       }
 
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 2500);
+      toast.success("✅ Salvataggio effettuato con successo!");
       
       if (onSave) onSave(data);
       

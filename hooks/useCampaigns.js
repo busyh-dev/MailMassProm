@@ -127,7 +127,7 @@ export const useCampaigns = () => {
         sender_name: campaignData.senderName || null,
         attachments: campaignData.attachments || [],
         total_attachment_size: campaignData.totalAttachmentSize || 0,
-        status: isDraft ? 'draft' : (campaignData.status || 'scheduled'),
+        status: campaignData.status || (isDraft ? 'draft' : 'scheduled'),
         scheduled_at: campaignData.scheduledAt || null,
         tracking_enabled: campaignData.trackingEnabled !== false,
         open_tracking: campaignData.openTracking !== false,
