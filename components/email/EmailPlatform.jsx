@@ -891,10 +891,11 @@ const EmailPlatform = () => {
     loading: campaignsLoading,
     loadCampaigns,
     deleteCampaign,
-    saveCampaign: saveCampaignHook,
+    saveCampaign,
     updateCampaignAfterSend,
     getCampaign,
   } = useCampaigns();
+  const saveCampaignHook = saveCampaign;
   const { user } = useAuth();
   // Aggiungi questo ref vicino agli altri ref
 const _platformUsersLoaded = useRef(false);
@@ -3359,8 +3360,10 @@ useEffect(() => {
     onClose, 
     onSave, 
     setActiveTab,
-    onOpenBuilder // ✅ Aggiungi questa prop
+    onOpenBuilder,
+    saveCampaignProp
   }) => {
+    const saveCampaignFn = saveCampaignProp || saveCampaign;
     // 📋 Stati principali
     const [campaignName, setCampaignName] = useState(campaign.name || "");
     const [subject, setSubject] = useState(campaign.subject || "");
@@ -3583,8 +3586,8 @@ const [attachments, setAttachments] = useState(campaign.attachments || []);
 
     const handleCancel = () => (hasChanges ? setShowConfirmExit(true) : onClose());
     const handleSaveClick = () => {
-      if (!selectedAccount) return alert("⚠️ Seleziona un account di invio prima di salvare.");
-      if (ccError || bccError) return alert("⚠️ Correggi gli indirizzi email non validi prima di salvare.");
+      if (!selectedAccount) return toast.error("⚠️ Seleziona un account di invio prima di salvare.");
+      if (ccError || bccError) return toast.error("⚠️ Correggi gli indirizzi email non validi prima di salvare.");
       setShowConfirmSave(true);
     };
   
@@ -3607,7 +3610,7 @@ const [attachments, setAttachments] = useState(campaign.attachments || []);
         emailContent: emailContent,
         recipientList: recipientList,
         senderEmail: selectedAccount,
-        senderEmailId: selectedAccountData.id, // ✅ Aggiungi l'ID dell'account
+        senderEmailId: selectedAccountData.id,
         cc: cc,
         bcc: bcc,
         attachments: attachments,
@@ -3619,7 +3622,7 @@ const [attachments, setAttachments] = useState(campaign.attachments || []);
 
       console.log('📦 Dati da aggiornare:', updatedCampaign);
 
-      const { success, data, error } = await saveCampaign(updatedCampaign, true);
+      const { success, data, error } = await saveCampaignFn(updatedCampaign, true);
 
       if (!success) {
         throw new Error(error);
@@ -3633,7 +3636,7 @@ const [attachments, setAttachments] = useState(campaign.attachments || []);
       onClose();
     } catch (error) {
       console.error('❌ Errore aggiornamento campagna:', error);
-      alert('❌ Errore nel salvataggio: ' + error.message);
+      toast.error('❌ Errore nel salvataggio: ' + error.message);
     }
   };
 
@@ -4838,7 +4841,7 @@ const toggleSelectAll = (pageItems) => {
   const [showRecipientsModal, setShowRecipientsModal] = useState(false);
 const [recipientsCampaign, setRecipientsCampaign] = useState(null);
 const [recipients, setRecipients] = useState([]);
-  // const [showCampaignModal, setShowCampaignModal] = useState(false);
+  const [showCampaignModal, setShowCampaignModal] = useState(false);
 
   // Invio e Re-invio
   const [showSendConfirm, setShowSendConfirm] = useState(false);
@@ -6509,6 +6512,7 @@ setTimeout(() => {
     campaign={selectedCampaign}
     loadNotifications={loadNotifications}
     contacts={contacts}
+    saveCampaignProp={saveCampaign}
     onClose={() => {
       console.log('❌ Closing EditCampaignModal');
       setShowEditModal(false);
@@ -6575,7 +6579,7 @@ setTimeout(() => {
 )}
 
 {/* 👥 CAMPAGNA MODAL - UNA SOLA VOLTA */}
-{!showEditModal && ( /* ✅ Mostra solo se EditModal non è aperto */
+{showCampaignModal && !showEditModal && ( /* ✅ Mostra solo se showCampaignModal è true e EditModal non è aperto */
 <CampaignModal
   showCampaignModal={showCampaignModal}
   setShowCampaignModal={setShowCampaignModal}
@@ -12036,12 +12040,6 @@ const CampaignModal = ({
   loadNotifications  // ← AGGIUNGI
 }) => {
 
- // 🖨️ EARLY RETURN PRIMA DI QUALSIASI HOOK
-  if (!showCampaignModal) {
-    console.log('⏭️ CampaignModal skipped (showCampaignModal=false)');
-    return null;
-  }
-
   console.log('🔍 CampaignModal render:', {
     showCampaignModal,
     campaignMode,
@@ -12282,11 +12280,11 @@ useEffect(() => {
 }, []);
 
 useEffect(() => {
-  if (showCampaignModal || showEditModal || activeTab === 'campaigns') {
+  if (showCampaignModal || activeTab === 'campaigns') {
     fetchAllAccounts();
     fetchTagLabels();
   }
-}, [showCampaignModal, showEditModal, activeTab]);
+}, [showCampaignModal, activeTab]);
 
 // 2. Aggiungi la funzione fetch
 const fetchTagLabels = async () => {
@@ -29152,7 +29150,7 @@ if (loadingProfile && !user && !authUser) {
                       {/* <button
                         onClick={() => {
                           setShowUserMenu(false);
-                          alert('Funzionalità impostazioni in arrivo!');
+                          toast("⚙️ Funzionalità impostazioni in arrivo!", { icon: "ℹ️" });
                         }}
                         className="flex items-center gap-3 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
                       >
