@@ -1157,19 +1157,40 @@ const [contactLabels, setContactLabels] = useState([]);
 
     const fetchUnreadCount = async () => {
       try {
-        let query = supabase.from('messages').select('id', { count: 'exact', head: true }).eq('read', false);
+        // Carica i ticket attivi per verificare la validità dei messaggi
+        const { data: activeTickets } = await supabase
+          .from('support_tickets')
+          .select('id, user_id');
+
+        const validTicketIds = new Set((activeTickets || []).map(t => t.id));
+
+        // Se l'utente non è admin e non ha ticket attivi nel DB, i messaggi non letti sono 0
+        if (!isAdminUser) {
+          const myTickets = (activeTickets || []).filter(t => t.user_id === currentUser.id);
+          if (myTickets.length === 0) {
+            setUnreadSupportCount(0);
+            return;
+          }
+        }
+
+        let query = supabase.from('messages').select('id, sender_id, receiver_id, ticket_id, content').eq('read', false);
         
         if (isAdminUser) {
-          // Per l'amministratore, conta i messaggi inviati dagli utenti non ancora letti
           query = query.neq('sender_id', currentUser.id);
         } else {
-          // Per l'utente cliente, conta i messaggi a lui destinati non letti
           query = query.eq('receiver_id', currentUser.id);
         }
 
-        const { count, error } = await query;
-        if (!error && count !== null) {
-          setUnreadSupportCount(count || 0);
+        const { data: unreadMsgs, error } = await query;
+        if (!error && unreadMsgs) {
+          const validUnread = unreadMsgs.filter(msg => {
+            if (msg.ticket_id && validTicketIds.has(msg.ticket_id)) return true;
+            const match = msg.content?.match(/\[TICKET:([^\]]+)\]/);
+            if (match && match[1] && validTicketIds.has(match[1])) return true;
+            return !msg.ticket_id && !match;
+          });
+
+          setUnreadSupportCount(validUnread.length);
         }
       } catch (err) {
         console.warn('Errore unread count:', err);
@@ -4816,7 +4837,8 @@ const [recipients, setRecipients] = useState([]);
   // ✅ Conferma invio: marca la campagna corrente come "sent"
   const confirmSend = async () => {
     if (!selectedCampaign) return;
-  
+
+    setSendingId(selectedCampaign.id);
     setShowSendConfirm(false);
     setShowSendingProgress(true);
     setSendingProgress({
@@ -5787,7 +5809,6 @@ setTimeout(() => {
                 <button
                   disabled={sendingId === campaign.id}
                   onClick={() => {
-                    setSendingId(campaign.id);
                     handleSendCampaign(campaign);
                   }}
                   className="btn-action btn-green flex-1"
@@ -5808,7 +5829,6 @@ setTimeout(() => {
                 <button
                   disabled={sendingId === campaign.id}
                   onClick={() => {
-                    setSendingId(campaign.id);
                     handleSendCampaign(campaign);
                   }}
                   className="btn-action btn-indigo flex-1"
@@ -12158,43 +12178,41 @@ const [editingSingleBlock, setEditingSingleBlock] = useState(null);
 const [blockEditorRestoreLock, setBlockEditorRestoreLock] = useState(false); // ← Nuovo
 const [localContacts, setLocalContacts] = useState([]);
 // Funzione per caricare TUTTI gli account
-// ✅ In fetchAllAccounts
 const fetchAllAccounts = async () => {
   setLoadingAllAccounts(true);
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return; // ✅ Esci silenziosamente
-    
+    const res = await fetch('/api/email-accounts');
+    const result = await res.json();
+    if (result.success && Array.isArray(result.accounts) && result.accounts.length > 0) {
+      setAllAccounts(result.accounts);
+      return;
+    }
+
     const { data, error } = await supabase
       .from('email_accounts')
       .select('*')
-      .eq('verified', true)
       .order('is_default', { ascending: false });
 
-    if (error) throw error;
-    setAllAccounts(data || []);
+    if (!error) {
+      setAllAccounts(data || []);
+    }
   } catch (error) {
-    if (error.message?.includes('Auth session missing')) return;
     console.warn('⚠️ fetchAllAccounts:', error.message);
   } finally {
     setLoadingAllAccounts(false);
   }
 };
+
 useEffect(() => {
-  console.log("✨Å Stato Modal:", showCampaignModal ? "APERTO" : "CHIUSO");
-  console.log("✨Å Modalità Corrente:", campaignMode);
-  
-  return () => {
-    console.log("🚨 IL MODALE STA PER ESSERE DISTRUTTO (Unmount)");
-  };
-}, [showCampaignModal, campaignMode]);
-// 3. Aggiorna l'useEffect esistente
+  fetchAllAccounts();
+}, []);
+
 useEffect(() => {
-  if (showCampaignModal) {
+  if (showCampaignModal || showEditModal || activeTab === 'campaigns') {
     fetchAllAccounts();
-    fetchTagLabels(); // ✅ aggiunto
+    fetchTagLabels();
   }
-}, [showCampaignModal]);
+}, [showCampaignModal, showEditModal, activeTab]);
 
 // 2. Aggiungi la funzione fetch
 const fetchTagLabels = async () => {
