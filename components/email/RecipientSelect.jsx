@@ -18,6 +18,37 @@ const colorOptions = [
   { value: '#14b8a6', name: 'Teal' },
 ];
 
+const parseContactIds = (raw) => {
+  if (!raw) return [];
+  let items = [];
+
+  if (Array.isArray(raw)) {
+    items = raw;
+  } else if (typeof raw === 'string') {
+    let str = raw.trim();
+    if (str.startsWith('{') && str.endsWith('}')) {
+      str = str.slice(1, -1);
+    } else if (str.startsWith('[') && str.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(str);
+        if (Array.isArray(parsed)) items = parsed;
+        else str = str.slice(1, -1);
+      } catch {
+        str = str.slice(1, -1);
+      }
+    }
+    if (items.length === 0 && str) {
+      items = str.split(',');
+    }
+  } else if (typeof raw === 'number') {
+    return [String(raw)];
+  }
+
+  return items
+    .map(item => String(item).replace(/['"{} \t\n\r]/g, '').trim())
+    .filter(Boolean);
+};
+
 const RecipientSelect = ({
   value,
   onChange,
@@ -41,34 +72,27 @@ const RecipientSelect = ({
     const loadLabels = async () => {
       setLoadingLabels(true);
       try {
-        const [{ data: listsData }, { data: labelsData }, { data: tagLabelsData }] = await Promise.all([
+        const [{ data: listsData }, { data: labelsData }, { data: tagLabelsData }, { data: junctionData }] = await Promise.all([
           supabase.from('contact_lists').select('*').order('created_at', { ascending: false }),
           supabase.from('contact_labels').select('*').order('nome'),
           supabase.from('tag_labels').select('*, tags(id, label, color)').order('label'),
+          supabase.from('list_contacts').select('*').then(res => res.data || []).catch(() => []),
         ]);
-
-        const parseIds = (raw) => {
-          if (!raw) return [];
-          if (Array.isArray(raw)) return raw.map(id => String(id));
-          if (typeof raw === 'string') {
-            try {
-              const p = JSON.parse(raw);
-              if (Array.isArray(p)) return p.map(id => String(id));
-            } catch {
-              return raw.split(',').map(s => s.trim()).filter(Boolean);
-            }
-          }
-          return [];
-        };
 
         const combinedLists = [];
         const seenIds = new Set();
 
         (listsData || []).forEach(l => {
+          let ids = parseContactIds(l.contact_ids);
+          if (junctionData && junctionData.length > 0) {
+            const matches = junctionData.filter(j => String(j.list_id || j.listId || j.contact_list_id) === String(l.id));
+            const jIds = matches.map(m => String(m.contact_id || m.contactId));
+            ids = Array.from(new Set([...ids, ...jIds]));
+          }
           combinedLists.push({
             id: l.id,
             nome: l.name || l.title || l.label || l.nome || 'Lista',
-            contact_ids: parseIds(l.contact_ids),
+            contact_ids: ids,
             color: l.color || '#3b82f6'
           });
           seenIds.add(String(l.id));
@@ -76,10 +100,11 @@ const RecipientSelect = ({
 
         (labelsData || []).forEach(l => {
           if (!seenIds.has(String(l.id))) {
+            let ids = parseContactIds(l.contact_ids);
             combinedLists.push({
               id: l.id,
               nome: l.nome || l.name || l.title || 'Etichetta',
-              contact_ids: parseIds(l.contact_ids),
+              contact_ids: ids,
               color: l.color || '#10b981'
             });
           }
@@ -135,9 +160,10 @@ const RecipientSelect = ({
     } else if (filterMode === 'label') {
       // Filtro per ETICHETTA / LISTA CONTATTO
       contactLabels.forEach(label => {
-        const listIds = new Set(label.contact_ids || []);
+        const listIds = new Set((label.contact_ids || []).map(id => String(id).toLowerCase().trim()));
         const count = activeContacts.filter(c => {
-          if (listIds.has(String(c.id)) || listIds.has(Number(c.id))) return true;
+          const cId = String(c.id || '').toLowerCase().trim();
+          if (cId && listIds.has(cId)) return true;
           if (label.id && (String(c.contact_label_id) === String(label.id) || String(c.list_id) === String(label.id))) return true;
           return false;
         }).length;

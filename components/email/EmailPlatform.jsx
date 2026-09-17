@@ -1509,16 +1509,33 @@ const isContactActive = (c) => {
 
 const parseContactIds = (raw) => {
   if (!raw) return [];
-  if (Array.isArray(raw)) return raw.map(id => String(id));
-  if (typeof raw === 'string') {
-    try {
-      const p = JSON.parse(raw);
-      if (Array.isArray(p)) return p.map(id => String(id));
-    } catch {
-      return raw.split(',').map(s => s.trim()).filter(Boolean);
+  let items = [];
+
+  if (Array.isArray(raw)) {
+    items = raw;
+  } else if (typeof raw === 'string') {
+    let str = raw.trim();
+    if (str.startsWith('{') && str.endsWith('}')) {
+      str = str.slice(1, -1);
+    } else if (str.startsWith('[') && str.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(str);
+        if (Array.isArray(parsed)) items = parsed;
+        else str = str.slice(1, -1);
+      } catch {
+        str = str.slice(1, -1);
+      }
     }
+    if (items.length === 0 && str) {
+      items = str.split(',');
+    }
+  } else if (typeof raw === 'number') {
+    return [String(raw)];
   }
-  return [];
+
+  return items
+    .map(item => String(item).replace(/['"{} \t\n\r]/g, '').trim())
+    .filter(Boolean);
 };
 
 const resolveRecipientEmails = (recipientList, contacts, tagLabels = [], savedLists = []) => {
