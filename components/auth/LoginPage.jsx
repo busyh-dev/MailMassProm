@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabaseClient';
 import toast from "react-hot-toast";
 import InputField from "../../components/ui/InputField";
 import ForgotPasswordModal from './ForgotPasswordModal';
+import SessionConflictModal from '../modals/SessionConflictModal';
 import { usePermissions } from '../../src/contexts/PermissionsContext';
 
 // Aggiungi questo import in cima
@@ -139,8 +140,86 @@ const LoginPage = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [showEmailNotConfirmed, setShowEmailNotConfirmed] = useState(false); // ✅ Nuovo stato
+  const [showSessionConflictModal, setShowSessionConflictModal] = useState(false); // ✅ Modale IP attivo
+  const [sessionConflictData, setSessionConflictData] = useState(null); // ✅ Dettagli sessione remota
+  const [pendingLoginData, setPendingLoginData] = useState(null); // ✅ Dati login in sospeso
+  const [isLoadingSessionOverride, setIsLoadingSessionOverride] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isResending, setIsResending] = useState(false); // ✅ Per il reinvio
+
+  // ✅ Completamento Login e Redirect
+  const completeLoginAndRedirect = async (userId, profileData) => {
+    try {
+      const regRes = await fetch('/api/auth/session-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'register',
+          userId: userId
+        })
+      });
+      const regData = await regRes.json();
+      if (regData.success && regData.sessionId) {
+        sessionStorage.setItem('current_session_id', regData.sessionId);
+      }
+    } catch (err) {
+      console.warn('⚠️ Impossibile registrare il sessionId client:', err);
+    }
+
+    const welcomeName = profileData?.full_name || profileData?.email?.split('@')[0] || 'Utente';
+    toast.success(`Benvenuto/a, ${welcomeName}! 👋`);
+
+    setTimeout(() => {
+      if (typeof window !== 'undefined') {
+        window.__loginPageActive = false;
+        window.__currentLoginUserId = null;
+      }
+      setIsLoading(false);
+      window.location.href = '/dashboard';
+    }, 1000);
+  };
+
+  // ✅ Conferma Override Sessione da Modale ("Sì, Disconnetti e Accedi")
+  const handleConfirmSessionOverride = async () => {
+    if (!pendingLoginData) return;
+    setIsLoadingSessionOverride(true);
+    try {
+      const overrideRes = await fetch('/api/auth/session-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'override',
+          userId: pendingLoginData.user.id
+        })
+      });
+      const overrideData = await overrideRes.json();
+      if (overrideData.success && overrideData.sessionId) {
+        sessionStorage.setItem('current_session_id', overrideData.sessionId);
+      }
+      setShowSessionConflictModal(false);
+      toast.success('Sessione precedente disconnessa con successo!');
+
+      await completeLoginAndRedirect(pendingLoginData.user.id, pendingLoginData.profileData);
+    } catch (err) {
+      console.error('❌ Errore durante l\'override della sessione:', err);
+      toast.error('Errore nella disconnessione della sessione precedente');
+      setIsLoading(false);
+    } finally {
+      setIsLoadingSessionOverride(false);
+    }
+  };
+
+  // ✅ Annulla Override Sessione da Modale ("Annulla")
+  const handleCancelSessionOverride = async () => {
+    setShowSessionConflictModal(false);
+    setPendingLoginData(null);
+    setSessionConflictData(null);
+    setIsLoading(false);
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {}
+    toast('Accesso annullato.');
+  };
   // Aggiungi questo stato dentro LoginPage
   const [showInactivityMessage, setShowInactivityMessage] = useState(false);
   const [forcePasswordChange, setForcePasswordChange] = useState(false);
@@ -509,34 +588,37 @@ const LoginPage = () => {
           return;
         }
 
-        // 6️⃣ Login riuscito
-        const welcomeName = profileData.full_name || profileData.email.split('@')[0];
-        toast.success(`Benvenuto/a, ${welcomeName}! 👋`);
+        // 5.5️⃣ Controllo Conflitto IP Sessione Attiva
+        try {
+          const sessionCheckRes = await fetch('/api/auth/session-check', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'check',
+              userId: authData.user.id,
+              email: cleanEmail
+            })
+          });
 
-        // 6️⃣ Redirect in base al ruolo
-        // 6️⃣ Redirect alla dashboard
-        console.log('🚀 Preparazione redirect...', {
-          role: profileData.role?.name,
-          email: profileData.email
-        });
+          const sessionCheckData = await sessionCheckRes.json();
 
-        setTimeout(() => {
-          console.log('🚀 Eseguo redirect ora!');
-
-          if (typeof window !== 'undefined') {
-            window.__loginPageActive = false;
-            window.__currentLoginUserId = null;
+          if (sessionCheckData.success && sessionCheckData.hasConflict) {
+            console.log('⚠️ Sessione attiva rilevata da un altro IP:', sessionCheckData.activeSession);
+            setPendingLoginData({
+              user: authData.user,
+              profileData
+            });
+            setSessionConflictData(sessionCheckData.activeSession);
+            setShowSessionConflictModal(true);
+            setIsLoading(false);
+            return; // Sospendi login e attendi la scelta dell'utente nel modale
           }
+        } catch (sessionErr) {
+          console.warn('⚠️ Errore durante il controllo sessione IP (non bloccante):', sessionErr);
+        }
 
-          setIsLoading(false);
-
-          // ✅ Usa window.location invece di router.push
-          window.location.href = '/dashboard';
-
-          console.log('✅ Redirect chiamato');
-        }, 1000);
-
-        console.log('⏰ setTimeout impostato, attendo 1 secondo...');
+        // 6️⃣ Nessun conflitto IP: Registra sessione e completa il login
+        await completeLoginAndRedirect(authData.user.id, profileData);
       }
 
       // ====================== REGISTRAZIONE ======================
@@ -1113,6 +1195,15 @@ const LoginPage = () => {
                 email={formData.email}
                 onResend={handleResendConfirmation}
                 isResending={isResending}
+              />
+
+              {/* ✅ Modal Conflitto Sessione IP */}
+              <SessionConflictModal
+                show={showSessionConflictModal}
+                activeSession={sessionConflictData}
+                onConfirm={handleConfirmSessionOverride}
+                onCancel={handleCancelSessionOverride}
+                isLoading={isLoadingSessionOverride}
               />
 
               {/* Footer */}

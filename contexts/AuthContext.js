@@ -3,6 +3,8 @@ import React, { createContext, useContext, useState, useEffect, useRef } from "r
 import { useRouter } from "next/router";
 import { supabase } from "../lib/supabase";
 
+import toast from "react-hot-toast";
+
 const AuthContext = createContext();
 
 export const useAuth = () => {
@@ -21,8 +23,47 @@ export const AuthProvider = ({ children }) => {
   const currentUserId = useRef(null);
   const router = useRouter();
 
-    // ✅ AGGIUNGI QUESTO useEffect
-    useEffect(() => {
+  // ✅ Heartbeat: Verifica periodica validità sessione da IP concorrenti
+  useEffect(() => {
+    if (!user?.id || isLoggingOut) return;
+
+    const checkSessionHeartbeat = async () => {
+      try {
+        const currentSessionId = typeof window !== 'undefined' ? sessionStorage.getItem('current_session_id') : null;
+        if (!currentSessionId) return;
+
+        const res = await fetch('/api/auth/session-check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'heartbeat',
+            userId: user.id,
+            sessionId: currentSessionId
+          })
+        });
+
+        const data = await res.json();
+        if (data.success && data.valid === false) {
+          console.warn('⚠️ Sessione disattivata da un altro IP/dispositivo.');
+          toast.error('Sessione terminata: è stato effettuato un nuovo accesso con le tue credenziali da un altro PC.', {
+            duration: 6000
+          });
+          logout();
+        }
+      } catch (err) {
+        // Ignora temporanei problemi di rete
+      }
+    };
+
+    // Esegui subito e poi ogni 30 secondi
+    checkSessionHeartbeat();
+    const interval = setInterval(checkSessionHeartbeat, 30000);
+
+    return () => clearInterval(interval);
+  }, [user?.id, isLoggingOut]);
+
+  // ✅ AGGIUNGI QUESTO useEffect
+  useEffect(() => {
       const handleUnhandledRejection = (event) => {
         if (
           event.reason?.name === 'AuthSessionMissingError' ||
