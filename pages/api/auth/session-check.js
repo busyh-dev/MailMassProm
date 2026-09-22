@@ -1,13 +1,14 @@
 // ===========================================
 // API ROUTE: pages/api/auth/session-check.js
-// Gestione Sessioni IP e Controllo Conflitti
+// Gestione Sessioni Attive, IP e Controllo Conflitti Concorrenti
 // ===========================================
 
 import { createClient } from "@supabase/supabase-js";
+import { prisma } from "../../../lib/email/prisma";
 
 const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
+  process.env.NEXT_PUBLIC_SUPABASE_URL || "https://khvtqienmkobtadtmgsg.supabase.co",
+  process.env.SUPABASE_SERVICE_ROLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 );
 
 // Helper per estrarre l'IP reale del client
@@ -22,7 +23,6 @@ function getClientIp(req) {
 
 // Helper per determinare la posizione dall'IP
 async function getLocationFromIp(ip, req) {
-  // Controlla header Vercel se disponibili
   const city = req.headers['x-vercel-ip-city'];
   const country = req.headers['x-vercel-ip-country'];
   if (city || country) {
@@ -31,12 +31,10 @@ async function getLocationFromIp(ip, req) {
     return [cityStr, countryStr].filter(Boolean).join(', ');
   }
 
-  // IP Locali o privati
   if (!ip || ip === '127.0.0.1' || ip === '::1' || ip.startsWith('::ffff:127.') || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.16.')) {
     return 'Rete Locale (PC / LAN)';
   }
 
-  // Fallback con API di geolocalizzazione (timeout rapido 1.5s)
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 1500);
@@ -74,13 +72,24 @@ export default async function handler(req, res) {
     // Risoluzione ID utente se fornita solo l'email
     let targetUserId = userId;
     if (!targetUserId && email) {
-      const { data: prof } = await supabaseAdmin
-        .from('profiles')
-        .select('id')
-        .eq('email', email.trim().toLowerCase())
-        .maybeSingle();
-      if (prof) {
-        targetUserId = prof.id;
+      try {
+        const { data: prof } = await supabaseAdmin
+          .from('profiles')
+          .select('id')
+          .eq('email', email.trim().toLowerCase())
+          .maybeSingle();
+        if (prof) {
+          targetUserId = prof.id;
+        }
+      } catch (_) {}
+
+      if (!targetUserId) {
+        try {
+          const userObj = await prisma.user.findUnique({
+            where: { email: email.trim().toLowerCase() }
+          });
+          if (userObj) targetUserId = userObj.id;
+        } catch (_) {}
       }
     }
 
@@ -89,16 +98,16 @@ export default async function handler(req, res) {
     }
 
     // =========================================================================
-    // ACTION 1: CHECK (Verifica presenza sessione attiva su IP diverso)
+    // ACTION 1: CHECK (Verifica presenza di una sessione attiva su altra connessione)
     // =========================================================================
     if (action === 'check') {
       const location = await getLocationFromIp(clientIp, req);
-      const timeoutThreshold = new Date(Date.now() - 15 * 60 * 1000).toISOString(); // 15 minuti di inattività
+      const timeoutThreshold = new Date(Date.now() - 15 * 60 * 1000).toISOString(); // 15 minuti inattività
 
-      // Tentativo 1: Tabella user_sessions (se esiste)
       let activeSession = null;
-      let checkError = null;
+      let checkedSuccessfully = false;
 
+      // 1. Supabase Check in user_sessions
       try {
         const { data, error } = await supabaseAdmin
           .from('user_sessions')
@@ -110,46 +119,85 @@ export default async function handler(req, res) {
           .limit(1);
 
         if (!error && data && data.length > 0) {
+          checkedSuccessfully = true;
           const session = data[0];
-          // Se la sessione attiva è su un IP diverso, segnala il conflitto
-          if (session.ip_address && session.ip_address !== clientIp) {
+
+          // Verifica se è una sessione diversa (per token o per IP)
+          const isDifferentToken = sessionId && session.session_token !== sessionId;
+          const isDifferentIp = session.ip_address && session.ip_address !== clientIp;
+
+          if (isDifferentToken || isDifferentIp || !sessionId) {
             activeSession = {
               sessionId: session.session_token || session.id,
-              ipAddress: session.ip_address,
+              ipAddress: session.ip_address || clientIp,
               location: session.location || 'Posizione remota',
               userAgent: session.user_agent || 'Browser remoto',
               lastActivity: session.last_activity
             };
           }
-        } else {
-          checkError = error;
         }
-      } catch (err) {
-        checkError = err;
+      } catch (_) {}
+
+      // 2. Fallback in profiles (Supabase)
+      if (!checkedSuccessfully && !activeSession) {
+        try {
+          const { data: profile } = await supabaseAdmin
+            .from('profiles')
+            .select('active_session_token, last_active_ip, last_active_location, last_active_agent, last_active_at')
+            .eq('id', targetUserId)
+            .maybeSingle();
+
+          if (profile && profile.active_session_token && profile.last_active_at) {
+            const lastActiveTime = new Date(profile.last_active_at).getTime();
+            const isRecent = (Date.now() - lastActiveTime) < (15 * 60 * 1000);
+
+            if (isRecent) {
+              const isDiffToken = sessionId && profile.active_session_token !== sessionId;
+              const isDiffIp = profile.last_active_ip && profile.last_active_ip !== clientIp;
+
+              if (isDiffToken || isDiffIp || !sessionId) {
+                checkedSuccessfully = true;
+                activeSession = {
+                  sessionId: profile.active_session_token,
+                  ipAddress: profile.last_active_ip || clientIp,
+                  location: profile.last_active_location || 'Posizione remota',
+                  userAgent: profile.last_active_agent || 'Browser remoto',
+                  lastActivity: profile.last_active_at
+                };
+              }
+            }
+          }
+        } catch (_) {}
       }
 
-      // Tentativo 2 (Fallback): Tabella profiles
-      if (checkError || !activeSession) {
-        const { data: profile } = await supabaseAdmin
-          .from('profiles')
-          .select('active_session_token, last_active_ip, last_active_location, last_active_agent, last_active_at')
-          .eq('id', targetUserId)
-          .maybeSingle();
+      // 3. Fallback in Prisma UserSession
+      if (!checkedSuccessfully && !activeSession) {
+        try {
+          const cutoff = new Date(Date.now() - 15 * 60 * 1000);
+          const prismaSession = await prisma.userSession.findFirst({
+            where: {
+              userId: targetUserId,
+              isActive: true,
+              lastActivity: { gt: cutoff }
+            },
+            orderBy: { lastActivity: 'desc' }
+          });
 
-        if (profile && profile.active_session_token && profile.last_active_at) {
-          const lastActiveTime = new Date(profile.last_active_at).getTime();
-          const isRecent = (Date.now() - lastActiveTime) < (15 * 60 * 1000); // Negli ultimi 15 min
+          if (prismaSession) {
+            const isDiffToken = sessionId && prismaSession.sessionToken !== sessionId;
+            const isDiffIp = prismaSession.ipAddress && prismaSession.ipAddress !== clientIp;
 
-          if (isRecent && profile.last_active_ip && profile.last_active_ip !== clientIp) {
-            activeSession = {
-              sessionId: profile.active_session_token,
-              ipAddress: profile.last_active_ip,
-              location: profile.last_active_location || 'Posizione remota',
-              userAgent: profile.last_active_agent || 'Browser remoto',
-              lastActivity: profile.last_active_at
-            };
+            if (isDiffToken || isDiffIp || !sessionId) {
+              activeSession = {
+                sessionId: prismaSession.sessionToken || prismaSession.id,
+                ipAddress: prismaSession.ipAddress || clientIp,
+                location: prismaSession.location || 'Posizione remota',
+                userAgent: prismaSession.userAgent || 'Browser remoto',
+                lastActivity: prismaSession.lastActivity
+              };
+            }
           }
-        }
+        } catch (_) {}
       }
 
       if (activeSession) {
@@ -175,22 +223,20 @@ export default async function handler(req, res) {
     }
 
     // =========================================================================
-    // ACTION 2: REGISTER / OVERRIDE (Registra la nuova sessione e disattiva la vecchia)
+    // ACTION 2: REGISTER / OVERRIDE (Registra la nuova sessione e disattiva le precedenti)
     // =========================================================================
     if (action === 'register' || action === 'override') {
       const location = await getLocationFromIp(clientIp, req);
       const newSessionId = sessionId || `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const nowIso = new Date().toISOString();
 
-      // 1. Prova aggiornamento/inserimento in user_sessions
+      // 1. Aggiorna Supabase user_sessions
       try {
-        // Disattiva tutte le sessioni precedenti dell'utente
         await supabaseAdmin
           .from('user_sessions')
           .update({ is_active: false })
           .eq('user_id', targetUserId);
 
-        // Inserisci nuova sessione attiva
         await supabaseAdmin
           .from('user_sessions')
           .insert({
@@ -203,11 +249,9 @@ export default async function handler(req, res) {
             last_activity: nowIso,
             created_at: nowIso
           });
-      } catch (err) {
-        // Ignora se la tabella user_sessions non esiste ancora in DB
-      }
+      } catch (_) {}
 
-      // 2. Aggiorna sempre anche profiles per retrocompatibilità e fallback
+      // 2. Aggiorna Supabase profiles
       try {
         await supabaseAdmin
           .from('profiles')
@@ -219,9 +263,27 @@ export default async function handler(req, res) {
             last_active_at: nowIso
           })
           .eq('id', targetUserId);
-      } catch (err) {
-        console.warn('⚠️ Impossibile aggiornare campi sessione in profiles:', err.message);
-      }
+      } catch (_) {}
+
+      // 3. Aggiorna Prisma UserSession (se usata)
+      try {
+        await prisma.userSession.updateMany({
+          where: { userId: targetUserId },
+          data: { isActive: false }
+        });
+
+        await prisma.userSession.create({
+          data: {
+            userId: targetUserId,
+            sessionToken: newSessionId,
+            ipAddress: clientIp,
+            userAgent: userAgent,
+            location: location,
+            isActive: true,
+            lastActivity: new Date()
+          }
+        });
+      } catch (_) {}
 
       return res.status(200).json({
         success: true,
@@ -232,7 +294,7 @@ export default async function handler(req, res) {
     }
 
     // =========================================================================
-    // ACTION 3: HEARTBEAT (Verifica se la sessione client è ancora attiva)
+    // ACTION 3: HEARTBEAT (Verifica che la sessione corrente sia ancora valida)
     // =========================================================================
     if (action === 'heartbeat') {
       if (!sessionId) {
@@ -241,23 +303,22 @@ export default async function handler(req, res) {
 
       const nowIso = new Date().toISOString();
       let isValid = true;
-      let testedTable = false;
+      let tested = false;
 
-      // Check in user_sessions
+      // Supabase user_sessions
       try {
-        const { data: sessions, error } = await supabaseAdmin
+        const { data: session, error } = await supabaseAdmin
           .from('user_sessions')
           .select('is_active, session_token')
           .eq('user_id', targetUserId)
           .eq('session_token', sessionId)
           .maybeSingle();
 
-        if (!error && sessions) {
-          testedTable = true;
-          if (!sessions.is_active) {
+        if (!error && session) {
+          tested = true;
+          if (!session.is_active) {
             isValid = false;
           } else {
-            // Aggiorna l'attività
             await supabaseAdmin
               .from('user_sessions')
               .update({ last_activity: nowIso })
@@ -265,28 +326,49 @@ export default async function handler(req, res) {
               .eq('session_token', sessionId);
           }
         }
-      } catch (err) {
-        // Fallback
+      } catch (_) {}
+
+      // Supabase profiles fallback
+      if (!tested) {
+        try {
+          const { data: profile } = await supabaseAdmin
+            .from('profiles')
+            .select('active_session_token')
+            .eq('id', targetUserId)
+            .maybeSingle();
+
+          if (profile && profile.active_session_token) {
+            tested = true;
+            if (profile.active_session_token !== sessionId) {
+              isValid = false;
+            } else {
+              await supabaseAdmin
+                .from('profiles')
+                .update({ last_active_at: nowIso })
+                .eq('id', targetUserId);
+            }
+          }
+        } catch (_) {}
       }
 
-      // Fallback check in profiles
-      if (!testedTable) {
-        const { data: profile } = await supabaseAdmin
-          .from('profiles')
-          .select('active_session_token')
-          .eq('id', targetUserId)
-          .maybeSingle();
-
-        if (profile && profile.active_session_token) {
-          if (profile.active_session_token !== sessionId) {
-            isValid = false;
-          } else {
-            await supabaseAdmin
-              .from('profiles')
-              .update({ last_active_at: nowIso })
-              .eq('id', targetUserId);
+      // Prisma fallback
+      if (!tested) {
+        try {
+          const prismaSess = await prisma.userSession.findFirst({
+            where: { userId: targetUserId, sessionToken: sessionId }
+          });
+          if (prismaSess) {
+            tested = true;
+            if (!prismaSess.isActive) {
+              isValid = false;
+            } else {
+              await prisma.userSession.update({
+                where: { id: prismaSess.id },
+                data: { lastActivity: new Date() }
+              });
+            }
           }
-        }
+        } catch (_) {}
       }
 
       if (!isValid) {
@@ -302,7 +384,7 @@ export default async function handler(req, res) {
     }
 
     // =========================================================================
-    // ACTION 4: LOGOUT (Disattiva la sessione)
+    // ACTION 4: LOGOUT (Rende inattiva la piattaforma per quell'utente)
     // =========================================================================
     if (action === 'logout') {
       try {
@@ -318,14 +400,28 @@ export default async function handler(req, res) {
             .update({ is_active: false })
             .eq('user_id', targetUserId);
         }
-      } catch (err) {}
+      } catch (_) {}
 
       try {
         await supabaseAdmin
           .from('profiles')
           .update({ active_session_token: null })
           .eq('id', targetUserId);
-      } catch (err) {}
+      } catch (_) {}
+
+      try {
+        if (sessionId) {
+          await prisma.userSession.updateMany({
+            where: { userId: targetUserId, sessionToken: sessionId },
+            data: { isActive: false }
+          });
+        } else {
+          await prisma.userSession.updateMany({
+            where: { userId: targetUserId },
+            data: { isActive: false }
+          });
+        }
+      } catch (_) {}
 
       return res.status(200).json({ success: true });
     }
@@ -340,3 +436,4 @@ export default async function handler(req, res) {
     });
   }
 }
+

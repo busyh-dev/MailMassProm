@@ -866,17 +866,17 @@ const DarkModeToggle = () => {
   return (
     <button
       onClick={toggle}
-      className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200 group"
+      className="flex items-center gap-1.5 sm:gap-2 p-1.5 sm:px-3 sm:py-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-xl transition-all duration-200 group"
       title={isDark ? "Passa alla modalità Chiara" : "Passa alla modalità Scura"}
     >
       {isDark ? (
         <>
-          <Sun className="w-4 h-4 text-amber-400 group-hover:rotate-45 transition-transform duration-300" />
+          <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 group-hover:rotate-45 transition-transform duration-300" />
           <span className="text-sm font-medium hidden md:inline">Chiaro</span>
         </>
       ) : (
         <>
-          <Moon className="w-4 h-4 text-indigo-600 group-hover:-rotate-12 transition-transform duration-300" />
+          <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600 dark:text-indigo-400 group-hover:-rotate-12 transition-transform duration-300" />
           <span className="text-sm font-medium hidden md:inline">Scuro</span>
         </>
       )}
@@ -28806,34 +28806,35 @@ if (loadingProfile && !user && !authUser) {
       <div className="absolute top-1/3 right-1/4 w-96 h-96 bg-indigo-500/10 dark:bg-indigo-600/15 rounded-full blur-3xl pointer-events-none -z-10"></div>
 
       {/* Header Sticky con effetto Glassmorphism */}
-      <header className="sticky top-0 z-40 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 shadow-sm shadow-slate-900/5 transition-all">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-3.5">
+      <header className="sticky top-0 z-40 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 shadow-xs transition-all">
+        <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-2 sm:py-3.5 gap-1.5 sm:gap-4">
             {/* Logo Brand con Badge */}
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/25 ring-2 ring-blue-500/20">
-                <Mail className="w-5 h-5" />
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/25 ring-2 ring-blue-500/20 shrink-0">
+                <Mail className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-lg sm:text-xl font-extrabold bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 dark:from-white dark:via-blue-200 dark:to-indigo-200 bg-clip-text text-transparent">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1 sm:gap-2">
+                  <h1 className="text-sm sm:text-xl font-extrabold bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 dark:from-white dark:via-blue-200 dark:to-indigo-200 bg-clip-text text-transparent truncate max-w-[100px] xs:max-w-none">
                     MailMassProm
                   </h1>
-                  <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/50 hidden sm:inline-block shadow-2xs">
+                  <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/50 hidden xs:inline-block shadow-2xs">
                     PRO
                   </span>
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5 sm:gap-3">
+            {/* Action Bar (Icone + User Menu) */}
+            <div className="flex items-center gap-0.5 xs:gap-1 sm:gap-2.5 shrink-0">
               {/* Rubrica rapida */}
               <button
                 onClick={() => setShowQuickContacts(true)}
-                className="relative p-2.5 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-xl transition-all duration-200"
+                className="relative p-1.5 sm:p-2.5 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-xl transition-all duration-200"
                 title="Rubrica contatti"
               >
-                <Users className="w-5 h-5" />
+                <Users className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
                
               {/* Bottone Dark/Light Mode */}
@@ -28842,7 +28843,7 @@ if (loadingProfile && !user && !authUser) {
               {/* Bottone Aggiorna Piattaforma */}
               <button
                 onClick={() => setShowRefreshConfirm(true)}
-                className="flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-xl transition-all duration-200 group"
+                className="flex items-center gap-1.5 p-1.5 sm:px-3 sm:py-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-xl transition-all duration-200 group"
                 title="Aggiorna piattaforma"
               >
                 <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
@@ -28852,24 +28853,24 @@ if (loadingProfile && !user && !authUser) {
               {/* Bottone Messaggi */}
               <button
                 onClick={() => setIsChatOpen(true)}
-                className="relative p-2.5 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 rounded-xl transition-all duration-200"
+                className="relative p-1.5 sm:p-2.5 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 rounded-xl transition-all duration-200"
                 title="Messaggi"
               >
-                <MessageCircle className="w-5 h-5" />
+                <MessageCircle className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
 
               {/* Notifiche */}
               <div className="relative">
                 <button
                   onClick={() => setShowNotificationDropdown(!showNotificationDropdown)}
-                  className={`relative p-2.5 rounded-xl transition-all duration-200 ${showNotificationDropdown ? 'bg-blue-50 text-blue-600 dark:bg-slate-800 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800'}`}
+                  className={`relative p-1.5 sm:p-2.5 rounded-xl transition-all duration-200 ${showNotificationDropdown ? 'bg-blue-50 text-blue-600 dark:bg-slate-800 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800'}`}
                   title="Notifiche"
                 >
-                  <Bell className="w-5 h-5" />
+                  <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
                   {unreadNotifications > 0 && (
-                    <span className="absolute top-1 right-1 transform translate-x-1/4 -translate-y-1/4 flex h-3.5 w-3.5">
+                    <span className="absolute top-1 right-1 transform translate-x-1/4 -translate-y-1/4 flex h-3 w-3 sm:h-3.5 sm:w-3.5">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-red-500 border-2 border-white dark:border-slate-900 text-[8px] items-center justify-center text-white font-bold"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 sm:h-3.5 sm:w-3.5 bg-red-500 border-2 border-white dark:border-slate-900 text-[8px] items-center justify-center text-white font-bold"></span>
                     </span>
                   )}
                 </button>
@@ -29061,44 +29062,43 @@ if (loadingProfile && !user && !authUser) {
                 </div>,
                 document.body
               )}
-              {/* Menu Utente */}
+              {/* Menu Utente (Dropdown Select) */}
               <div className="relative user-menu">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="flex items-center gap-1.5 sm:gap-3 p-1 sm:p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
+                  title={currentUser?.full_name || 'Profilo Utente'}
                 >
                   {/* Avatar */}
-<div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium overflow-hidden">
-  {currentUser?.avatar_url ? (
-    <img 
-      src={sanitizeAvatarUrl(currentUser.avatar_url)} 
-      alt="Avatar" 
-      className="w-full h-full object-cover"
-    />
-  ) : (
-    getUserInitials(currentUser?.full_name)
-  )}
-</div>
+                  <div className="w-7 h-7 sm:w-8 sm:h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs sm:text-sm font-medium overflow-hidden shrink-0">
+                    {currentUser?.avatar_url ? (
+                      <img 
+                        src={sanitizeAvatarUrl(currentUser.avatar_url)} 
+                        alt="Avatar" 
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      getUserInitials(currentUser?.full_name)
+                    )}
+                  </div>
 
-                  {/* Nome utente */}
+                  {/* Nome utente (nascosto su schermi piccoli) */}
                   <div className="hidden sm:block text-left">
-                    <div className="text-sm font-medium text-gray-900">
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate max-w-[120px]">
                       {currentUser?.full_name}
                     </div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px]">
                       {currentUser?.email}
                     </div>
                   </div>
 
                   {/* Freccia dropdown */}
-                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showUserMenu ? 'rotate-180' : ''
-                    }`} />
+                  <ChevronDown className={`w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 transition-transform ${showUserMenu ? 'rotate-180' : ''}`} />
                 </button>
 
                 {/* Dropdown Menu */}
-                {/* Dropdown Menu */}
-{showUserMenu && (
-  <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                {showUserMenu && (
+                  <div className="absolute right-0 mt-2 w-64 max-w-[calc(100vw-1.25rem)] bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-200 dark:border-slate-800 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
     {/* Header utente nel dropdown */}
     <div className="px-4 py-3 border-b border-gray-100">
       <div className="flex items-center gap-3">
@@ -29226,75 +29226,75 @@ if (loadingProfile && !user && !authUser) {
       <div className="flex-1 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 w-full">
   <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
     {/* Sidebar Nav (Responsive per Mobile/Tablet/Desktop) */}
-    <div className="w-full lg:w-64 flex-shrink-0 space-y-4 lg:space-y-6">
-      <nav className="flex lg:flex-col overflow-x-auto pb-2 lg:pb-0 gap-2 lg:gap-0 lg:space-y-2 no-scrollbar">
-        <button
-          onClick={() => setActiveTab("dashboard")}
-          className={`flex items-center whitespace-nowrap px-4 py-2.5 sm:py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${
-            activeTab === "dashboard"
-              ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
-              : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 lg:hover:translate-x-1"
-          }`}
-        >
-          <BarChart3 className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'dashboard' ? 'scale-110' : ''}`} />
-          Dashboard
-        </button>
-
-        <button
-          onClick={() => setActiveTab("campaigns")}
-          className={`flex items-center whitespace-nowrap px-4 py-2.5 sm:py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${
-            activeTab === "campaigns"
-              ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
-              : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 lg:hover:translate-x-1"
-          }`}
-        >
-          <Mail className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'campaigns' ? 'scale-110' : ''}`} />
-          Campagne
-        </button>
-
-        <button
-          onClick={() => setActiveTab("contacts")}
-          className={`flex items-center whitespace-nowrap px-4 py-2.5 sm:py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${
-            activeTab === "contacts"
-              ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
-              : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 lg:hover:translate-x-1"
-          }`}
-        >
-          <Users className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'contacts' ? 'scale-110' : ''}`} />
-          Contatti
-        </button>
-
-        <button
-          onClick={() => setActiveTab("logs")}
-          className={`flex items-center whitespace-nowrap px-4 py-2.5 sm:py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${
-            activeTab === "logs"
-              ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
-              : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 lg:hover:translate-x-1"
-          }`}
-        >
-          <BarChart3 className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'logs' ? 'scale-110' : ''}`} />
-          Storico Invii
-        </button>
-
-        {/* 👑 SuperAdmin - solo super_admin */}
-        {(isSuperAdmin || role?.name === 'super_admin' || role?.name === 'SuperAdmin') && (
+    <div className="w-full lg:w-64 shrink-0 space-y-4 lg:space-y-6">
+      <div className="relative -mx-3 px-3 sm:mx-0 sm:px-0">
+        <nav className="flex lg:flex-col overflow-x-auto pb-2 lg:pb-0 gap-1.5 lg:gap-2 no-scrollbar touch-pan-x snap-x scroll-smooth">
           <button
-            onClick={() => setActiveTab('superadmin')}
-            className={`flex items-center whitespace-nowrap px-4 py-2.5 sm:py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${
-              activeTab === 'superadmin'
-                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md shadow-amber-500/25 lg:translate-x-1'
-                : 'text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 lg:hover:translate-x-1'
+            onClick={() => setActiveTab("dashboard")}
+            className={`flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
+              activeTab === "dashboard"
+                ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
+                : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 lg:hover:translate-x-1"
             }`}
           >
-            <Crown className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'superadmin' ? 'scale-110' : ''}`} />
-            SuperAdmin
+            <BarChart3 className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'dashboard' ? 'scale-110' : ''}`} />
+            Dashboard
           </button>
-        )}
 
+          <button
+            onClick={() => setActiveTab("campaigns")}
+            className={`flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
+              activeTab === "campaigns"
+                ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
+                : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 lg:hover:translate-x-1"
+            }`}
+          >
+            <Mail className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'campaigns' ? 'scale-110' : ''}`} />
+            Campagne
+          </button>
+
+          <button
+            onClick={() => setActiveTab("contacts")}
+            className={`flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
+              activeTab === "contacts"
+                ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
+                : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 lg:hover:translate-x-1"
+            }`}
+          >
+            <Users className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'contacts' ? 'scale-110' : ''}`} />
+            Contatti
+          </button>
+
+          <button
+            onClick={() => setActiveTab("logs")}
+            className={`flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
+              activeTab === "logs"
+                ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
+                : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 lg:hover:translate-x-1"
+            }`}
+          >
+            <BarChart3 className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'logs' ? 'scale-110' : ''}`} />
+            Storico Invii
+          </button>
+
+          {/* 👑 SuperAdmin - solo super_admin */}
+          {(isSuperAdmin || role?.name === 'super_admin' || role?.name === 'SuperAdmin') && (
+            <button
+              onClick={() => setActiveTab('superadmin')}
+              className={`flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
+                activeTab === 'superadmin'
+                  ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md shadow-amber-500/25 lg:translate-x-1'
+                  : 'text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 lg:hover:translate-x-1'
+              }`}
+            >
+              <Crown className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'superadmin' ? 'scale-110' : ''}`} />
+              SuperAdmin
+            </button>
+          )}
 
           <button
             onClick={() => setIsChatOpen(true)}
-            className={`flex items-center justify-between whitespace-nowrap px-4 py-2.5 sm:py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${
+            className={`flex items-center justify-between whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
               isChatOpen
                 ? "bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 shadow-sm"
                 : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-gray-200"
@@ -29324,28 +29324,29 @@ if (loadingProfile && !user && !authUser) {
             ))}
           </button>
 
+          {(currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'super_admin' || currentUser?.role?.name === 'super_user' || currentUser?.role?.name === 'SuperUser') && (
+            <button
+              onClick={() => setActiveTab("settings")}
+              className={`flex items-center justify-between whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
+                activeTab === "settings"
+                  ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
+                  : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 lg:hover:translate-x-1"
+              }`}
+            >
+              <span className="flex items-center">
+                <Settings className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'settings' ? 'scale-110' : ''}`} />
+                Impostazioni Email
+              </span>
 
-{(currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'super_admin' || currentUser?.role?.name === 'super_user' || currentUser?.role?.name === 'SuperUser') && (
-              <button
-                onClick={() => setActiveTab("settings")}
-                className={`flex items-center justify-between whitespace-nowrap px-4 py-2.5 sm:py-3 text-sm font-semibold rounded-xl transition-all duration-200 ${activeTab === "settings"
-                    ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
-                    : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 lg:hover:translate-x-1"
-                  }`}
-              >
-                <span className="flex items-center">
-                  <Settings className={`w-4 h-4 sm:w-5 sm:h-5 mr-2 sm:mr-3 transition-transform duration-200 ${activeTab === 'settings' ? 'scale-110' : ''}`} />
-                  Impostazioni Email
+              {queueCount > 0 && (
+                <span className="bg-red-600 text-white text-xs font-semibold px-2 py-0.5 rounded-full animate-pulse ml-2">
+                  {queueCount}
                 </span>
-
-                {queueCount > 0 && (
-                  <span className="bg-red-600 text-white text-xs font-semibold px-2 py-0.5 rounded-full animate-pulse ml-2">
-                    {queueCount}
-                  </span>
-                )}
-              </button>
-      )}        
-      </nav>
+              )}
+            </button>
+          )}        
+        </nav>
+      </div>
 
       {/* Widget Ultimi Invii (visibile solo da schermi Desktop per evitare affollamento su Mobile) */}
       <div className="hidden lg:block bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 mt-6">

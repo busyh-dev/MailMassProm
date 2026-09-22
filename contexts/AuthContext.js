@@ -262,6 +262,26 @@ if (event === 'SIGNED_OUT') {
     try {
       console.log('🚪 Inizio logout...');
       setIsLoggingOut(true);
+
+      const userIdToLogout = user?.id || currentUserId.current;
+      const currentSessionId = typeof window !== 'undefined' ? sessionStorage.getItem('current_session_id') : null;
+
+      if (userIdToLogout) {
+        try {
+          await fetch('/api/auth/session-check', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'logout',
+              userId: userIdToLogout,
+              sessionId: currentSessionId
+            })
+          });
+        } catch (e) {
+          console.warn('⚠️ Impossibile notificare logout al server:', e);
+        }
+      }
+
       sessionStorage.clear();
       localStorage.clear();
       setUser(null);

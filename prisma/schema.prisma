@@ -31,6 +31,7 @@ model User {
   automations   Automation[]
   webhooks      Webhook[]
   apiKeys       ApiKey[]
+  userSessions  UserSession[]
 
   @@map("users")
 }
@@ -584,4 +585,26 @@ model ApiKey {
 
   @@index([userId])
   @@map("api_keys")
+}
+
+// ===========================================
+// USER SESSION MODEL - Controllo connessioni attive
+// ===========================================
+
+model UserSession {
+  id           String   @id @default(cuid())
+  userId       String
+  sessionToken String
+  ipAddress    String?
+  userAgent    String?
+  location     String?
+  isActive     Boolean  @default(true)
+  lastActivity DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isActive])
+  @@map("user_sessions")
 }
