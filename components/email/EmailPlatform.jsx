@@ -2474,16 +2474,20 @@ const latestLogsForWidget = useMemo(() => {
       .slice(0, 5)
       .map(log => {
         const rawSender = log.sender_email || log.from_email || log.from || log.sender || log.account_email || log.email_account || '';
+        const recList = log.recipient_list || log.recipients || log.recipient_emails || [];
         return {
           id: log.id,
-          campaign_name: log.campaign_name || 'Campagna',
-          subject: log.subject,
-          sent_at: log.sent_at,
+          campaign_id: log.campaign_id || log.id,
+          campaign_name: log.campaign_name || log.subject || 'Campagna',
+          subject: log.subject || log.campaign_name || '(Senza Oggetto)',
+          sent_at: log.sent_at || log.created_at,
           sender_email: rawSender || 'Comunicazione Interna',
-          recipient_list: log.recipients || log.recipient_list || [],
+          recipient_list: Array.isArray(recList) ? recList : [recList].filter(Boolean),
+          email_content: log.email_content || log.html || log.body || '',
+          attachments: log.attachments || [],
           cc: log.cc || [],
           bcc: log.bcc || [],
-          total_recipients: log.total_recipients || 0,
+          total_recipients: log.total_recipients || (Array.isArray(recList) ? recList.length : 0),
           opened_count: log.opened_count || 0,
           status: log.status || 'sent',
         };
@@ -2504,14 +2508,17 @@ const latestLogsForWidget = useMemo(() => {
         const rawSender = log.sender_email || log.sender || log.from || log.account_email || log.email_account || '';
         return {
           id: log.id,
-          campaign_name: log.campaign_name,
-          subject: log.subject,
+          campaign_id: log.id,
+          campaign_name: log.campaign_name || log.subject || 'Campagna',
+          subject: log.subject || log.campaign_name || '(Senza Oggetto)',
           sent_at: log.sent_at,
           sender_email: rawSender || 'Comunicazione Interna',
-          recipient_list: log.recipient_list || [],
+          recipient_list: log.recipient_list || log.recipients || [],
+          email_content: log.email_content || '',
+          attachments: log.attachments || [],
           cc: log.cc || [],
           bcc: log.bcc || [],
-          total_recipients: log.total_recipients || log.recipient_list?.length || 0,
+          total_recipients: log.total_recipients || (Array.isArray(log.recipient_list) ? log.recipient_list.length : 0),
           opened_count: log.opened_count || 0,
           status: 'sent',
         };
@@ -29549,11 +29556,38 @@ if (loadingProfile && !user && !authUser) {
           return "bg-red-500";
         };
 
+        const handleOpenRecentCampaignView = () => {
+          // Trova la campagna completa nella lista `campaigns`
+          const foundCampaign = campaigns?.find(c => String(c.id) === String(log.id || log.campaign_id));
+          if (foundCampaign) {
+            setSelectedCampaign(foundCampaign);
+          } else {
+            setSelectedCampaign({
+              id: log.id || log.campaign_id,
+              campaign_name: log.campaign_name || log.subject || "Campagna",
+              subject: log.subject || log.campaign_name || "(Senza Oggetto)",
+              email_content: log.email_content || log.html || "<p>Nessun contenuto memorizzato</p>",
+              sender_email: log.sender_email || "Comunicazione Interna",
+              recipient_list: Array.isArray(log.recipient_list) && log.recipient_list.length > 0
+                ? log.recipient_list
+                : (Array.isArray(log.recipients) ? log.recipients : []),
+              total_recipients: log.total_recipients || 0,
+              opened_count: log.opened_count || 0,
+              status: log.status || "sent",
+              sent_at: log.sent_at,
+              attachments: log.attachments || [],
+              cc: log.cc || null,
+              bcc: log.bcc || null,
+            });
+          }
+          setShowViewModal(true);
+        };
+
         return (
           <div 
             key={log.id} 
             className="p-4 hover:bg-gray-50 transition cursor-pointer"
-            onClick={() => setSelectedLogForModal(log)}
+            onClick={handleOpenRecentCampaignView}
           >
             {/* Nome Campagna */}
             <div className="flex items-start justify-between mb-2">
@@ -29568,11 +29602,12 @@ if (loadingProfile && !user && !authUser) {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  setSelectedLogForModal(log);
+                  handleOpenRecentCampaignView();
                 }}
                 className="ml-2 p-1.5 hover:bg-gray-200 rounded-lg transition"
+                title="Vedi campagna completa"
               >
-                <Users className="w-4 h-4 text-gray-600" />
+                <Eye className="w-4 h-4 text-gray-600" />
               </button>
             </div>
 
