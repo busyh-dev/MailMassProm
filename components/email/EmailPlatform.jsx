@@ -1502,10 +1502,10 @@ const fetchTagLabels = async () => {
 // ✅ NUOVA FUNZIONE - aggiungi prima di confirmSend
 // ✅ Aggiungi in EmailPlatform, fuori da tutti i componenti
 const isContactActive = (c) => {
-  if (!c) return false;
+  if (!c || !c.email) return false;
   if (!c.status) return true;
-  const s = String(c.status).toLowerCase();
-  return s === 'active' || s === 'attivo' || s === 'approved';
+  const s = String(c.status).trim().toLowerCase();
+  return s !== 'inactive' && s !== 'disiscritto' && s !== 'bounced' && s !== 'blocked' && s !== 'unsubscribed' && s !== 'disabled';
 };
 
 const parseContactIds = (raw) => {
@@ -1539,46 +1539,146 @@ const parseContactIds = (raw) => {
     .filter(Boolean);
 };
 
-const resolveRecipientEmails = (recipientList, contacts, tagLabels = [], savedLists = []) => {
-  if (!Array.isArray(recipientList)) return [];
-  
-  if (recipientList.includes('all')) {
-    return contacts.filter(isContactActive).map(c => c.email);
+const resolveRecipientEmails = (recipientList, contacts = [], tagLabels = [], savedLists = []) => {
+  if (!contacts || !Array.isArray(contacts)) return [];
+
+  // Normalizza recipientList se arriva come stringa, JSON o array
+  let listToProcess = recipientList;
+  if (typeof listToProcess === 'string') {
+    let str = listToProcess.trim();
+    if ((str.startsWith('[') && str.endsWith(']')) || (str.startsWith('{') && str.endsWith('}'))) {
+      try {
+        const parsed = JSON.parse(str);
+        if (Array.isArray(parsed)) listToProcess = parsed;
+        else listToProcess = [str];
+      } catch {
+        listToProcess = str.replace(/^['"\[\]{}]+|['"\[\]{}]+$/g, '').split(',');
+      }
+    } else if (str.includes(',')) {
+      listToProcess = str.split(',');
+    } else if (str) {
+      listToProcess = [str];
+    } else {
+      listToProcess = [];
+    }
   }
 
-  const emailSet = new Set();
+  if (!Array.isArray(listToProcess) || listToProcess.length === 0) return [];
 
-  recipientList.forEach(val => {
-    if (val.startsWith('tag:')) {
-      const tagValue = val.replace('tag:', '');
-      contacts
-        .filter(c => isContactActive(c) && c.tags?.includes(tagValue))
-        .forEach(c => emailSet.add(c.email));
-    } else if (val.startsWith('label:') || val.startsWith('list:')) {
-      const labelId = val.replace(/^label:|^list:/, '');
-      const listObj = (savedLists || []).find(l => String(l.id) === String(labelId));
+  const emailSet = new Set();
+  const activeContacts = contacts.filter(isContactActive);
+
+  // Se contiene 'all', restituisci tutti i contatti attivi
+  if (listToProcess.some(v => String(v).trim().toLowerCase() === 'all')) {
+    return activeContacts.map(c => c.email.trim()).filter(Boolean);
+  }
+
+  listToProcess.forEach(rawVal => {
+    if (!rawVal) return;
+    const valStr = String(rawVal).replace(/^['"]|['"]$/g, '').trim();
+    if (!valStr) return;
+
+    if (valStr.toLowerCase() === 'all') {
+      activeContacts.forEach(c => emailSet.add(c.email.trim()));
+      return;
+    }
+
+    // Gestione con prefisso: tag:xxx, label:xxx, list:xxx, tag_label:xxx
+    let prefix = '';
+    let target = valStr;
+
+    if (valStr.includes(':')) {
+      const parts = valStr.split(':');
+      prefix = parts[0].toLowerCase();
+      target = parts.slice(1).join(':').trim();
+    }
+
+    if (prefix === 'tag') {
+      activeContacts.forEach(c => {
+        const cTags = Array.isArray(c.tags) 
+          ? c.tags 
+          : typeof c.tags === 'string' 
+            ? c.tags.split(',') 
+            : [];
+        if (cTags.map(t => String(t).trim().toLowerCase()).includes(target.toLowerCase())) {
+          emailSet.add(c.email.trim());
+        }
+      });
+    } else if (prefix === 'label' || prefix === 'list') {
+      const listObj = (savedLists || []).find(l => 
+        String(l.id) === String(target) || 
+        String(l.nome || l.name || l.label || '').toLowerCase() === target.toLowerCase()
+      );
       const listIds = new Set(parseContactIds(listObj?.contact_ids));
 
-      contacts
-        .filter(c => isContactActive(c) && (
-          listIds.has(String(c.id)) || 
-          listIds.has(Number(c.id)) || 
-          String(c.contact_label_id) === String(labelId) ||
-          String(c.list_id) === String(labelId)
-        ))
-        .forEach(c => emailSet.add(c.email));
-    } else if (val.startsWith('tag_label:')) {
-      const tagLabelId = val.replace('tag_label:', '');
-      const tl = tagLabels.find(t => String(t.id) === String(tagLabelId));
-      if (tl) {
-        contacts
-          .filter(c => isContactActive(c) && c.tag_labels?.includes(tl.label))
-          .forEach(c => emailSet.add(c.email));
-      }
+      activeContacts.forEach(c => {
+        const cIdStr = String(c.id);
+        const cLabelIdStr = String(c.contact_label_id || '');
+        const cListIdStr = String(c.list_id || '');
+        const cLabels = Array.isArray(c.contact_labels) 
+          ? c.contact_labels 
+          : typeof c.contact_labels === 'string' 
+            ? c.contact_labels.split(',') 
+            : [];
+
+        if (
+          listIds.has(cIdStr) || 
+          cLabelIdStr === String(target) || 
+          cListIdStr === String(target) ||
+          (listObj?.id && (cLabelIdStr === String(listObj.id) || cListIdStr === String(listObj.id))) ||
+          cLabels.map(l => String(l).trim().toLowerCase()).includes(target.toLowerCase()) ||
+          (listObj?.nome && cLabels.map(l => String(l).trim().toLowerCase()).includes(String(listObj.nome).toLowerCase()))
+        ) {
+          emailSet.add(c.email.trim());
+        }
+      });
+    } else if (prefix === 'tag_label') {
+      const tl = (tagLabels || []).find(t => String(t.id) === String(target) || String(t.label).toLowerCase() === target.toLowerCase());
+      const targetLabel = tl?.label || target;
+      activeContacts.forEach(c => {
+        const cTagLabels = Array.isArray(c.tag_labels) 
+          ? c.tag_labels 
+          : typeof c.tag_labels === 'string' 
+            ? c.tag_labels.split(',') 
+            : [];
+        if (cTagLabels.map(tl => String(tl).trim().toLowerCase()).includes(targetLabel.toLowerCase())) {
+          emailSet.add(c.email.trim());
+        }
+      });
+    } else if (valStr.includes('@')) {
+      emailSet.add(valStr);
+    } else {
+      // Nessun prefisso esplicito (es. "testing" o "Lista testing")
+      const listObj = (savedLists || []).find(l => 
+        String(l.id) === String(valStr) || 
+        String(l.nome || l.name || l.label || '').toLowerCase() === valStr.toLowerCase()
+      );
+      const listIds = new Set(parseContactIds(listObj?.contact_ids));
+
+      activeContacts.forEach(c => {
+        const cIdStr = String(c.id);
+        const cLabelIdStr = String(c.contact_label_id || '');
+        const cListIdStr = String(c.list_id || '');
+        const cTags = Array.isArray(c.tags) ? c.tags : typeof c.tags === 'string' ? c.tags.split(',') : [];
+        const cLabels = Array.isArray(c.contact_labels) ? c.contact_labels : typeof c.contact_labels === 'string' ? c.contact_labels.split(',') : [];
+        const cTagLabels = Array.isArray(c.tag_labels) ? c.tag_labels : typeof c.tag_labels === 'string' ? c.tag_labels.split(',') : [];
+
+        if (
+          listIds.has(cIdStr) ||
+          cLabelIdStr === String(valStr) ||
+          cListIdStr === String(valStr) ||
+          (listObj?.id && (cLabelIdStr === String(listObj.id) || cListIdStr === String(listObj.id))) ||
+          cTags.map(t => String(t).trim().toLowerCase()).includes(valStr.toLowerCase()) ||
+          cLabels.map(l => String(l).trim().toLowerCase()).includes(valStr.toLowerCase()) ||
+          cTagLabels.map(tl => String(tl).trim().toLowerCase()).includes(valStr.toLowerCase())
+        ) {
+          emailSet.add(c.email.trim());
+        }
+      });
     }
   });
 
-  return [...emailSet];
+  return Array.from(emailSet).filter(Boolean);
 };
 
 useEffect(() => {
@@ -1815,16 +1915,45 @@ const fetchContactLabels = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const { data, error } = await supabase
-      .from('contact_labels')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('nome', { ascending: true });
+    const [{ data: labelsData }, { data: listsData }, { data: junctionData }] = await Promise.all([
+      supabase.from('contact_labels').select('*').eq('user_id', user.id).order('nome', { ascending: true }),
+      supabase.from('contact_lists').select('*').eq('user_id', user.id).then(res => res.data || []).catch(() => []),
+      supabase.from('list_contacts').select('*').then(res => res.data || []).catch(() => []),
+    ]);
 
-    if (error) throw error;
-    console.log('🏷️ Etichette contatti caricate:', data);
-    setContactLabels(data || []);
-    // ❌ VERIFICA CHE NON CI SIA fetchContacts() QUI
+    const combined = [];
+    const seen = new Set();
+
+    (labelsData || []).forEach(l => {
+      combined.push({
+        id: l.id,
+        nome: l.nome || l.name || l.label || 'Etichetta',
+        contact_ids: parseContactIds(l.contact_ids),
+        color: l.color || '#3b82f6'
+      });
+      seen.add(String(l.id));
+    });
+
+    (listsData || []).forEach(l => {
+      if (!seen.has(String(l.id))) {
+        let ids = parseContactIds(l.contact_ids);
+        if (junctionData && junctionData.length > 0) {
+          const matches = junctionData.filter(j => String(j.list_id || j.listId || j.contact_list_id) === String(l.id));
+          const jIds = matches.map(m => String(m.contact_id || m.contactId));
+          ids = Array.from(new Set([...ids, ...jIds]));
+        }
+        combined.push({
+          id: l.id,
+          nome: l.name || l.title || l.label || l.nome || 'Lista',
+          contact_ids: ids,
+          color: l.color || '#3b82f6'
+        });
+        seen.add(String(l.id));
+      }
+    });
+
+    console.log('🏷️ Etichette e liste contatti caricate:', combined);
+    setContactLabels(combined);
   } catch (error) {
     console.error('❌ Errore caricamento etichette contatti:', error);
   }
@@ -2454,7 +2583,8 @@ if (!accountData) {
     const recipients = resolveRecipientEmails(
       campaignToSend.recipient_list,
       contacts,
-      tagLabels
+      tagLabels,
+      contactLabels
     );
 
     if (recipients.length === 0) throw new Error('Nessun destinatario valido trovato');
@@ -2643,7 +2773,7 @@ const confirmSend = async () => {
     }
 
     // ✅ Risolvi destinatari reali
-    const recipients = resolveRecipientEmails(recipientList, contacts, tagLabels);
+    const recipients = resolveRecipientEmails(recipientList, contacts, tagLabels, contactLabels);
     if (recipients.length === 0) {
       toast.error("⚠️ Nessun destinatario valido trovato");
       setSending(false);
@@ -4924,7 +5054,8 @@ const [recipients, setRecipients] = useState([]);
       const recipients = resolveRecipientEmails(
         selectedCampaign.recipient_list,
         contacts,
-        tagLabels
+        tagLabels,
+        contactLabels
       );
   
       console.log('✅ Recipients risolti:', recipients.length);
@@ -5178,7 +5309,8 @@ const [recipients, setRecipients] = useState([]);
 const recipients = resolveRecipientEmails(
   campaignToResend.recipient_list,
   contacts,
-  tagLabels
+  tagLabels,
+  contactLabels
 );
 
 console.log('✅ Recipients risolti:', recipients.length);
@@ -15593,7 +15725,7 @@ useEffect(() => {
   }
 
  
-   const resolvedRecipients = resolveRecipientEmails(recipientList, localContacts, tagLabels);
+   const resolvedRecipients = resolveRecipientEmails(recipientList, localContacts, tagLabels, contactLabels);
   
     try {
       const campaignData = {
@@ -15762,7 +15894,7 @@ const resolveRecipientEmailsModal = (recipientList, contacts, tagLabels = [], sa
 // ✅ LOGICA DI INVIO ESTRATTA IN FUNZIONE SEPARATA
 const proceedWithSend = async (accountObj) => {
   try {
-    const recipients = resolveRecipientEmails(recipientList, localContacts, tagLabels);
+    const recipients = resolveRecipientEmails(recipientList, localContacts, tagLabels, contactLabels);
 
     if (recipients.length === 0) {
       toast.error("⚠️ Nessun destinatario trovato!");
