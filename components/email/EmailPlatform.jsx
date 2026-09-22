@@ -2463,71 +2463,76 @@ for (const log of logsFromDb) {
 // }, [user?.id]);
 // E usa emailLogs nel widget
 const latestLogsForWidget = useMemo(() => {
-  console.log('⚙️ Ricalcolo widget');
-  console.log('  - emailLogs:', emailLogs?.length);
+  console.log('⚙️ Ricalcolo widget Ultimi Invii');
   console.log('  - campaigns:', campaigns?.length);
+  console.log('  - emailLogs:', emailLogs?.length);
   
-  // ✅ Prova prima emailLogs
-  if (emailLogs && emailLogs.length > 0) {
-    console.log('📨 Uso emailLogs per il widget');
-    return emailLogs
-      .slice(0, 5)
-      .map(log => {
-        const rawSender = log.sender_email || log.from_email || log.from || log.sender || log.account_email || log.email_account || '';
-        const recList = log.recipient_list || log.recipients || log.recipient_emails || [];
-        return {
-          id: log.id,
-          campaign_id: log.campaign_id || log.id,
-          campaign_name: log.campaign_name || log.subject || 'Campagna',
-          subject: log.subject || log.campaign_name || '(Senza Oggetto)',
-          sent_at: log.sent_at || log.created_at,
-          sender_email: rawSender || 'Comunicazione Interna',
-          recipient_list: Array.isArray(recList) ? recList : [recList].filter(Boolean),
-          email_content: log.email_content || log.html || log.body || '',
-          attachments: log.attachments || [],
-          cc: log.cc || [],
-          bcc: log.bcc || [],
-          total_recipients: log.total_recipients || (Array.isArray(recList) ? recList.length : 0),
-          opened_count: log.opened_count || 0,
-          status: log.status || 'sent',
-        };
-      });
-  }
+  // 1. Usa prima le campagne inviate dall'elenco principale `campaigns` (contiene tutti i dati: nome, destinatari, HTML)
+  const sentCampaigns = (campaigns || []).filter(c => c.status === 'sent' || c.sent_at);
   
-  // ✅ Fallback su campaigns se emailLogs è vuoto
-  if (campaigns && (campaigns || []).length > 0) {
-    console.log('📋 Uso campaigns per il widget');
-    const sentCampaigns = campaigns.filter(c => c.status === 'sent' && c.sent_at);
-    
-    console.log('  - Campagne sent:', sentCampaigns.length);
-    
+  if (sentCampaigns.length > 0) {
     return sentCampaigns
-      .sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at))
+      .sort((a, b) => new Date(b.sent_at || b.created_at) - new Date(a.sent_at || a.created_at))
       .slice(0, 5)
-      .map(log => {
-        const rawSender = log.sender_email || log.sender || log.from || log.account_email || log.email_account || '';
+      .map(c => {
+        const rawSender = c.sender_email || c.sender || c.from || c.account_email || c.email_account || '';
+        const recList = Array.isArray(c.recipient_list) ? c.recipient_list : (c.recipients || []);
         return {
-          id: log.id,
-          campaign_id: log.id,
-          campaign_name: log.campaign_name || log.subject || 'Campagna',
-          subject: log.subject || log.campaign_name || '(Senza Oggetto)',
-          sent_at: log.sent_at,
+          id: c.id,
+          campaign_id: c.id,
+          campaign_name: c.campaign_name || c.subject || 'Campagna Email',
+          subject: c.subject || c.campaign_name || '(Senza Oggetto)',
+          sent_at: c.sent_at || c.created_at,
           sender_email: rawSender || 'Comunicazione Interna',
-          recipient_list: log.recipient_list || log.recipients || [],
-          email_content: log.email_content || '',
-          attachments: log.attachments || [],
-          cc: log.cc || [],
-          bcc: log.bcc || [],
-          total_recipients: log.total_recipients || (Array.isArray(log.recipient_list) ? log.recipient_list.length : 0),
-          opened_count: log.opened_count || 0,
-          status: 'sent',
+          recipient_list: recList,
+          email_content: c.email_content || '',
+          attachments: c.attachments || [],
+          cc: c.cc || null,
+          bcc: c.bcc || null,
+          total_recipients: c.total_recipients || recList.length || 0,
+          opened_count: c.opened_count || 0,
+          status: c.status || 'sent',
         };
       });
   }
-  
-  console.log('⚠️ Nessun dato disponibile per il widget');
+
+  // 2. Fallback su `emailLogs` se `campaigns` non ha invii caricati
+  if (emailLogs && emailLogs.length > 0) {
+    const campaignMap = new Map();
+
+    emailLogs.forEach(log => {
+      const campId = log.campaign_id || log.id;
+      if (!campaignMap.has(campId)) {
+        const fullCamp = (campaigns || []).find(c => String(c.id) === String(campId));
+        const cName = log.campaigns?.campaign_name || log.campaign_name || fullCamp?.campaign_name || log.subject || 'Campagna Email';
+        const cSubj = log.campaigns?.subject || log.subject || fullCamp?.subject || '(Senza Oggetto)';
+        const cSender = log.sender_email || log.from_email || fullCamp?.sender_email || 'Comunicazione Interna';
+        const recList = fullCamp?.recipient_list || log.recipient_list || (log.recipient_email ? [log.recipient_email] : []);
+
+        campaignMap.set(campId, {
+          id: campId,
+          campaign_id: campId,
+          campaign_name: cName,
+          subject: cSubj,
+          sent_at: log.sent_at || fullCamp?.sent_at,
+          sender_email: cSender,
+          recipient_list: Array.isArray(recList) ? recList : [recList].filter(Boolean),
+          email_content: fullCamp?.email_content || log.email_content || log.html || '',
+          attachments: fullCamp?.attachments || log.attachments || [],
+          cc: fullCamp?.cc || log.cc || null,
+          bcc: fullCamp?.bcc || log.bcc || null,
+          total_recipients: log.campaigns?.total_recipients || fullCamp?.total_recipients || recList.length || 1,
+          opened_count: log.campaigns?.opened_count || fullCamp?.opened_count || log.opened_count || 0,
+          status: log.status || fullCamp?.status || 'sent',
+        });
+      }
+    });
+
+    return Array.from(campaignMap.values()).slice(0, 5);
+  }
+
   return [];
-}, [emailLogs, campaigns]); // ✅ Dipende da entrambi
+}, [campaigns, emailLogs]); // ✅ Dipende da entrambi
   // ✅ Stato persistente della modalità (standard, template, builder)
 // ✅ Stato persistente per la finestra "Nuova Campagna"
 const [showCampaignModal, setShowCampaignModal] = useState(() => {
@@ -29557,21 +29562,23 @@ if (loadingProfile && !user && !authUser) {
         };
 
         const handleOpenRecentCampaignView = () => {
-          // Trova la campagna completa nella lista `campaigns`
-          const foundCampaign = campaigns?.find(c => String(c.id) === String(log.id || log.campaign_id));
+          // Cerca la campagna completa nella lista `campaigns`
+          const foundCampaign = (campaigns || []).find(c => String(c.id) === String(log.campaign_id || log.id));
           if (foundCampaign) {
             setSelectedCampaign(foundCampaign);
           } else {
+            const recList = Array.isArray(log.recipient_list) && log.recipient_list.length > 0
+              ? log.recipient_list
+              : (Array.isArray(log.recipients) ? log.recipients : []);
+
             setSelectedCampaign({
-              id: log.id || log.campaign_id,
-              campaign_name: log.campaign_name || log.subject || "Campagna",
+              id: log.campaign_id || log.id,
+              campaign_name: log.campaign_name || log.subject || "Campagna Email",
               subject: log.subject || log.campaign_name || "(Senza Oggetto)",
               email_content: log.email_content || log.html || "<p>Nessun contenuto memorizzato</p>",
               sender_email: log.sender_email || "Comunicazione Interna",
-              recipient_list: Array.isArray(log.recipient_list) && log.recipient_list.length > 0
-                ? log.recipient_list
-                : (Array.isArray(log.recipients) ? log.recipients : []),
-              total_recipients: log.total_recipients || 0,
+              recipient_list: recList,
+              total_recipients: log.total_recipients || recList.length || 0,
               opened_count: log.opened_count || 0,
               status: log.status || "sent",
               sent_at: log.sent_at,
@@ -29586,17 +29593,17 @@ if (loadingProfile && !user && !authUser) {
         return (
           <div 
             key={log.id} 
-            className="p-4 hover:bg-gray-50 transition cursor-pointer"
+            className="p-4 hover:bg-gray-50 transition cursor-pointer border-b border-gray-100 last:border-0"
             onClick={handleOpenRecentCampaignView}
           >
-            {/* Nome Campagna */}
-            <div className="flex items-start justify-between mb-2">
-              <div className="flex-1">
+            {/* Header: Nome Campagna + Badge Stato */}
+            <div className="flex items-start justify-between mb-1.5 gap-2">
+              <div className="flex-1 min-w-0">
                 <p className="font-semibold text-gray-900 text-sm truncate">
-                  {log.campaign_name || log.subject}
+                  {log.campaign_name || log.subject || "Campagna Email"}
                 </p>
-                <p className="text-xs text-gray-600 mt-1">
-                  {log.subject}
+                <p className="text-xs text-gray-500 truncate mt-0.5">
+                  Oggetto: {log.subject || "—"}
                 </p>
               </div>
               <button
@@ -29604,14 +29611,15 @@ if (loadingProfile && !user && !authUser) {
                   e.stopPropagation();
                   handleOpenRecentCampaignView();
                 }}
-                className="ml-2 p-1.5 hover:bg-gray-200 rounded-lg transition"
-                title="Vedi campagna completa"
+                className="p-1.5 hover:bg-gray-200/80 rounded-lg transition text-blue-600 flex items-center gap-1 text-xs font-medium bg-blue-50"
+                title="Vedi dettagli campagna"
               >
-                <Eye className="w-4 h-4 text-gray-600" />
+                <Eye className="w-3.5 h-3.5" />
+                Vedi
               </button>
             </div>
 
-            {/* Account mittente */}
+            {/* Account Mittente */}
             <div className="flex items-center gap-2 mb-2">
               <Mail className="w-3 h-3 text-gray-400" />
               <span className="text-xs text-gray-600 truncate">
@@ -29621,10 +29629,10 @@ if (loadingProfile && !user && !authUser) {
               </span>
             </div>
 
-            {/* Data, ora e destinatari */}
+            {/* Data e Destinatari */}
             <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
-              <div className="flex items-center gap-2">
-                <Clock className="w-3 h-3" />
+              <div className="flex items-center gap-1.5">
+                <Clock className="w-3 h-3 text-gray-400" />
                 <span>
                   {log.sent_at
                     ? new Date(log.sent_at).toLocaleString("it-IT", {
@@ -29637,30 +29645,27 @@ if (loadingProfile && !user && !authUser) {
                     : "—"}
                 </span>
               </div>
-              <div className="flex items-center gap-1">
-                <Users className="w-3 h-3" />
-                <span className="font-medium">{recipientsCount}</span>
+              <div className="flex items-center gap-1 font-medium text-gray-700 bg-gray-100 px-2 py-0.5 rounded-full text-[11px]">
+                <Users className="w-3 h-3 text-blue-600" />
+                <span>{recipientsCount} {recipientsCount === 1 ? 'destinatario' : 'destinatari'}</span>
               </div>
             </div>
 
-            {/* Barra progresso aperture */}
-            <div className="mt-2">
-              <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                <span>Tasso di apertura</span>
-                <span className="font-medium">{openRate}%</span>
+            {/* Monitoraggio Invio / Stato Consegna */}
+            <div className="mt-2 pt-2 border-t border-gray-100/80 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1.5 text-emerald-700 font-medium">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Inviato con successo</span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden relative">
-                <div
-                  className={`h-1.5 ${getBarColor()} rounded-full transition-all duration-700`}
-                  style={{
-                    width:
-                      log.status === "sending" ? "100%" : `${openRate}%`,
-                  }}
-                ></div>
-                {log.status === "sending" && (
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-wave"></div>
-                )}
-              </div>
+              {openedCount > 0 ? (
+                <span className="text-gray-500 text-[11px]">
+                  Aperture: <strong className="text-gray-800">{openedCount} ({openRate}%)</strong>
+                </span>
+              ) : (
+                <span className="text-gray-400 text-[11px]">
+                  Consegna completata
+                </span>
+              )}
             </div>
           </div>
         );
@@ -29794,13 +29799,21 @@ if (loadingProfile && !user && !authUser) {
     show={showRolesModal}
     onClose={() => {
       console.log('🚪 Chiusura RolesModal');
-      
       setShowRolesModal(false);
       fetchRoles();
-      console.log('🚪 Roles ricaricati');
-      
     }}
     user={user}
+  />
+)}
+
+{/* 📋 MODALE VISUALIZZA CAMPAGNA DA ULTIMI INVII / DASHBOARD */}
+{showViewModal && selectedCampaign && (
+  <ViewCampaignModal
+    campaign={selectedCampaign}
+    onClose={() => {
+      setShowViewModal(false);
+      setSelectedCampaign(null);
+    }}
   />
 )}
 {/* 📋 MODALE DETTAGLIO LOG CON DESTINATARI */}
