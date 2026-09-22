@@ -6208,6 +6208,7 @@ setTimeout(() => {
     {/* ====================== */}
     {/*   TABELLA COMPLETA     */}
     {/* ====================== */}
+    <div className="overflow-x-auto w-full">
     <table className="min-w-full divide-y divide-gray-200">
       <thead className="bg-gray-50">
         <tr>
@@ -6279,17 +6280,18 @@ setTimeout(() => {
 
               <td className="px-6 py-4 text-gray-500 whitespace-nowrap">{formatted}</td>
 
-              <td className="px-6 py-4 text-right whitespace-nowrap">
+              <td className="px-4 sm:px-6 py-4 text-right whitespace-nowrap min-w-[240px]">
                 <div className="flex justify-end items-center gap-1.5">
                   <button
                     onClick={() => {
                       setSelectedCampaign(campaigns);
                       setShowViewModal(true);
                     }}
-                    className="px-2.5 py-1 text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-md transition-colors inline-flex items-center gap-1.5"
-                    title="Vedi dettagli"
+                    className="px-2.5 py-1.5 text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 rounded-lg transition-colors inline-flex items-center gap-1 shadow-sm"
+                    title="Vedi dettagli campagna"
                   >
-                    <Eye className="w-3.5 h-3.5" /> Vedi
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Vedi</span>
                   </button>
 
                   <button
@@ -6297,39 +6299,43 @@ setTimeout(() => {
                       setSelectedCampaign(campaigns);
                       setShowEditModal(true);
                     }}
-                    className="px-2.5 py-1 text-xs font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-md transition-colors inline-flex items-center gap-1.5"
+                    className="px-2.5 py-1.5 text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-700 dark:text-gray-200 rounded-lg transition-colors inline-flex items-center gap-1 shadow-sm"
                     title="Modifica campagna"
                   >
-                    <Edit3 className="w-3.5 h-3.5" /> Modifica
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Modifica</span>
                   </button>
 
                   {campaigns.status === "draft" && (
                     <button
                       onClick={() => handleSendCampaign(campaigns)}
-                      className="px-2.5 py-1 text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-md transition-colors inline-flex items-center gap-1.5"
+                      className="px-2.5 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300 rounded-lg transition-colors inline-flex items-center gap-1 shadow-sm"
                       title="Invia campagna"
                     >
-                      <Send className="w-3.5 h-3.5" /> Invia
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Invia</span>
                     </button>
                   )}
 
                   {campaigns.status === "scheduled" && (
                     <button
                       onClick={() => handleSendCampaign(campaigns)}
-                      className="px-2.5 py-1 text-xs font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-md transition-colors inline-flex items-center gap-1.5"
+                      className="px-2.5 py-1.5 text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg transition-colors inline-flex items-center gap-1 shadow-sm"
                       title="Invia ora"
                     >
-                      <Send className="w-3.5 h-3.5" /> Invia
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Invia</span>
                     </button>
                   )}
 
                   {campaigns.status === "sent" && (
                     <button
                       onClick={() => handleResendCampaign(campaigns)}
-                      className="px-2.5 py-1 text-xs font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-md transition-colors inline-flex items-center gap-1.5"
+                      className="px-2.5 py-1.5 text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg transition-colors inline-flex items-center gap-1 shadow-sm"
                       title="Re-invia campagna"
                     >
-                      <Send className="w-3.5 h-3.5 rotate-180" /> Re-invia
+                      <Send className="w-3.5 h-3.5 rotate-180" />
+                      <span>Re-invia</span>
                     </button>
                   )}
 
@@ -6338,10 +6344,11 @@ setTimeout(() => {
                       setSelectedCampaign(campaigns);
                       setShowDeleteConfirm(true);
                     }}
-                    className="px-2.5 py-1 text-xs font-medium bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-md transition-colors inline-flex items-center gap-1.5"
+                    className="px-2.5 py-1.5 text-xs font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-900/30 dark:text-rose-300 rounded-lg transition-colors inline-flex items-center gap-1 shadow-sm"
                     title="Elimina campagna"
                   >
-                    <Trash2 className="w-3.5 h-3.5" /> Elimina
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Elimina</span>
                   </button>
                 </div>
               </td>
@@ -6351,6 +6358,7 @@ setTimeout(() => {
         })}
       </tbody>
     </table>
+    </div>
   </div>
 )}
 
