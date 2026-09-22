@@ -6065,42 +6065,47 @@ setTimeout(() => {
               )}
 
               {/* Menu dropdown */}
-              <button
-                onClick={() => setOpenMenuId(openMenuId === campaign.id ? null : campaign.id)}
-                className="btn-action btn-light px-2"
-              >
-                <MoreVertical className="w-4 h-4" />
-              </button>
+              <div className="relative">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenMenuId(openMenuId === campaign.id ? null : campaign.id);
+                  }}
+                  className="btn-action btn-light px-2"
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </button>
 
-              {openMenuId === campaign.id && (
-                <div className="absolute right-0 bottom-10 z-50 w-44 bg-white border border-gray-100 rounded-xl shadow-xl overflow-hidden">
-                  <button
-                    onClick={() => { setSelectedCampaign(campaign); setShowViewModal(true); setOpenMenuId(null); }}
-                    className="menu-item"
-                  >
-                    ✨Å Vedi
-                  </button>
-                  <button
-                    onClick={() => { setSelectedCampaign(campaign); setShowEditModal(true); setOpenMenuId(null); }}
-                    className="menu-item"
-                  >
-                    ✏️ Modifica
-                  </button>
-                  <button
-                    onClick={() => { handleResendCampaign(campaign); setOpenMenuId(null); }}
-                    className="menu-item"
-                  >
-                    🔄 Duplica
-                  </button>
-                  <div className="border-t border-gray-100" />
-                  <button
-                    onClick={() => { setSelectedCampaign(campaign); setShowDeleteConfirm(true); setOpenMenuId(null); }}
-                    className="menu-item text-red-600 hover:bg-red-50"
-                  >
-                    🗑️ Elimina
-                  </button>
-                </div>
-              )}
+                {openMenuId === campaign.id && (
+                  <div className="absolute right-0 bottom-full mb-2 z-50 w-44 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden text-left">
+                    <button
+                      onClick={() => { setSelectedCampaign(campaign); setShowViewModal(true); setOpenMenuId(null); }}
+                      className="w-full text-left px-4 py-2.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors flex items-center gap-2"
+                    >
+                      👁️ Vedi
+                    </button>
+                    <button
+                      onClick={() => { setSelectedCampaign(campaign); setShowEditModal(true); setOpenMenuId(null); }}
+                      className="w-full text-left px-4 py-2.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors flex items-center gap-2"
+                    >
+                      ✏️ Modifica
+                    </button>
+                    <button
+                      onClick={() => { handleResendCampaign(campaign); setOpenMenuId(null); }}
+                      className="w-full text-left px-4 py-2.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors flex items-center gap-2"
+                    >
+                      🔄 Duplica
+                    </button>
+                    <div className="border-t border-gray-100 dark:border-slate-700" />
+                    <button
+                      onClick={() => { setSelectedCampaign(campaign); setShowDeleteConfirm(true); setOpenMenuId(null); }}
+                      className="w-full text-left px-4 py-2.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors flex items-center gap-2"
+                    >
+                      🗑️ Elimina
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
