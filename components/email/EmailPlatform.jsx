@@ -2487,7 +2487,7 @@ const latestLogsForWidget = useMemo(() => {
           opened_count: log.opened_count || 0,
           status: log.status || 'sent',
         };
-      }));
+      });
   }
   
   // ✅ Fallback su campaigns se emailLogs è vuoto
