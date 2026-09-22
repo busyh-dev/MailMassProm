@@ -2472,18 +2472,21 @@ const latestLogsForWidget = useMemo(() => {
     console.log('📨 Uso emailLogs per il widget');
     return emailLogs
       .slice(0, 5)
-      .map(log => ({
-        id: log.id,
-        campaign_name: log.campaign_name || 'Campagna',
-        subject: log.subject,
-        sent_at: log.sent_at,
-        sender_email: log.sender_email,
-        recipient_list: log.recipients || [], // Potrebbe chiamarsi 'recipients'
-        cc: log.cc || [],
-        bcc: log.bcc || [],
-        total_recipients: log.total_recipients || 0,
-        opened_count: log.opened_count || 0,
-        status: log.status || 'sent',
+      .map(log => {
+        const rawSender = log.sender_email || log.from_email || log.from || log.sender || log.account_email || log.email_account || '';
+        return {
+          id: log.id,
+          campaign_name: log.campaign_name || 'Campagna',
+          subject: log.subject,
+          sent_at: log.sent_at,
+          sender_email: rawSender || 'Comunicazione Interna',
+          recipient_list: log.recipients || log.recipient_list || [],
+          cc: log.cc || [],
+          bcc: log.bcc || [],
+          total_recipients: log.total_recipients || 0,
+          opened_count: log.opened_count || 0,
+          status: log.status || 'sent',
+        };
       }));
   }
   
@@ -2497,19 +2500,22 @@ const latestLogsForWidget = useMemo(() => {
     return sentCampaigns
       .sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at))
       .slice(0, 5)
-      .map(log => ({
-        id: log.id,
-        campaign_name: log.campaign_name,
-        subject: log.subject,
-        sent_at: log.sent_at,
-        sender_email: log.sender_email,
-        recipient_list: log.recipient_list || [],
-        cc: log.cc || [],
-        bcc: log.bcc || [],
-        total_recipients: log.total_recipients || log.recipient_list?.length || 0,
-        opened_count: log.opened_count || 0,
-        status: 'sent',
-      }));
+      .map(log => {
+        const rawSender = log.sender_email || log.sender || log.from || log.account_email || log.email_account || '';
+        return {
+          id: log.id,
+          campaign_name: log.campaign_name,
+          subject: log.subject,
+          sent_at: log.sent_at,
+          sender_email: rawSender || 'Comunicazione Interna',
+          recipient_list: log.recipient_list || [],
+          cc: log.cc || [],
+          bcc: log.bcc || [],
+          total_recipients: log.total_recipients || log.recipient_list?.length || 0,
+          opened_count: log.opened_count || 0,
+          status: 'sent',
+        };
+      });
   }
   
   console.log('⚠️ Nessun dato disponibile per il widget');
@@ -16031,6 +16037,7 @@ const proceedWithSend = async (accountObj) => {
       campaign_id: campaignId,
       user_id: user.id,
       recipient_email: email,
+      sender_email: accountObj.email || accountObj.name || accountObj.label || 'Comunicazione Interna',
       status: failedRecipients.includes(email) ? 'failed' : 'sent',
       sent_at: new Date().toISOString(),
     }));
@@ -29573,7 +29580,9 @@ if (loadingProfile && !user && !authUser) {
             <div className="flex items-center gap-2 mb-2">
               <Mail className="w-3 h-3 text-gray-400" />
               <span className="text-xs text-gray-600 truncate">
-                {log.sender_email || "Account non specificato"}
+                {log.sender_email && log.sender_email !== "Account non specificato"
+                  ? log.sender_email
+                  : "Comunicazione Interna"}
               </span>
             </div>
 
@@ -29814,7 +29823,9 @@ if (loadingProfile && !user && !authUser) {
               <span className="text-xs font-medium">Account Mittente</span>
             </div>
             <p className="text-sm font-semibold text-gray-900 truncate">
-              {selectedLogForModal.sender_email || "Non specificato"}
+              {selectedLogForModal.sender_email && selectedLogForModal.sender_email !== "Non specificato"
+                ? selectedLogForModal.sender_email
+                : "Comunicazione Interna"}
             </p>
           </div>
 
