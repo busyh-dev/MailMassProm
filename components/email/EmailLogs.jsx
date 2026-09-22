@@ -82,12 +82,12 @@ const EmailLogs = ({ logsProp, logsLoadingProp }) => {
     <div className="space-y-6">
   
       {/* 🔝 HEADER */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Storico Invii</h2>
-          <p className="text-sm text-gray-500 mt-1">Cronologia completa delle email inviate</p>
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Storico Invii</h2>
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">Cronologia completa delle email inviate</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
         <button
   onClick={() => {
     const rows = filteredLogs.map((log, i) => ({
@@ -126,10 +126,10 @@ const EmailLogs = ({ logsProp, logsLoadingProp }) => {
     XLSX.utils.book_append_sheet(wb, ws, 'Storico Invii');
     XLSX.writeFile(wb, `storico_invii_${new Date().toISOString().split('T')[0]}.xlsx`);
   }}
-  className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+  className="flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-3 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold shadow-xs transition"
 >
-  <Download className="w-4 h-4" />
-  Esporta XLSX
+  <Download className="w-4 h-4 shrink-0" />
+  <span>Esporta Excel</span>
 </button>
   
           {/* Esporta PDF/Stampa */}
@@ -219,10 +219,10 @@ const EmailLogs = ({ logsProp, logsLoadingProp }) => {
               printWindow.focus();
               setTimeout(() => printWindow.print(), 500);
             }}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+            className="flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-3 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold shadow-xs transition"
           >
-            <FileText className="w-4 h-4" />
-            Stampa/PDF
+            <FileText className="w-4 h-4 shrink-0" />
+            <span>Stampa/PDF</span>
           </button>
         </div>
       </div>

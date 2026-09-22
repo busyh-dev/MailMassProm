@@ -109,11 +109,11 @@ const ContactsTable = ({ data, loading }) => {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-4 bg-white dark:bg-slate-800 p-4 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Filtri di Ricerca</h4>
           <button
             onClick={exportToExcel}
-            className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition-all active:scale-95"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-all active:scale-95"
           >
             <FileText className="w-4 h-4" />
             Esporta Excel
@@ -233,11 +233,11 @@ const CampaignsTable = ({ data, loading }) => {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-4 bg-white dark:bg-slate-800 p-4 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Filtri di Ricerca</h4>
           <button
             onClick={exportToExcel}
-            className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition-all active:scale-95"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-all active:scale-95"
           >
             <FileText className="w-4 h-4" />
             Esporta Excel
@@ -359,11 +359,11 @@ const LogsTable = ({ data, loading }) => {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-4 bg-white dark:bg-slate-800 p-4 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Filtri di Ricerca</h4>
           <button
             onClick={exportToExcel}
-            className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition-all active:scale-95"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold shadow-sm transition-all active:scale-95"
           >
             <FileText className="w-4 h-4" />
             Esporta Excel

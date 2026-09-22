@@ -378,39 +378,39 @@ const printReport = () => {
   return (
     <div className="space-y-6">
      {/* ===== HEADER ===== */}
-<div className="flex items-center justify-between flex-wrap gap-3">
+<div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
   <div>
-    <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
-    <p className="text-sm text-gray-500 mt-1">
+    <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h2>
+    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">
       Panoramica delle tue campagne email · {new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
     </p>
   </div>
-  <div className="flex items-center gap-2.5 flex-wrap">
+  <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
     {/* Export Excel */}
     <button
       onClick={exportToExcel}
-      className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm shadow-emerald-500/20 hover:shadow-md hover:shadow-emerald-500/30 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200"
+      className="flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-3 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold shadow-xs hover:shadow-md hover:shadow-emerald-500/30 transition-all duration-200"
     >
-      <Download className="w-4 h-4" />
-      Esporta Excel
+      <Download className="w-4 h-4 shrink-0" />
+      <span>Esporta Excel</span>
     </button>
 
     {/* Stampa/PDF */}
     <button
       onClick={printReport}
-      className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm shadow-indigo-500/20 hover:shadow-md hover:shadow-indigo-500/30 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200"
+      className="flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-3 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold shadow-xs hover:shadow-md hover:shadow-indigo-500/30 transition-all duration-200"
     >
-      <FileText className="w-4 h-4" />
-      Stampa/PDF
+      <FileText className="w-4 h-4 shrink-0" />
+      <span>Stampa/PDF</span>
     </button>
 
     {/* Nuova Campagna */}
     <button
       onClick={() => setActiveTab('campaigns')}
-      className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm shadow-blue-500/20 hover:shadow-md hover:shadow-blue-500/30 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200"
+      className="col-span-2 sm:col-span-1 flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-3 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold shadow-xs hover:shadow-md hover:shadow-blue-500/30 transition-all duration-200"
     >
-      <Mail className="w-4 h-4" />
-      Nuova Campagna
+      <Mail className="w-4 h-4 shrink-0" />
+      <span>Nuova Campagna</span>
     </button>
   </div>
 </div>

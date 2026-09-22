@@ -5581,45 +5581,46 @@ setTimeout(() => {
   
   return (
     <div className="space-y-6 relative">
-      <div className="flex justify-between items-center">
-  <h2 className="text-2xl font-bold text-gray-900">Campagne</h2>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Campagne</h2>
 
-  <div className="flex items-center gap-2">
-    {/* ⚙️ Switch vista */}
-    <button
-      onClick={() => setViewMode("grid")}
-      className={`px-3 py-1 rounded border ${
-        viewMode === "grid"
-          ? "bg-blue-600 text-white border-blue-600"
-          : "bg-white text-gray-700 border-gray-300"
-      }`}
-    >
-      🔲 Griglia
-    </button>
+        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
+          {/* ⚙️ Switch vista */}
+          <div className="col-span-2 sm:col-span-1 flex items-center justify-center gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl border border-gray-200 dark:border-gray-700">
+            <button
+              onClick={() => setViewMode("grid")}
+              className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                viewMode === "grid"
+                  ? "bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+              }`}
+            >
+              🔲 Griglia
+            </button>
+            <button
+              onClick={() => setViewMode("list")}
+              className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                viewMode === "list"
+                  ? "bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm"
+                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+              }`}
+            >
+              📋 Lista
+            </button>
+          </div>
 
-    <button
-      onClick={() => setViewMode("list")}
-      className={`px-3 py-1 rounded border ${
-        viewMode === "list"
-          ? "bg-blue-600 text-white border-blue-600"
-          : "bg-white text-gray-700 border-gray-300"
-      }`}
-    >
-      📋 Lista
-    </button>
-
-    {/* 👥 Nuova campagna */}
-    <button
-      onClick={() => {
-        setSelectedCampaign(null);
-        setShowCampaignModal(true);
-        setCampaignMode(null);
-      }}
-      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-    >
-      <Plus className="w-4 h-4" />
-      Nuova Campagna
-    </button>
+          {/* 👥 Nuova campagna */}
+          <button
+            onClick={() => {
+              setSelectedCampaign(null);
+              setShowCampaignModal(true);
+              setCampaignMode(null);
+            }}
+            className="w-full sm:w-auto justify-center bg-blue-600 hover:bg-blue-700 text-white px-3 sm:px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-sm active:scale-95"
+          >
+            <Plus className="w-4 h-4" />
+            Nuova Campagna
+          </button>
      {/* 🖨️ Stampa lista campagne */}
      <button
   onClick={() => {
@@ -5753,7 +5754,7 @@ setTimeout(() => {
       printWindow.print();
     }, 500);
   }}
-  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+  className="w-full sm:w-auto justify-center bg-indigo-600 hover:bg-indigo-700 text-white px-3 sm:px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-sm active:scale-95"
 >
   🖨️ Stampa Campagne
 </button>
@@ -10457,7 +10458,7 @@ return (
         </div>
         {/* 👥 BARRA FILTRI */}
 
-        <div className="flex gap-3 justify-end">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
           {/* Scarica modello CSV */}
           <button
             onClick={() => {
@@ -10477,7 +10478,7 @@ return (
               document.body.removeChild(link);
               toast.success("📤 Modello CSV scaricato!");
             }}
-            className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+            className="w-full sm:w-auto justify-center bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-200 px-3 sm:px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-2 transition-all border border-gray-200 dark:border-slate-700 active:scale-95 shadow-sm"
           >
             <Download className="w-4 h-4" />
             Scarica Modello
@@ -10486,7 +10487,7 @@ return (
           {/* Importa contatti CSV */}
           <button
             onClick={() => setShowImportModal(true)}
-            className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+            className="w-full sm:w-auto justify-center bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-200 px-3 sm:px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-2 transition-all border border-gray-200 dark:border-slate-700 active:scale-95 shadow-sm"
           >
             <Upload className="w-4 h-4" />
             Importa CSV
@@ -10494,25 +10495,24 @@ return (
           {/* 👥 Bottone Esporta CSV */}
           <button
             onClick={exportToCSV}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition"
+            className="w-full sm:w-auto justify-center bg-blue-600 hover:bg-blue-700 text-white px-3 sm:px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-2 transition-all active:scale-95 shadow-sm"
           >
             <Download className="w-4 h-4" />
             Esporta CSV
           </button>
           {/* 👥 Bottone Stampa/PDF */}
           <button
-            onClick={printContactsList} // ✅ Nome diverso
-            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition"
+            onClick={printContactsList}
+            className="w-full sm:w-auto justify-center bg-purple-600 hover:bg-purple-700 text-white px-3 sm:px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-2 transition-all active:scale-95 shadow-sm"
           >
             <Printer className="w-4 h-4" />
             Stampa/PDF
           </button>
 
-
-          {/* 🖨️ NUOVO BOTTONE - Gestione Tag */}
+          {/* 🖨️ Gestione Tag */}
           <button
             onClick={() => setShowTagsModal(true)}
-            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+            className="w-full sm:w-auto justify-center bg-indigo-600 hover:bg-indigo-700 text-white px-3 sm:px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-2 transition-all active:scale-95 shadow-sm"
           >
             <Tag className="w-4 h-4" />
             Gestisci Tag
@@ -10521,18 +10521,18 @@ return (
           {/* Aggiungi contatto */}
           <button
             onClick={() => setShowAddModal(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+            className="w-full sm:w-auto justify-center bg-emerald-600 hover:bg-emerald-700 text-white px-3 sm:px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-2 transition-all active:scale-95 shadow-sm"
           >
             <Plus className="w-4 h-4" />
             Nuovo Contatto
           </button>
           <button
-  onClick={() => setShowListsModal(true)}
-  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
->
-  <List className="w-4 h-4" />
-  Liste {savedListsCount > 0 && `(${savedListsCount})`}
-</button>
+            onClick={() => setShowListsModal(true)}
+            className="w-full sm:w-auto justify-center bg-sky-600 hover:bg-sky-700 text-white px-3 sm:px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-2 transition-all active:scale-95 shadow-sm"
+          >
+            <List className="w-4 h-4" />
+            Liste {savedListsCount > 0 && `(${savedListsCount})`}
+          </button>
         </div>
       </div>
     </div>
