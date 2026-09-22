@@ -28811,8 +28811,17 @@ if (loadingProfile && !user && !authUser) {
           <div className="flex justify-between items-center py-2 sm:py-3.5 gap-1.5 sm:gap-4">
             {/* Logo Brand con Badge */}
             <div className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
-              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/25 ring-2 ring-blue-500/20 shrink-0">
-                <Mail className="w-4 h-4 sm:w-5 sm:h-5" />
+              <div className="relative shrink-0">
+                <img 
+                  src="/logo_principale.png" 
+                  alt="MailMassProm Logo" 
+                  className="h-8 sm:h-9 w-auto object-contain dark:hidden"
+                />
+                <img 
+                  src="/logo_2.png" 
+                  alt="MailMassProm Logo Dark" 
+                  className="h-8 sm:h-9 w-auto object-contain hidden dark:block"
+                />
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-1 sm:gap-2">

@@ -11,6 +11,8 @@ import OfflineBanner from "../components/OfflineBanner";
 import QueueDashboard from "../components/QueueDashboard";
 import "leaflet/dist/leaflet.css";
 
+import Head from "next/head";
+
 export default function App({ Component, pageProps }) {
   useEffect(() => {
     // Sopprimi AuthSessionMissingError dalla console (è normale senza sessione attiva)
@@ -62,6 +64,14 @@ export default function App({ Component, pageProps }) {
        {/* ✅ Aggiungi PermissionsProvider qui */}
        <PermissionsProvider>
       <EditorProvider>
+        <Head>
+          <title>MailMassProm - Piattaforma Professionale Email Marketing</title>
+          <meta name="description" content="MailMassProm - Piattaforma avanzata per l'invio e la gestione di campagne email" />
+          <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+          <link rel="icon" type="image/png" href="/favicon.png" />
+          <link rel="shortcut icon" href="/favicon.ico" />
+          <link rel="apple-touch-icon" href="/favicon.png" />
+        </Head>
         <OnlineStatusToaster />
         <OfflineBanner />
         <QueueDashboard />

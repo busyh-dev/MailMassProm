@@ -865,12 +865,14 @@ const LoginPage = () => {
           <div className="hidden lg:flex lg:w-1/2 xl:w-2/5">
             <div className="flex flex-col justify-center w-full max-w-md mx-auto p-12">
               <div className="text-center mb-8">
-                <div className="flex items-center justify-center mb-6">
-                  <div className="bg-blue-600 p-3 rounded-2xl">
-                    <Mail className="w-8 h-8 text-white" />
-                  </div>
+                <div className="flex items-center justify-center mb-4">
+                  <img 
+                    src="/logo_principale.png" 
+                    alt="MailMassProm Logo" 
+                    className="h-16 w-auto object-contain drop-shadow-md"
+                  />
                 </div>
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">MailMassProm</h1>
+                <h1 className="text-3xl font-extrabold text-gray-900 mb-2">MailMassProm</h1>
                 <p className="text-gray-600 text-lg">Piattaforma Professionale di Email Marketing</p>
                 <p className="text-xs text-gray-400 mt-1">
                   v{process.env.NEXT_PUBLIC_APP_VERSION}
@@ -931,10 +933,12 @@ const LoginPage = () => {
             <div className="mx-auto w-full max-w-sm lg:w-96">
               {/* Logo Mobile */}
               <div className="lg:hidden text-center mb-8">
-                <div className="flex items-center justify-center mb-4">
-                  <div className="bg-blue-600 p-3 rounded-2xl">
-                    <Mail className="w-6 h-6 text-white" />
-                  </div>
+                <div className="flex items-center justify-center mb-3">
+                  <img 
+                    src="/logo_principale.png" 
+                    alt="MailMassProm Logo" 
+                    className="h-12 w-auto object-contain"
+                  />
                 </div>
                 <h1 className="text-2xl font-bold text-gray-900">MailMassProm</h1>
               </div>
