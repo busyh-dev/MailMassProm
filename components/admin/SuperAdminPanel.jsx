@@ -730,8 +730,14 @@ export default function SuperAdminPanel() {
 
       {/* Tab interni */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        {/* Tab header */}
-        <div className="flex border-b border-gray-200 dark:border-slate-700 overflow-x-auto">
+        <div
+          onWheel={(e) => {
+            if (e.deltaY !== 0) {
+              e.currentTarget.scrollLeft += e.deltaY;
+            }
+          }}
+          className="flex border-b border-gray-200 dark:border-slate-700 overflow-x-auto custom-mobile-scrollbar touch-pan-x"
+        >
           {innerTabs.map(tab => (
             <button
               key={tab.id}

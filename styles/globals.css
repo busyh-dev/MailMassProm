@@ -110,13 +110,41 @@ table {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Nascondi scrollbar brutta ma mantieni lo swipe su Mobile */
+/* Nascondi scrollbar brutta ma mantieni lo swipe su Mobile dove richiesto */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* Scrollbar orizzontale visibile ed elegante per mobile/tablet */
+.custom-mobile-scrollbar {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+@media (max-width: 1023px) {
+  .custom-mobile-scrollbar::-webkit-scrollbar {
+    height: 6px;
+  }
+  .custom-mobile-scrollbar::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.06);
+    border-radius: 9999px;
+  }
+  html.dark .custom-mobile-scrollbar::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .custom-mobile-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(37, 99, 235, 0.45);
+    border-radius: 9999px;
+  }
+  .custom-mobile-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(37, 99, 235, 0.75);
+  }
+  html.dark .custom-mobile-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(59, 130, 246, 0.5);
+  }
 }
 
 html.dark table { background-color: var(--bg-card); }

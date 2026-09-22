@@ -29237,7 +29237,14 @@ if (loadingProfile && !user && !authUser) {
     {/* Sidebar Nav (Responsive per Mobile/Tablet/Desktop) */}
     <div className="w-full lg:w-64 shrink-0 space-y-4 lg:space-y-6">
       <div className="relative -mx-3 px-3 sm:mx-0 sm:px-0">
-        <nav className="flex lg:flex-col overflow-x-auto pb-2 lg:pb-0 gap-1.5 lg:gap-2 no-scrollbar touch-pan-x snap-x scroll-smooth">
+        <nav
+          onWheel={(e) => {
+            if (e.deltaY !== 0 && window.innerWidth < 1024) {
+              e.currentTarget.scrollLeft += e.deltaY;
+            }
+          }}
+          className="flex lg:flex-col overflow-x-auto pb-3 lg:pb-0 gap-1.5 lg:gap-2 custom-mobile-scrollbar touch-pan-x snap-x scroll-smooth"
+        >
           <button
             onClick={() => setActiveTab("dashboard")}
             className={`flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
