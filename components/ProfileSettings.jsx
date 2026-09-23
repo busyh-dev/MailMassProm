@@ -216,13 +216,13 @@ const ProfileSettings = ({ showProfileModal, setShowProfileModal }) => {
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex overflow-hidden">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] sm:max-h-[90vh] flex flex-col md:flex-row overflow-hidden border border-gray-100">
         {/* Sidebar */}
-        <div className="w-64 bg-gray-50 border-r border-gray-200 p-4 overflow-y-auto">
-          <h2 className="text-lg font-bold text-gray-900 mb-4 px-2">Impostazioni</h2>
+        <div className="w-full md:w-64 bg-gray-50 border-b md:border-b-0 md:border-r border-gray-200 p-4 flex-shrink-0 max-h-[35vh] md:max-h-none overflow-y-auto">
+          <h2 className="text-lg font-bold text-gray-900 mb-2 px-2">Impostazioni</h2>
           
-          <nav className="space-y-1">
+          <nav className="flex md:flex-col overflow-x-auto md:overflow-y-auto gap-1.5 no-scrollbar sm:scrollbar-thin">
             <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
               Generale
             </div>

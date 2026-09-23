@@ -26663,38 +26663,40 @@ if (loadingProfile && !user && !authUser) {
   );
 }
     return (
-                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg w-full max-w-6xl mx-4 h-[90vh] flex overflow-hidden">
-                {/* Sidebar del profilo */}
-                <div className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col"> {/* 🖨️ flex flex-col */}
-                <div className="p-6 flex-shrink-0"> {/* 🖨️ flex-shrink-0 */}
-                <div className="text-center">
-                    {/* Avatar grande */}
-                    <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center text-white text-2xl font-medium mx-auto mb-4 overflow-hidden">
-  {photo || user?.avatar_url ? (
-    <img 
-      src={sanitizeAvatarUrl(photo || user?.avatar_url)} 
-      alt="Avatar" 
-      className="w-full h-full object-cover"
-    />
-  ) : (
-    getUserInitials(displayUser?.full_name || 'U')
-  )}
-</div>
-                    <h2 className="text-xl font-bold text-gray-900 mb-1">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl h-[92vh] sm:h-[90vh] flex flex-col md:flex-row overflow-hidden border border-gray-100">
+          {/* Sidebar del profilo */}
+          <div className="w-full md:w-80 bg-gray-50 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col flex-shrink-0 max-h-[35vh] md:max-h-none overflow-y-auto"> 
+            <div className="p-4 sm:p-6 flex-shrink-0"> 
+              <div className="flex items-center md:flex-col md:text-center gap-3 md:gap-0">
+                {/* Avatar grande */}
+                <div className="w-12 h-12 md:w-20 md:h-20 bg-blue-600 rounded-full flex items-center justify-center text-white text-lg md:text-2xl font-medium md:mx-auto md:mb-4 overflow-hidden flex-shrink-0">
+                  {photo || user?.avatar_url ? (
+                    <img 
+                      src={sanitizeAvatarUrl(photo || user?.avatar_url)} 
+                      alt="Avatar" 
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    getUserInitials(displayUser?.full_name || 'U')
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-base sm:text-xl font-bold text-gray-900 truncate mb-0.5">
                     {user?.display_name || user?.full_name || displayUser?.full_name || 'Utente'}
-                    </h2>
-              <button
-                onClick={() => setShowEditProfile(true)}
-                className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1 mx-auto"
-              >
-                <Edit3 className="w-3 h-3" />
-                Modifica profilo
-              </button>
-                  </div>
-                  </div>
-                  {/* Tabs del profilo */}
-                  <nav className="flex-1 overflow-y-auto px-6 pb-6 space-y-1"> {/* 🖨️ flex-1 overflow-y-auto */}
+                  </h2>
+                  <button
+                    onClick={() => setShowEditProfile(true)}
+                    className="text-blue-600 hover:text-blue-700 text-xs sm:text-sm font-medium flex items-center gap-1 md:mx-auto"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    Modifica profilo
+                  </button>
+                </div>
+              </div>
+            </div>
+            {/* Tabs del profilo */}
+            <nav className="flex-1 overflow-x-auto md:overflow-y-auto px-4 md:px-6 pb-4 md:pb-6 flex md:flex-col gap-1.5 no-scrollbar sm:scrollbar-thin">
                     {/* Solo per admin e super_admin */}
 {isAdmin && (
                     <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
