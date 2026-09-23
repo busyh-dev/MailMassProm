@@ -4400,28 +4400,62 @@ useEffect(() => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      // ✅ Estrai tutti i labelId dalla recipient_list
-      const labelIds = (campaign.recipient_list || [])
-        .filter(v => v.startsWith('label:'))
-        .map(v => v.replace('label:', ''));
-
-      const tagValues = (campaign.recipient_list || [])
-        .filter(v => v.startsWith('tag:'))
-        .map(v => v.replace('tag:', ''));
-
-      const [{ data: labels }, { data: tLabels }, { data: contactsData }] = await Promise.all([
-        supabase.from('contact_labels').select('*').eq('user_id', session.user.id),
-        supabase.from('tag_labels').select('*').eq('user_id', session.user.id),
-        supabase
-          .from('contacts_full')
-          .select('id, name, email, contact_label_id, status, tags, tag_labels')
+      const [{ data: listsData }, { data: labelsData }, { data: tLabels }, { data: contactsData }, { data: junctionData }] = await Promise.all([
+        supabase.from('contact_lists').select('*').order('created_at', { ascending: false }),
+        supabase.from('contact_labels').select('*').order('nome'),
+        supabase.from('tag_labels').select('*, tags(id, label, color)').order('label'),
+        supabase.from('contacts_full').select('id, name, full_name, email, contact_label_id, list_id, status, tags, tag_labels, azienda').then(res => res.data || []).catch(async () => {
+          const { data: cData } = await supabase.from('contacts').select('id, name, full_name, email, contact_label_id, list_id, status, tags, tag_labels, azienda');
+          return cData || [];
+        }),
+        supabase.from('list_contacts').select('*').then(res => res.data || []).catch(() => []),
       ]);
 
-      setContactLabels(labels || []);
+      const parseIds = (raw) => {
+        if (!raw) return [];
+        if (Array.isArray(raw)) return raw.map(String);
+        if (typeof raw === 'string') {
+          let str = raw.trim();
+          if (str.startsWith('{') && str.endsWith('}')) str = str.slice(1, -1);
+          return str.split(',').map(s => s.replace(/['"{} \t\n\r]/g, '').trim()).filter(Boolean);
+        }
+        return [String(raw)];
+      };
+
+      const combinedLists = [];
+      const seenIds = new Set();
+
+      (listsData || []).forEach(l => {
+        let ids = parseIds(l.contact_ids);
+        if (junctionData && junctionData.length > 0) {
+          const matches = junctionData.filter(j => String(j.list_id || j.listId || j.contact_list_id) === String(l.id));
+          const jIds = matches.map(m => String(m.contact_id || m.contactId));
+          ids = Array.from(new Set([...ids, ...jIds]));
+        }
+        combinedLists.push({
+          id: String(l.id),
+          nome: l.name || l.title || l.label || l.nome || 'Lista',
+          contact_ids: ids,
+          color: l.color || '#3b82f6'
+        });
+        seenIds.add(String(l.id));
+      });
+
+      (labelsData || []).forEach(l => {
+        if (!seenIds.has(String(l.id))) {
+          let ids = parseIds(l.contact_ids);
+          combinedLists.push({
+            id: String(l.id),
+            nome: l.nome || l.name || l.title || 'Etichetta',
+            contact_ids: ids,
+            color: l.color || '#10b981'
+          });
+        }
+      });
+
+      setContactLabels(combinedLists);
       setTagLabels(tLabels || []);
       setContacts(contactsData || []);
-
-      console.log('✅ Contatti caricati per etichette:', contactsData?.length);
     } catch (err) {
       console.warn('Errore caricamento dati:', err.message);
     }
@@ -4611,74 +4645,132 @@ useEffect(() => {
 
                  {/* Destinatari */}
 <div>
-  <label className="block text-sm font-semibold text-gray-600 mb-1">
-    Lista Destinatari
+  <label className="block text-sm font-semibold text-gray-600 mb-2">
+    Liste Destinatari Selezionate
   </label>
-  <div className="bg-gray-50 border border-gray-200 p-3 rounded-lg text-gray-800 flex items-center gap-2 flex-wrap">
-    <Users className="w-4 h-4 text-gray-500 flex-shrink-0" />
-    {Array.isArray(campaign.recipient_list) && campaign.recipient_list.length > 0 ? (
-      <div className="flex flex-wrap gap-2">
-      {campaign.recipient_list.map((val, i) => {
-  let label = val;
-  let color = 'bg-gray-100 text-gray-700';
-  let emails = [];
-
-  if (val === 'all') {
-    emails = contacts.filter(c => c.status === 'active');
-    label = `✅ Tutti i contatti attivi`;
-    color = 'bg-green-100 text-green-700';
-  } else if (val.startsWith('label:')) {
-    const labelId = val.replace('label:', '');
-    const found = contactLabels.find(l => l.id === labelId);
-    // ✅ Filtra per contact_label_id che è un UUID
-    emails = contacts.filter(c => 
-      c.status === 'active' && c.contact_label_id === labelId
-    );
-    label = `📌 ${found?.nome || 'Etichetta'}`;
-    color = 'bg-indigo-100 text-indigo-700';
-  } else if (val.startsWith('tag:')) {
-    const tagValue = val.replace('tag:', '');
-    // ✅ Filtra per tag
-    emails = contacts.filter(c => 
-      c.status === 'active' && c.tags?.includes(tagValue)
-    );
-    label = `🏷️ ${tagValue}`;
-    color = 'bg-blue-100 text-blue-700';
-  } else if (val.startsWith('tag_label:')) {
-    const tagLabelId = val.replace('tag_label:', '');
-    const found = tagLabels.find(t => t.id === tagLabelId);
-    // ✅ Filtra per tag_labels
-    emails = contacts.filter(c => 
-      c.status === 'active' && c.tag_labels?.includes(found?.label)
-    );
-    label = `→ ${found?.label || 'Sotto-etichetta'}`;
-    color = 'bg-amber-100 text-amber-700';
-  }
-
-  return (
-    <div key={i} className="w-full">
-      {/* Badge etichetta */}
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${color}`}>
-        {label} ({emails.length})
-      </span>
-
-      {/* Lista email */}
-      {emails.length > 0 && (
-        <div className="mt-2 ml-2 space-y-1 max-h-40 overflow-y-auto">
-          {emails.map((c, idx) => (
-            <div key={idx} className="flex items-center gap-2 text-xs text-gray-600 bg-white border border-gray-100 rounded px-2 py-1">
-              <div className="w-5 h-5 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-bold text-[10px] flex-shrink-0">
-                {c.name?.charAt(0)?.toUpperCase() || '?'}
-              </div>
-              <span className="font-medium truncate">{c.name}</span>
-              <span className="text-gray-400 truncate">{c.email}</span>
-            </div>
-          ))}
-        </div>
-      )}
+  <div className="bg-gray-50 border border-gray-200 p-4 rounded-xl text-gray-800 space-y-3">
+    <div className="flex items-center gap-2">
+      <Users className="w-4 h-4 text-blue-600 flex-shrink-0" />
+      <span className="text-xs font-bold text-gray-700">Panoramica delle liste e dei contatti inclusi:</span>
     </div>
-  );
-})}
+    {Array.isArray(campaign.recipient_list) && campaign.recipient_list.length > 0 ? (
+      <div className="space-y-3">
+      {campaign.recipient_list.map((val, i) => {
+        let labelName = val;
+        let color = 'bg-blue-50 border-blue-200 text-blue-800';
+        let resolvedContacts = [];
+
+        const isActive = c => {
+          if (!c) return false;
+          if (!c.status) return true;
+          const s = String(c.status).toLowerCase();
+          return s === 'active' || s === 'attivo' || s === 'approved';
+        };
+
+        if (val === 'all') {
+          resolvedContacts = contacts.filter(isActive);
+          labelName = `👥 Tutti i contatti attivi`;
+          color = 'bg-green-50 border-green-200 text-green-800';
+        } else if (val.startsWith('label:')) {
+          const labelId = val.replace('label:', '').trim();
+          const foundList = (contactLabels || []).find(l => String(l.id) === String(labelId));
+          const listContactIds = new Set((foundList?.contact_ids || []).map(id => String(id).toLowerCase().trim()));
+
+          resolvedContacts = contacts.filter(c => {
+            if (!isActive(c)) return false;
+            const cId = String(c.id || '').toLowerCase().trim();
+            const cEmail = String(c.email || '').toLowerCase().trim();
+            if (cId && listContactIds.has(cId)) return true;
+            if (cEmail && listContactIds.has(cEmail)) return true;
+            if (foundList && foundList.id && (String(c.contact_label_id) === String(foundList.id) || String(c.list_id) === String(foundList.id))) return true;
+            if (String(c.contact_label_id) === String(labelId) || String(c.list_id) === String(labelId)) return true;
+            return false;
+          });
+          labelName = `📌 ${foundList?.nome || foundList?.name || 'Lista / Etichetta'}`;
+          color = 'bg-indigo-50 border-indigo-200 text-indigo-800';
+        } else if (val.startsWith('tag:')) {
+          const tagValue = val.replace('tag:', '').toLowerCase().trim();
+          resolvedContacts = contacts.filter(c => {
+            if (!isActive(c)) return false;
+            if (!c.tags) return false;
+            if (Array.isArray(c.tags)) {
+              return c.tags.some(t => {
+                const cleanT = typeof t === 'string' ? t.replace(/^tag:/i, '').toLowerCase().trim() : (t?.label || t?.value || '').toLowerCase().trim();
+                return cleanT === tagValue;
+              });
+            }
+            return String(c.tags).toLowerCase().includes(tagValue);
+          });
+          labelName = `🏷️ Tag: ${val.replace('tag:', '')}`;
+          color = 'bg-blue-50 border-blue-200 text-blue-800';
+        } else if (val.startsWith('tag_label:')) {
+          const tagLabelId = val.replace('tag_label:', '').trim();
+          const foundTl = (tagLabels || []).find(t => String(t.id) === String(tagLabelId));
+          const targetLabel = (foundTl?.label || '').toLowerCase().trim();
+          resolvedContacts = contacts.filter(c => {
+            if (!isActive(c)) return false;
+            if (!c.tag_labels) return false;
+            if (Array.isArray(c.tag_labels)) {
+              return c.tag_labels.some(tl => String(tl).toLowerCase().trim() === targetLabel);
+            }
+            return false;
+          });
+          labelName = `→ Sotto-etichetta: ${foundTl?.label || 'Sotto-etichetta'}`;
+          color = 'bg-amber-50 border-amber-200 text-amber-800';
+        } else {
+          // Email o ID diretto
+          const direct = contacts.find(c => String(c.email).toLowerCase() === String(val).toLowerCase() || String(c.id) === String(val));
+          resolvedContacts = direct ? [direct] : [{ email: val, full_name: val.split('@')[0] }];
+          labelName = `👤 ${val}`;
+        }
+
+        return (
+          <div key={i} className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-2xs space-y-2">
+            {/* Header Lista con Badge */}
+            <div className="flex items-center justify-between">
+              <span className={`px-3 py-1 rounded-lg text-xs font-bold border ${color}`}>
+                {labelName} ({resolvedContacts.length} {resolvedContacts.length === 1 ? 'contatto' : 'contatti'})
+              </span>
+              <span className="text-[11px] font-semibold text-gray-500">
+                {resolvedContacts.length > 0 ? 'Contatti inclusi in questa lista:' : 'Nessun contatto attivo in questa lista'}
+              </span>
+            </div>
+
+            {/* Elenco dei contatti della lista (Nomi + Email) */}
+            {resolvedContacts.length > 0 ? (
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pt-1">
+                {resolvedContacts.map((c, idx) => {
+                  const displayName = c.full_name || c.name || c.azienda || (c.email ? c.email.split('@')[0] : 'Destinatario');
+                  const initials = displayName.substring(0, 2).toUpperCase();
+
+                  return (
+                    <div key={idx} className="flex items-center justify-between gap-3 text-xs bg-gray-50/80 hover:bg-blue-50/50 border border-gray-100 dark:border-slate-800 rounded-lg p-2 transition">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-6 h-6 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-[10px] shrink-0">
+                          {initials}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-gray-900 truncate">{displayName}</p>
+                          <p className="text-gray-500 text-[11px] truncate">{c.email}</p>
+                        </div>
+                      </div>
+                      {c.azienda && (
+                        <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded shrink-0">
+                          {c.azienda}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 italic pl-1">
+                ⚠️ Nessun contatto associato a questa lista.
+              </p>
+            )}
+          </div>
+        );
+      })}
       </div>
     ) : (
       <span className="text-gray-400 italic text-sm">Nessun destinatario</span>
