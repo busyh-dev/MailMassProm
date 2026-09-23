@@ -35,20 +35,59 @@ export default async function handler(req, res) {
   }
 
   try {
-    let query = supabaseAdmin
+    // 1. Recupera i log da email_logs
+    let logsQuery = supabaseAdmin
       .from('email_logs')
       .select('*')
       .order('sent_at', { ascending: false });
 
     if (filter_user_id) {
-      query = query.eq('user_id', filter_user_id);
+      logsQuery = logsQuery.eq('user_id', filter_user_id);
     }
+    const { data: logsData } = await logsQuery;
 
-    const { data: logs, error } = await query;
-    if (error) throw error;
+    // 2. Recupera le campagne inviate dalla tabella campaigns
+    let campaignsQuery = supabaseAdmin
+      .from('campaigns')
+      .select('*')
+      .or('status.eq.sent,sent_at.not.is.null')
+      .order('sent_at', { ascending: false });
+
+    if (filter_user_id) {
+      campaignsQuery = campaignsQuery.eq('user_id', filter_user_id);
+    }
+    const { data: campaignsData } = await campaignsQuery;
+
+    // Set di campagne già presenti in email_logs per evitare duplicati
+    const loggedCampaignIds = new Set((logsData || []).map(l => l.campaign_id).filter(Boolean));
+
+    // Mappa le campagne inviate non ancora presenti in email_logs
+    const campaignLogs = (campaignsData || [])
+      .filter(c => !loggedCampaignIds.has(c.id))
+      .map(c => ({
+        id: `camp-${c.id}`,
+        campaign_id: c.id,
+        user_id: c.user_id,
+        subject: c.campaign_name || c.subject || 'Campagna Email',
+        campaign_name: c.campaign_name || c.subject || 'Campagna Email',
+        sender_email: c.sender_email || c.sender_name || '',
+        sent_at: c.sent_at || c.created_at,
+        status: c.status || 'sent',
+        opened_count: c.opened_count || 0,
+        total_recipients: typeof c.sent_count === 'number' && c.sent_count > 0 
+          ? c.sent_count 
+          : (typeof c.total_recipients === 'number' ? c.total_recipients : (Array.isArray(c.recipients) ? c.recipients.length : 1)),
+        recipients: c.recipients || [],
+      }));
+
+    const allLogs = [...(logsData || []), ...campaignLogs].sort((a, b) => {
+      const dateA = new Date(a.sent_at || a.created_at || 0);
+      const dateB = new Date(b.sent_at || b.created_at || 0);
+      return dateB - dateA;
+    });
 
     // Arricchisce con info account
-    const userIds = [...new Set((logs || []).map(l => l.user_id).filter(Boolean))];
+    const userIds = [...new Set(allLogs.map(l => l.user_id).filter(Boolean))];
     let profileMap = {};
     if (userIds.length > 0) {
       const { data: profiles } = await supabaseAdmin
@@ -58,7 +97,7 @@ export default async function handler(req, res) {
       profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p]));
     }
 
-    const enriched = (logs || []).map(l => ({
+    const enriched = allLogs.map(l => ({
       ...l,
       account: profileMap[l.user_id] || { email: l.user_id },
     }));
