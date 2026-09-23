@@ -28943,9 +28943,9 @@ if (loadingProfile && !user && !authUser) {
                   className="h-8 sm:h-9 w-auto object-contain hidden dark:block"
                 />
               </div>
-              <div className="min-w-0">
+              <div className="shrink-0">
                 <div className="flex items-center gap-1 sm:gap-2">
-                  <h1 className="text-sm sm:text-xl font-extrabold bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 dark:from-white dark:via-blue-200 dark:to-indigo-200 bg-clip-text text-transparent truncate max-w-[100px] xs:max-w-none">
+                  <h1 className="text-base sm:text-xl font-extrabold bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-900 dark:from-white dark:via-blue-200 dark:to-indigo-200 bg-clip-text text-transparent whitespace-nowrap">
                     MailMassProm
                   </h1>
                   <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/50 hidden xs:inline-block shadow-2xs">
