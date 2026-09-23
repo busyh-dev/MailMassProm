@@ -29363,11 +29363,11 @@ if (loadingProfile && !user && !authUser) {
               e.currentTarget.scrollLeft += e.deltaY;
             }
           }}
-          className="flex lg:flex-col overflow-x-auto lg:overflow-visible pb-2.5 lg:pb-0 gap-1.5 lg:gap-2 custom-mobile-scrollbar touch-pan-x snap-x scroll-smooth"
+          className="flex lg:flex-col overflow-x-auto lg:overflow-visible pb-2.5 lg:pb-0 gap-1.5 lg:gap-2 custom-mobile-scrollbar touch-pan-x snap-x scroll-smooth w-full min-w-0"
         >
           <button
             onClick={() => setActiveTab("dashboard")}
-            className={`flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
+            className={`shrink-0 flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
               activeTab === "dashboard"
                 ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
                 : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 lg:hover:translate-x-1"
@@ -29379,7 +29379,7 @@ if (loadingProfile && !user && !authUser) {
 
           <button
             onClick={() => setActiveTab("campaigns")}
-            className={`flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
+            className={`shrink-0 flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
               activeTab === "campaigns"
                 ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
                 : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 lg:hover:translate-x-1"
@@ -29391,7 +29391,7 @@ if (loadingProfile && !user && !authUser) {
 
           <button
             onClick={() => setActiveTab("contacts")}
-            className={`flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
+            className={`shrink-0 flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
               activeTab === "contacts"
                 ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
                 : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 lg:hover:translate-x-1"
@@ -29403,7 +29403,7 @@ if (loadingProfile && !user && !authUser) {
 
           <button
             onClick={() => setActiveTab("logs")}
-            className={`flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
+            className={`shrink-0 flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
               activeTab === "logs"
                 ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
                 : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 lg:hover:translate-x-1"
@@ -29417,7 +29417,7 @@ if (loadingProfile && !user && !authUser) {
           {(isSuperAdmin || role?.name === 'super_admin' || role?.name === 'SuperAdmin') && (
             <button
               onClick={() => setActiveTab('superadmin')}
-              className={`flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
+              className={`shrink-0 flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
                 activeTab === 'superadmin'
                   ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md shadow-amber-500/25 lg:translate-x-1'
                   : 'text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 lg:hover:translate-x-1'
@@ -29430,7 +29430,7 @@ if (loadingProfile && !user && !authUser) {
 
           <button
             onClick={() => setIsChatOpen(true)}
-            className={`flex items-center justify-between whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
+            className={`shrink-0 flex items-center justify-between whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
               isChatOpen
                 ? "bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 shadow-sm"
                 : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-gray-200"
@@ -29463,7 +29463,7 @@ if (loadingProfile && !user && !authUser) {
           {(currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'super_admin' || currentUser?.role?.name === 'super_user' || currentUser?.role?.name === 'SuperUser') && (
             <button
               onClick={() => setActiveTab("settings")}
-              className={`flex items-center justify-between whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
+              className={`shrink-0 flex items-center justify-between whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
                 activeTab === "settings"
                   ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 lg:translate-x-1"
                   : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800 lg:hover:translate-x-1"
