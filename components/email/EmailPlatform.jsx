@@ -29363,7 +29363,7 @@ if (loadingProfile && !user && !authUser) {
               e.currentTarget.scrollLeft += e.deltaY;
             }
           }}
-          className="flex lg:flex-col overflow-x-auto pb-3 lg:pb-0 gap-1.5 lg:gap-2 custom-mobile-scrollbar touch-pan-x snap-x scroll-smooth"
+          className="flex lg:flex-col overflow-x-auto lg:overflow-visible gap-1.5 lg:gap-2 no-scrollbar touch-pan-x snap-x scroll-smooth"
         >
           <button
             onClick={() => setActiveTab("dashboard")}
