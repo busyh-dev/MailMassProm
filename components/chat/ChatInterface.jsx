@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { 
   Send, User, Search, MessageCircle, Clock, Trash2, 
   Download, X, CheckCircle, AlertCircle, XCircle, Filter, 
-  ShieldCheck, ChevronDown, Plus, Tag, RefreshCw, AlertTriangle,
+  ShieldCheck, ChevronDown, ChevronLeft, Plus, Tag, RefreshCw, AlertTriangle,
   LifeBuoy, FileText, CornerDownRight, Check, Paperclip, File, Image as ImageIcon
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -811,8 +811,8 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
   return (
     <div className="flex h-[calc(100vh-120px)] bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 overflow-hidden relative">
       
-      {/* SIDEBAR TICKET */}
-      <div className="w-80 border-r border-gray-200 dark:border-slate-800 flex flex-col bg-gray-50 dark:bg-slate-900/50">
+      {/* SIDEBAR TICKET (Responsive: visibile se nessun ticket selezionato su Mobile, o sempre visibile su Desktop) */}
+      <div className={`w-full md:w-80 border-r border-gray-200 dark:border-slate-800 flex flex-col bg-gray-50 dark:bg-slate-900/50 shrink-0 ${selectedTicketId ? 'hidden md:flex' : 'flex'}`}>
         
         {/* Sidebar Header */}
         <div className="p-4 border-b border-gray-200 dark:border-slate-800 space-y-3">
@@ -934,15 +934,23 @@ export const ChatInterface = ({ initialUserId = null, isAdmin = false, onClose }
 
       </div>
 
-      {/* CHAT AREA DEL TICKET SELEZIONATO */}
-      <div className="flex-1 flex flex-col bg-white dark:bg-slate-900">
+      {/* CHAT AREA DEL TICKET SELEZIONATO (Responsive: visibile se ticket selezionato su Mobile, o sempre visibile su Desktop) */}
+      <div className={`flex-1 flex flex-col bg-white dark:bg-slate-900 w-full ${!selectedTicketId ? 'hidden md:flex' : 'flex'}`}>
         {selectedTicket ? (
           <>
-            {/* Header del Ticket Attivo */}
-            <div className="p-4 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-wrap items-center justify-between gap-3 shadow-2xs z-10">
+            {/* Header del Ticket Attivo con tasto indietro per Mobile */}
+            <div className="p-3 sm:p-4 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-wrap items-center justify-between gap-2 shadow-2xs z-10">
               
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center text-white shrink-0 font-bold text-xs">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                <button 
+                  onClick={() => setSelectedTicketId(null)}
+                  className="md:hidden p-1.5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold shrink-0 mr-0.5"
+                  title="Torna alla lista ticket"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  <span>Lista</span>
+                </button>
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center text-white shrink-0 font-bold text-[11px] sm:text-xs">
                   #{selectedTicket.id.slice(-4).toUpperCase()}
                 </div>
                 <div>
