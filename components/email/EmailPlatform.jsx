@@ -4370,8 +4370,8 @@ const ViewCampaignModal = ({
     // ✅ AGGIUNGI questi stati
     const [contactLabels, setContactLabels] = useState([]);
     const [tagLabels, setTagLabels] = useState([]);
-    // ✅ AGGIUNGI stato contacts
-const [contacts, setContacts] = useState([]);
+    const [contacts, setContacts] = useState([]);
+    const [listContactsMap, setListContactsMap] = useState({});
 
 // ✅ AGGIUNGI nel useEffect loadLabels
 const loadLabels = async () => {
@@ -4382,7 +4382,7 @@ const loadLabels = async () => {
     const [{ data: labels }, { data: tLabels }, { data: contactsData }] = await Promise.all([
       supabase.from('contact_labels').select('*').eq('user_id', session.user.id),
       supabase.from('tag_labels').select('*').eq('user_id', session.user.id),
-      supabase.from('contacts').select('id, name, email, contact_label_id, status').eq('user_id', session.user.id),
+      supabase.from('contacts').select('*').eq('user_id', session.user.id),
     ]);
 
     setContactLabels(labels || []);
@@ -4404,8 +4404,8 @@ useEffect(() => {
         supabase.from('contact_lists').select('*').order('created_at', { ascending: false }),
         supabase.from('contact_labels').select('*').order('nome'),
         supabase.from('tag_labels').select('*, tags(id, label, color)').order('label'),
-        supabase.from('contacts_full').select('id, name, full_name, email, contact_label_id, list_id, status, tags, tag_labels, azienda').then(res => res.data || []).catch(async () => {
-          const { data: cData } = await supabase.from('contacts').select('id, name, full_name, email, contact_label_id, list_id, status, tags, tag_labels, azienda');
+        supabase.from('contacts_full').select('*').then(res => res.data || []).catch(async () => {
+          const { data: cData } = await supabase.from('contacts').select('*');
           return cData || [];
         }),
         supabase.from('list_contacts').select('*').then(res => res.data || []).catch(() => []),
@@ -4422,15 +4422,24 @@ useEffect(() => {
         return [String(raw)];
       };
 
+      const junctionMap = {};
+      (junctionData || []).forEach(j => {
+        const lId = String(j.list_id || j.listId || j.contact_list_id || j.label_id || j.contact_label_id || '').toLowerCase().trim();
+        const cId = String(j.contact_id || j.contactId || '').toLowerCase().trim();
+        if (lId && cId) {
+          if (!junctionMap[lId]) junctionMap[lId] = new Set();
+          junctionMap[lId].add(cId);
+        }
+      });
+
       const combinedLists = [];
       const seenIds = new Set();
 
       (listsData || []).forEach(l => {
         let ids = parseIds(l.contact_ids);
-        if (junctionData && junctionData.length > 0) {
-          const matches = junctionData.filter(j => String(j.list_id || j.listId || j.contact_list_id) === String(l.id));
-          const jIds = matches.map(m => String(m.contact_id || m.contactId));
-          ids = Array.from(new Set([...ids, ...jIds]));
+        const lIdStr = String(l.id).toLowerCase();
+        if (junctionMap[lIdStr]) {
+          ids = Array.from(new Set([...ids, ...Array.from(junctionMap[lIdStr])]));
         }
         combinedLists.push({
           id: String(l.id),
@@ -4444,6 +4453,10 @@ useEffect(() => {
       (labelsData || []).forEach(l => {
         if (!seenIds.has(String(l.id))) {
           let ids = parseIds(l.contact_ids);
+          const lIdStr = String(l.id).toLowerCase();
+          if (junctionMap[lIdStr]) {
+            ids = Array.from(new Set([...ids, ...Array.from(junctionMap[lIdStr])]));
+          }
           combinedLists.push({
             id: String(l.id),
             nome: l.nome || l.name || l.title || 'Etichetta',
@@ -4456,6 +4469,7 @@ useEffect(() => {
       setContactLabels(combinedLists);
       setTagLabels(tLabels || []);
       setContacts(contactsData || []);
+      setListContactsMap(junctionMap);
     } catch (err) {
       console.warn('Errore caricamento dati:', err.message);
     }
@@ -4656,73 +4670,174 @@ useEffect(() => {
     {Array.isArray(campaign.recipient_list) && campaign.recipient_list.length > 0 ? (
       <div className="space-y-3">
       {campaign.recipient_list.map((val, i) => {
-        let labelName = val;
-        let color = 'bg-blue-50 border-blue-200 text-blue-800';
-        let resolvedContacts = [];
+        const { labelName, resolvedContacts, color } = (() => {
+          if (!val) return { labelName: 'Lista', resolvedContacts: [], color: 'bg-gray-50 border-gray-200 text-gray-800' };
 
-        const isActive = c => {
-          if (!c) return false;
-          if (!c.status) return true;
-          const s = String(c.status).toLowerCase();
-          return s === 'active' || s === 'attivo' || s === 'approved';
-        };
+          const valStr = String(val).trim();
+          const isAct = c => {
+            if (!c || !c.email) return false;
+            if (!c.status) return true;
+            const s = String(c.status).trim().toLowerCase();
+            return s !== 'inactive' && s !== 'disiscritto' && s !== 'bounced' && s !== 'blocked' && s !== 'unsubscribed' && s !== 'disabled';
+          };
 
-        if (val === 'all') {
-          resolvedContacts = contacts.filter(isActive);
-          labelName = `👥 Tutti i contatti attivi`;
-          color = 'bg-green-50 border-green-200 text-green-800';
-        } else if (val.startsWith('label:')) {
-          const labelId = val.replace('label:', '').trim();
-          const foundList = (contactLabels || []).find(l => String(l.id) === String(labelId));
-          const listContactIds = new Set((foundList?.contact_ids || []).map(id => String(id).toLowerCase().trim()));
+          const activeContacts = (contacts || []).filter(isAct);
 
-          resolvedContacts = contacts.filter(c => {
-            if (!isActive(c)) return false;
+          if (valStr.toLowerCase() === 'all') {
+            return {
+              labelName: '👥 Tutti i contatti attivi',
+              resolvedContacts: activeContacts,
+              color: 'bg-green-50 border-green-200 text-green-800'
+            };
+          }
+
+          let prefix = '';
+          let target = valStr;
+          if (valStr.includes(':')) {
+            const parts = valStr.split(':');
+            prefix = parts[0].toLowerCase().trim();
+            target = parts.slice(1).join(':').trim();
+          }
+
+          const targetLower = target.toLowerCase();
+
+          // Find list/label by ID or name
+          const foundList = (contactLabels || []).find(l => 
+            String(l.id).toLowerCase() === targetLower || 
+            String(l.nome || l.name || l.label || '').toLowerCase() === targetLower
+          );
+
+          const targetListIds = new Set();
+          if (foundList) {
+            targetListIds.add(String(foundList.id).toLowerCase());
+            if (foundList.contact_ids && Array.isArray(foundList.contact_ids)) {
+              foundList.contact_ids.forEach(id => targetListIds.add(String(id).toLowerCase().trim()));
+            }
+          }
+          targetListIds.add(targetLower);
+
+          if (listContactsMap) {
+            const jSet1 = listContactsMap[targetLower];
+            if (jSet1) jSet1.forEach(id => targetListIds.add(String(id).toLowerCase().trim()));
+            if (foundList && foundList.id) {
+              const jSet2 = listContactsMap[String(foundList.id).toLowerCase()];
+              if (jSet2) jSet2.forEach(id => targetListIds.add(String(id).toLowerCase().trim()));
+            }
+          }
+
+          const matchesTag = (c) => {
+            if (!c) return false;
+            const cleanTarget = targetLower.replace(/^tag:/i, '').trim();
+
+            if (c.tags) {
+              let tagArr = [];
+              if (Array.isArray(c.tags)) {
+                tagArr = c.tags;
+              } else if (typeof c.tags === 'string') {
+                let str = c.tags.trim();
+                if (str.startsWith('[') && str.endsWith(']')) {
+                  try {
+                    const p = JSON.parse(str);
+                    if (Array.isArray(p)) tagArr = p;
+                  } catch (e) {
+                    tagArr = str.split(',');
+                  }
+                } else {
+                  tagArr = str.split(',');
+                }
+              }
+
+              for (const t of tagArr) {
+                let tClean = '';
+                if (typeof t === 'string') {
+                  tClean = t.replace(/^tag:/i, '').toLowerCase().trim();
+                } else if (typeof t === 'object' && t !== null) {
+                  tClean = String(t.label || t.name || t.value || t.tag || t.id || '').replace(/^tag:/i, '').toLowerCase().trim();
+                }
+                if (tClean === cleanTarget || tClean === targetLower) return true;
+              }
+            }
+
+            if (c.tag_labels) {
+              let tlArr = Array.isArray(c.tag_labels) ? c.tag_labels : String(c.tag_labels).split(',');
+              for (const tl of tlArr) {
+                let tlClean = typeof tl === 'string' ? tl.replace(/^tag:/i, '').toLowerCase().trim() : String(tl?.label || '').toLowerCase().trim();
+                if (tlClean === cleanTarget || tlClean === targetLower) return true;
+              }
+            }
+
+            return false;
+          };
+
+          const matchesList = (c) => {
+            if (!c) return false;
             const cId = String(c.id || '').toLowerCase().trim();
             const cEmail = String(c.email || '').toLowerCase().trim();
-            if (cId && listContactIds.has(cId)) return true;
-            if (cEmail && listContactIds.has(cEmail)) return true;
-            if (foundList && foundList.id && (String(c.contact_label_id) === String(foundList.id) || String(c.list_id) === String(foundList.id))) return true;
-            if (String(c.contact_label_id) === String(labelId) || String(c.list_id) === String(labelId)) return true;
+
+            if (cId && targetListIds.has(cId)) return true;
+            if (cEmail && targetListIds.has(cEmail)) return true;
+
+            const cLabelId = String(c.contact_label_id || '').toLowerCase().trim();
+            const cListId = String(c.list_id || '').toLowerCase().trim();
+
+            if (targetListIds.has(cLabelId) || targetListIds.has(cListId)) return true;
+
+            if (foundList && foundList.id) {
+              const fIdStr = String(foundList.id).toLowerCase().trim();
+              if (cLabelId === fIdStr || cListId === fIdStr) return true;
+            }
+
+            if (c.contact_labels) {
+              const cLabelsArr = Array.isArray(c.contact_labels) ? c.contact_labels : String(c.contact_labels).split(',');
+              if (cLabelsArr.some(l => {
+                const lClean = String(l).trim().toLowerCase();
+                return lClean === targetLower || (foundList?.nome && lClean === String(foundList.nome).toLowerCase());
+              })) return true;
+            }
+
+            return false;
+          };
+
+          const resContacts = activeContacts.filter(c => {
+            if (matchesList(c)) return true;
+            if (matchesTag(c)) return true;
+            if (valStr.includes('@') && String(c.email).toLowerCase() === valStr.toLowerCase()) return true;
             return false;
           });
-          labelName = `📌 ${foundList?.nome || foundList?.name || 'Lista / Etichetta'}`;
-          color = 'bg-indigo-50 border-indigo-200 text-indigo-800';
-        } else if (val.startsWith('tag:')) {
-          const tagValue = val.replace('tag:', '').toLowerCase().trim();
-          resolvedContacts = contacts.filter(c => {
-            if (!isActive(c)) return false;
-            if (!c.tags) return false;
-            if (Array.isArray(c.tags)) {
-              return c.tags.some(t => {
-                const cleanT = typeof t === 'string' ? t.replace(/^tag:/i, '').toLowerCase().trim() : (t?.label || t?.value || '').toLowerCase().trim();
-                return cleanT === tagValue;
-              });
-            }
-            return String(c.tags).toLowerCase().includes(tagValue);
-          });
-          labelName = `🏷️ Tag: ${val.replace('tag:', '')}`;
-          color = 'bg-blue-50 border-blue-200 text-blue-800';
-        } else if (val.startsWith('tag_label:')) {
-          const tagLabelId = val.replace('tag_label:', '').trim();
-          const foundTl = (tagLabels || []).find(t => String(t.id) === String(tagLabelId));
-          const targetLabel = (foundTl?.label || '').toLowerCase().trim();
-          resolvedContacts = contacts.filter(c => {
-            if (!isActive(c)) return false;
-            if (!c.tag_labels) return false;
-            if (Array.isArray(c.tag_labels)) {
-              return c.tag_labels.some(tl => String(tl).toLowerCase().trim() === targetLabel);
-            }
-            return false;
-          });
-          labelName = `→ Sotto-etichetta: ${foundTl?.label || 'Sotto-etichetta'}`;
-          color = 'bg-amber-50 border-amber-200 text-amber-800';
-        } else {
-          // Email o ID diretto
-          const direct = contacts.find(c => String(c.email).toLowerCase() === String(val).toLowerCase() || String(c.id) === String(val));
-          resolvedContacts = direct ? [direct] : [{ email: val, full_name: val.split('@')[0] }];
-          labelName = `👤 ${val}`;
-        }
+
+          let displayName = '';
+          let colorStyle = 'bg-blue-50 border-blue-200 text-blue-800';
+
+          if (prefix === 'tag') {
+            displayName = `🏷️ Tag: ${foundList?.nome || foundList?.name || target}`;
+            colorStyle = 'bg-blue-50 border-blue-200 text-blue-800';
+          } else if (prefix === 'label' || prefix === 'list') {
+            displayName = `📌 ${foundList?.nome || foundList?.name || target}`;
+            colorStyle = 'bg-indigo-50 border-indigo-200 text-indigo-800';
+          } else if (prefix === 'tag_label') {
+            const tl = (tagLabels || []).find(t => String(t.id).toLowerCase() === targetLower || String(t.label || '').toLowerCase() === targetLower);
+            displayName = `→ Sotto-etichetta: ${tl?.label || target}`;
+            colorStyle = 'bg-amber-50 border-amber-200 text-amber-800';
+          } else if (valStr.includes('@')) {
+            displayName = `👤 ${valStr}`;
+            colorStyle = 'bg-purple-50 border-purple-200 text-purple-800';
+          } else {
+            displayName = `📌 ${foundList?.nome || foundList?.name || valStr}`;
+            colorStyle = 'bg-blue-50 border-blue-200 text-blue-800';
+          }
+
+          let finalContacts = resContacts;
+          if (valStr.includes('@') && finalContacts.length === 0) {
+            const fallbackDirect = (contacts || []).find(c => String(c.email).toLowerCase() === valStr.toLowerCase());
+            finalContacts = fallbackDirect ? [fallbackDirect] : [{ email: valStr, full_name: valStr.split('@')[0] }];
+          }
+
+          return {
+            labelName: displayName,
+            resolvedContacts: finalContacts,
+            color: colorStyle
+          };
+        })();
 
         return (
           <div key={i} className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-2xs space-y-2">
