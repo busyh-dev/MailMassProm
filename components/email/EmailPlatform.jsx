@@ -26918,13 +26918,7 @@ if (loadingProfile && !user && !authUser) {
                           Cambia Password
                         </button>
                       </div>
-                      {/* Contenuto basato sulla selezione del tab */}
-                      {activeProfileTab === 'notifiche2' && <div>Sezione Notifiche</div>}
-                      {activeProfileTab === 'lingua' && <div>Sezione Lingua</div>}                     
-                      {activeProfileTab === 'formato' && <div>Sezione Formato data/ora</div>}
-                      {activeProfileTab === 'privacy' && <div>Sezione Privacy</div>}
-                      {activeProfileTab === 'session' && <div>Sezione Timeout</div>}
-                      {activeProfileTab === 'cambia-password' && <div>Sezione Cambia password</div>}
+                    </div>
                   </nav>
                 </div>
 
