@@ -1,7 +1,7 @@
 // src/components/email/RecipientSelect.jsx
 import React, { useState, useMemo } from 'react';
 import CreatableSelect from 'react-select/creatable';
-import { Plus, Users, Tag, Filter } from 'lucide-react';
+import { Plus, Users, Tag, Filter, Eye, Search, X, Copy } from 'lucide-react';
 import { useTags } from '../../hooks/useTags';
 import AddTagModal from '../../components/modals/AddTagModal';
 import { supabase } from '../../lib/supabaseClient';
@@ -59,7 +59,11 @@ const RecipientSelect = ({
   const [showAddTagModal, setShowAddTagModal] = useState(false);
   const [pendingTag, setPendingTag] = useState(null);
   
-  // ✅ NUOVO: stato per modalità filtro
+  // Modale elenco nomi + email contatti per tutte le liste
+  const [showContactsModal, setShowContactsModal] = useState(false);
+  const [modalSearch, setModalSearch] = useState('');
+
+  // Stato per modalità filtro
   const [filterMode, setFilterMode] = useState('tag'); // 'tag' | 'label' | 'tag_label'
   
   // ✅ NUOVO: stato per etichette contatto e sotto-etichette
@@ -286,33 +290,71 @@ const RecipientSelect = ({
     return result;
   };
 
-  // ✅ Calcola conteggio destinatari effettivi
-  const recipientCount = useMemo(() => {
-    if (value.includes('all')) return activeContacts.length;
-    
-    const emailSet = new Set();
+  // ✅ Risolve i contatti reali (Nomi + Email) da tutte le liste/tag selezionate
+  const resolvedContactsList = useMemo(() => {
+    if (!value || value.length === 0) return [];
+    if (value.includes('all')) return activeContacts;
+
+    const matchedMap = new Map();
+
     value.forEach(val => {
       if (val.startsWith('tag:')) {
         const tagValue = val.replace('tag:', '');
-        activeContacts.filter(c => 
-          c.tags && (c.tags.includes(tagValue) || c.tags.some(t => t === tagValue))
-        ).forEach(c => emailSet.add(c.email));
+        activeContacts.forEach(c => {
+          if (c.tags && (c.tags.includes(tagValue) || c.tags.some(t => t === tagValue))) {
+            matchedMap.set(c.id || c.email, c);
+          }
+        });
       } else if (val.startsWith('label:')) {
         const labelId = val.replace('label:', '');
-        activeContacts.filter(c => c.contact_label_id === labelId)
-          .forEach(c => emailSet.add(c.email));
+        const targetLabel = contactLabels.find(l => String(l.id) === String(labelId));
+        if (targetLabel) {
+          const listIds = new Set((targetLabel.contact_ids || []).map(id => String(id).toLowerCase().trim()));
+          activeContacts.forEach(c => {
+            const cId = String(c.id || '').toLowerCase().trim();
+            if (cId && listIds.has(cId)) matchedMap.set(c.id || c.email, c);
+            else if (targetLabel.id && (String(c.contact_label_id) === String(targetLabel.id) || String(c.list_id) === String(targetLabel.id))) {
+              matchedMap.set(c.id || c.email, c);
+            }
+          });
+        } else {
+          activeContacts.forEach(c => {
+            if (String(c.contact_label_id) === String(labelId) || String(c.list_id) === String(labelId)) {
+              matchedMap.set(c.id || c.email, c);
+            }
+          });
+        }
       } else if (val.startsWith('tag_label:')) {
         const tagLabelId = val.replace('tag_label:', '');
         const tl = tagLabels.find(t => t.id === tagLabelId);
         if (tl) {
-          activeContacts.filter(c => 
-            c.tag_labels && c.tag_labels.includes(tl.label)
-          ).forEach(c => emailSet.add(c.email));
+          activeContacts.forEach(c => {
+            if (c.tag_labels && c.tag_labels.includes(tl.label)) {
+              matchedMap.set(c.id || c.email, c);
+            }
+          });
         }
+      } else {
+        const found = activeContacts.find(c => c.email === val || String(c.id) === String(val));
+        if (found) matchedMap.set(found.id || found.email, found);
+        else matchedMap.set(val, { email: val, full_name: val.split('@')[0] });
       }
     });
-    return emailSet.size;
-  }, [value, activeContacts, tagLabels]);
+
+    return Array.from(matchedMap.values());
+  }, [value, activeContacts, contactLabels, tagLabels]);
+
+  const recipientCount = resolvedContactsList.length;
+
+  const filteredModalContacts = useMemo(() => {
+    if (!modalSearch.trim()) return resolvedContactsList;
+    const term = modalSearch.toLowerCase();
+    return resolvedContactsList.filter(c => {
+      const name = (c.full_name || c.name || c.azienda || '').toLowerCase();
+      const email = (c.email || '').toLowerCase();
+      return name.includes(term) || email.includes(term);
+    });
+  }, [resolvedContactsList, modalSearch]);
 
   return (
     <div className="space-y-3 relative">
@@ -433,18 +475,141 @@ const RecipientSelect = ({
         </div>
       )}
 
-      {/* ✅ Conteggio destinatari effettivi */}
+      {/* Conteggio destinatari ed Elenco Dettagliato (Nomi + Email) */}
       {value.length > 0 && (
-        <div className={`flex items-center gap-2 text-sm font-medium px-3 py-2 rounded-lg ${
-          recipientCount > 0 ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500'
-        }`}>
-          <Users className="w-4 h-4" />
-          <span>
-            {value.includes('all') 
-              ? `${recipientCount} contatti attivi selezionati`
-              : `${recipientCount} destinatari unici`
-            }
-          </span>
+        <div className="space-y-2">
+          <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs sm:text-sm font-medium px-3.5 py-2.5 rounded-xl border ${
+            recipientCount > 0 ? 'bg-green-50 border-green-200 text-green-800' : 'bg-gray-50 border-gray-200 text-gray-600'
+          }`}>
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-green-600 shrink-0" />
+              <span>
+                {value.includes('all') 
+                  ? `${recipientCount} contatti attivi totali`
+                  : `${recipientCount} destinatari unici dalle liste selezionate`
+                }
+              </span>
+            </div>
+            {resolvedContactsList.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowContactsModal(true)}
+                className="text-xs font-bold text-blue-600 hover:text-blue-800 underline flex items-center gap-1.5 transition shrink-0"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                Vedi Nomi & Email ({resolvedContactsList.length})
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MODALE POPUP ELENCO NOMI + EMAIL CONTATTI */}
+      {showContactsModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[99999] p-3 sm:p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden border border-gray-100 dark:border-slate-800">
+            {/* Header Modale */}
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-4 sm:p-5 text-white flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center shrink-0">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-bold">Contatti delle Liste Selezionate</h3>
+                  <p className="text-blue-100 text-xs">{resolvedContactsList.length} destinatari unici estratti dalle tue liste</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowContactsModal(false)}
+                className="p-1.5 hover:bg-white/20 rounded-lg transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Barra di Ricerca nei Contatti */}
+            <div className="p-3 sm:p-4 border-b border-gray-200 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Cerca per Nome o Email..."
+                  value={modalSearch}
+                  onChange={e => setModalSearch(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Elenco dei Contatti (Nomi + Email) */}
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2">
+              {filteredModalContacts.length === 0 ? (
+                <div className="p-8 text-center text-gray-400 text-xs sm:text-sm">
+                  Nessun contatto trovato per la ricerca "{modalSearch}"
+                </div>
+              ) : (
+                filteredModalContacts.map((c, idx) => {
+                  const displayName = c.full_name || c.name || c.azienda || (c.email ? c.email.split('@')[0] : 'Destinatario');
+                  const initials = displayName.substring(0, 2).toUpperCase();
+
+                  return (
+                    <div
+                      key={c.id || idx}
+                      className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-800/60 hover:bg-blue-50/60 dark:hover:bg-slate-800 rounded-xl border border-gray-100 dark:border-slate-700/60 transition"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          {initials}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs sm:text-sm font-bold text-gray-900 dark:text-gray-100 truncate">
+                            {displayName}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                            {c.email}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {c.azienda && (
+                          <span className="hidden sm:inline-block px-2 py-0.5 bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300 text-[10px] font-semibold rounded-md">
+                            {c.azienda}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(c.email);
+                            toast.success(`Copiato: ${c.email}`);
+                          }}
+                          className="p-1.5 hover:bg-white dark:hover:bg-slate-700 rounded-lg text-gray-500 hover:text-blue-600 transition"
+                          title="Copia email"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer Modale */}
+            <div className="p-3 sm:p-4 bg-gray-50 dark:bg-slate-800 border-t border-gray-200 dark:border-slate-700 flex justify-between items-center text-xs">
+              <span className="text-gray-500">
+                Mostrati {filteredModalContacts.length} di {resolvedContactsList.length} contatti
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowContactsModal(false)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition"
+              >
+                Chiudi
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

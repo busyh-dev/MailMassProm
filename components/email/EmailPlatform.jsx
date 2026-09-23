@@ -29878,29 +29878,39 @@ if (loadingProfile && !user && !authUser) {
               Copia tutte
             </button>
           </label>
-          <div className="bg-gray-50 border border-gray-200 rounded-lg max-h-60 overflow-y-auto">
+          <div className="bg-gray-50 border border-gray-200 rounded-xl max-h-64 overflow-y-auto">
             {selectedLogForModal.recipient_list && selectedLogForModal.recipient_list.length > 0 ? (
-              <div className="divide-y divide-gray-200">
-                {selectedLogForModal.recipient_list.map((email, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center gap-3 p-3 hover:bg-white transition"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold">
-                      {email.charAt(0).toUpperCase()}
-                    </div>
-                    <span className="text-sm text-gray-700 flex-1">{email}</span>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(email);
-                        toast.success("📋 Email copiata!");
-                      }}
-                      className="p-1.5 hover:bg-gray-200 rounded transition"
+              <div className="divide-y divide-gray-200/80">
+                {selectedLogForModal.recipient_list.map((email, index) => {
+                  const contactMatch = (contacts || []).find(c => c?.email?.toLowerCase() === email?.toLowerCase()) 
+                    || (localContacts || []).find(c => c?.email?.toLowerCase() === email?.toLowerCase());
+                  const displayName = contactMatch?.full_name || contactMatch?.name || contactMatch?.azienda || (email ? email.split('@')[0] : 'Destinatario');
+                  
+                  return (
+                    <div
+                      key={index}
+                      className="flex items-center gap-3 p-3 hover:bg-white transition"
                     >
-                      <Copy className="w-3 h-3 text-gray-600" />
-                    </button>
-                  </div>
-                ))}
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                        {displayName.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-gray-900 truncate">{displayName}</p>
+                        <p className="text-xs text-gray-500 truncate">{email}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(email);
+                          toast.success("📋 Email copiata!");
+                        }}
+                        className="p-1.5 hover:bg-gray-200 rounded-lg transition shrink-0"
+                        title="Copia email"
+                      >
+                        <Copy className="w-3.5 h-3.5 text-gray-500" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <div className="p-4 text-center text-gray-500 text-sm">
