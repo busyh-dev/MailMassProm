@@ -26698,266 +26698,227 @@ if (loadingProfile && !user && !authUser) {
             {/* Tabs del profilo */}
             <nav className="flex-1 overflow-x-auto md:overflow-y-auto px-4 md:px-6 pb-4 md:pb-6 flex md:flex-col gap-1.5 no-scrollbar sm:scrollbar-thin">
                     {/* Solo per admin e super_admin */}
-{isAdmin && (
-                    <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
-                      Generale
-                    </div>
-                      )}
-{/* Nella sidebar del profilo, aggiungi questi bottoni dopo gli altri */}
+                    {isAdmin && (
+                      <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 hidden md:block">
+                        Generale
+                      </div>
+                    )}
 
-{/* Solo per admin e super_admin */}
-{isAdmin && (
-  <>
-{/* 👥 TAB TOTALE UTENTI (ATTIVI ED APPROVATI) */}
-<button
-  onClick={() => setActiveProfileTab('totale-utenti')}
-  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-    activeProfileTab === 'totale-utenti'
-      ? 'bg-blue-600 text-white'
-      : 'text-gray-700 hover:bg-gray-100'
-  }`}
->
-  <Users className="w-5 h-5" />
-  <div className="flex-1 text-left">
-    <div className="font-medium">Totale Utenti</div>
-    <div className="text-xs opacity-75">Panoramica ed utenti attivi</div>
-  </div>
-  <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded-full">
-    {approvedUsers.length}
-  </span>
-</button>
+                    {/* Solo per admin e super_admin */}
+                    {isAdmin && (
+                      <>
+                        {/* 👥 TAB TOTALE UTENTI (ATTIVI ED APPROVATI) */}
+                        <button
+                          onClick={() => setActiveProfileTab('totale-utenti')}
+                          className={`shrink-0 md:w-full flex items-center gap-2 px-3 py-2 md:px-4 md:py-3 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${
+                            activeProfileTab === 'totale-utenti'
+                              ? 'bg-blue-600 text-white font-semibold'
+                              : 'text-gray-700 bg-white md:bg-transparent border md:border-0 hover:bg-gray-100'
+                          }`}
+                        >
+                          <Users className="w-4 h-4 md:w-5 md:h-5 shrink-0" />
+                          <div className="flex-1 text-left">
+                            <div className="font-medium text-xs sm:text-sm">Totale Utenti</div>
+                            <div className="text-xs opacity-75 hidden md:block">Panoramica ed utenti attivi</div>
+                          </div>
+                          <span className="bg-blue-100 text-blue-800 text-[10px] md:text-xs font-bold px-1.5 py-0.5 md:px-2 md:py-1 rounded-full ml-1">
+                            {approvedUsers.length}
+                          </span>
+                        </button>
 
-<button
-  onClick={() => setActiveProfileTab('gestione-utenti')}
-  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-    activeProfileTab === 'gestione-utenti'
-      ? 'bg-blue-600 text-white'
-      : 'text-gray-700 hover:bg-gray-100'
-  }`}
->
-<Clock className="w-5 h-5" />
-  <div className="flex-1 text-left">
-    <div className="font-medium">Utenti in Attesa</div>
-    <div className="text-xs opacity-75">Approvazioni pendenti</div>
-  </div>
-  {/* 🖨️ Badge rosso - conta solo quelli con status 'pending' */}
-  {pendingUsers.filter(u => u.status === 'pending').length > 0 && (
-    <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
-      {pendingUsers.filter(u => u.status === 'pending').length}
-    </span>
-  )}
-</button>
+                        <button
+                          onClick={() => setActiveProfileTab('gestione-utenti')}
+                          className={`shrink-0 md:w-full flex items-center gap-2 px-3 py-2 md:px-4 md:py-3 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${
+                            activeProfileTab === 'gestione-utenti'
+                              ? 'bg-blue-600 text-white font-semibold'
+                              : 'text-gray-700 bg-white md:bg-transparent border md:border-0 hover:bg-gray-100'
+                          }`}
+                        >
+                          <Clock className="w-4 h-4 md:w-5 md:h-5 shrink-0" />
+                          <div className="flex-1 text-left">
+                            <div className="font-medium text-xs sm:text-sm">Utenti in Attesa</div>
+                            <div className="text-xs opacity-75 hidden md:block">Approvazioni pendenti</div>
+                          </div>
+                          {pendingUsers.filter(u => u.status === 'pending').length > 0 && (
+                            <span className="bg-red-500 text-white text-[10px] md:text-xs font-bold px-1.5 py-0.5 md:px-2 md:py-1 rounded-full ml-1">
+                              {pendingUsers.filter(u => u.status === 'pending').length}
+                            </span>
+                          )}
+                        </button>
 
-{/* 👥 NUOVO TAB - UTENTI RIFIUTATI */}
-<button
-      onClick={() => {
-        setActiveProfileTab('utenti-rifiutati');
-        // fetchRejectedUsers();
-      }}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-        activeProfileTab === 'utenti-rifiutati'
-          ? 'bg-blue-600 text-white'
-          : 'text-gray-700 hover:bg-gray-100'
-      }`}
-    >
-      <XCircle className="w-5 h-5" />
-      <div className="flex-1 text-left">
-        <div className="font-medium">Utenti Rifiutati</div>
-        <div className="text-xs opacity-75">Visualizza rifiutati</div>
-      </div>
-        {/* 🖨️ Badge rosso per utenti rifiutati */}
-  {rejectedCount > 0 && (
-    <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
-      {rejectedCount}
-    </span>
-  )}
-    </button>
+                        {/* 👥 NUOVO TAB - UTENTI RIFIUTATI */}
+                        <button
+                          onClick={() => setActiveProfileTab('utenti-rifiutati')}
+                          className={`shrink-0 md:w-full flex items-center gap-2 px-3 py-2 md:px-4 md:py-3 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${
+                            activeProfileTab === 'utenti-rifiutati'
+                              ? 'bg-blue-600 text-white font-semibold'
+                              : 'text-gray-700 bg-white md:bg-transparent border md:border-0 hover:bg-gray-100'
+                          }`}
+                        >
+                          <XCircle className="w-4 h-4 md:w-5 md:h-5 shrink-0" />
+                          <div className="flex-1 text-left">
+                            <div className="font-medium text-xs sm:text-sm">Utenti Rifiutati</div>
+                            <div className="text-xs opacity-75 hidden md:block">Visualizza rifiutati</div>
+                          </div>
+                          {rejectedCount > 0 && (
+                            <span className="bg-red-500 text-white text-[10px] md:text-xs font-bold px-1.5 py-0.5 md:px-2 md:py-1 rounded-full ml-1">
+                              {rejectedCount}
+                            </span>
+                          )}
+                        </button>
 
-    <button
-      onClick={() => setActiveProfileTab('gestione-permessi')}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-        activeProfileTab === 'gestione-permessi'
-          ? 'bg-blue-600 text-white'
-          : 'text-gray-700 hover:bg-gray-100'
-      }`}
-    >
-      <Shield className="w-5 h-5" />
-      <div className="flex-1 text-left">
-        <div className="font-medium">Gestione Permessi</div>
-        <div className="text-xs opacity-75">Ruoli e accessi</div>
-      </div>
-    </button>
+                        <button
+                          onClick={() => setActiveProfileTab('gestione-permessi')}
+                          className={`shrink-0 md:w-full flex items-center gap-2 px-3 py-2 md:px-4 md:py-3 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${
+                            activeProfileTab === 'gestione-permessi'
+                              ? 'bg-blue-600 text-white font-semibold'
+                              : 'text-gray-700 bg-white md:bg-transparent border md:border-0 hover:bg-gray-100'
+                          }`}
+                        >
+                          <Shield className="w-4 h-4 md:w-5 md:h-5 shrink-0" />
+                          <div className="flex-1 text-left">
+                            <div className="font-medium text-xs sm:text-sm">Gestione Permessi</div>
+                            <div className="text-xs opacity-75 hidden md:block">Ruoli e accessi</div>
+                          </div>
+                        </button>
 
-    <button
-      onClick={() => setActiveProfileTab('registra-utente')}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-        activeProfileTab === 'registra-utente'
-          ? 'bg-blue-600 text-white'
-          : 'text-gray-700 hover:bg-gray-100'
-      }`}
-    >      
-      <UserPlus className="w-5 h-5" />
-      <div className="flex-1 text-left">
-        <div className="font-medium">Registra Utente</div>
-        <div className="text-xs opacity-75">Crea nuovo account</div>
-      </div>
-    </button>
-  </>
-)}
+                        <button
+                          onClick={() => setActiveProfileTab('registra-utente')}
+                          className={`shrink-0 md:w-full flex items-center gap-2 px-3 py-2 md:px-4 md:py-3 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${
+                            activeProfileTab === 'registra-utente'
+                              ? 'bg-blue-600 text-white font-semibold'
+                              : 'text-gray-700 bg-white md:bg-transparent border md:border-0 hover:bg-gray-100'
+                          }`}
+                        >      
+                          <UserPlus className="w-4 h-4 md:w-5 md:h-5 shrink-0" />
+                          <div className="flex-1 text-left">
+                            <div className="font-medium text-xs sm:text-sm">Registra Utente</div>
+                            <div className="text-xs opacity-75 hidden md:block">Crea nuovo account</div>
+                          </div>
+                        </button>
+                      </>
+                    )}
 
-                {/* Solo per admin e super_admin */}
-{isAdmin && (
-  <>
-    <button
-      onClick={() => setActiveProfileTab('notifiche')}
-      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-        activeProfileTab === 'notifiche'
-          ? 'text-blue-600 bg-blue-50 border border-blue-200'
-          : 'text-gray-700 hover:bg-gray-100'
-      }`}
-    >
-      Notifiche
-    </button>
+                    {/* Solo per admin e super_admin */}
+                    {isAdmin && (
+                      <>
+                        <button
+                          onClick={() => setActiveProfileTab('notifiche')}
+                          className={`shrink-0 md:w-full text-left px-3 py-2 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${
+                            activeProfileTab === 'notifiche'
+                              ? 'text-blue-600 bg-blue-50 border border-blue-200 font-semibold'
+                              : 'text-gray-700 bg-white md:bg-transparent border md:border-0 hover:bg-gray-100'
+                          }`}
+                        >
+                          Notifiche
+                        </button>
 
-    <button
-      onClick={() => setActiveProfileTab('impostazioni')}
-      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-        activeProfileTab === 'impostazioni'
-          ? 'text-blue-600 bg-blue-50 border border-blue-200'
-          : 'text-gray-700 hover:bg-gray-100'
-      }`}
-    >
-      Impostazioni
-    </button>
-  </>
-)}
-{activeProfileTab === 'info-profilo' && (
-  <div className="space-y-6">
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-      <h3 className="font-medium text-gray-900">Benvenuto nel tuo profilo</h3>
-      <p className="text-sm text-gray-600">
-        Gestisci le tue informazioni e preferenze dalla sidebar
-      </p>
-    </div>
+                        <button
+                          onClick={() => setActiveProfileTab('impostazioni')}
+                          className={`shrink-0 md:w-full text-left px-3 py-2 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${
+                            activeProfileTab === 'impostazioni'
+                              ? 'text-blue-600 bg-blue-50 border border-blue-200 font-semibold'
+                              : 'text-gray-700 bg-white md:bg-transparent border md:border-0 hover:bg-gray-100'
+                          }`}
+                        >
+                          Impostazioni
+                        </button>
+                      </>
+                    )}
 
-    <div className="bg-white border border-gray-200 rounded-lg p-6">
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
-          {/* ✅ Prova tutti i campi possibili */}
-          <p className="text-gray-900">
-            {user?.full_name || user?.name || user?.display_name || displayUser?.full_name || 'N/A'}
-          </p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-          <p className="text-gray-900">{user?.email || displayUser?.email || 'N/A'}</p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Ruolo</label>
-          <p className="text-gray-900">{user?.role?.name || 'user'}</p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Registrato il</label>
-          <p className="text-gray-900">
-            {user?.created_at ? new Date(user.created_at).toLocaleDateString('it-IT') : 'N/A'}
-          </p>
-        </div>
-      </div>
-    </div>
-  </div>
-)}
+                    {/* Info Profilo visibile a tutti */}
+                    <button
+                      onClick={() => setActiveProfileTab('info-profilo')}
+                      className={`shrink-0 md:w-full flex items-center gap-2 px-3 py-2 md:px-4 md:py-3 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${
+                        activeProfileTab === 'info-profilo'
+                          ? 'bg-blue-600 text-white font-semibold'
+                          : 'text-gray-700 bg-white md:bg-transparent border md:border-0 hover:bg-gray-100'
+                      }`}
+                    >
+                      <User className="w-4 h-4 md:w-5 md:h-5 shrink-0" />
+                      <div className="flex-1 text-left">
+                        <div className="font-medium text-xs sm:text-sm">Info Profilo</div>
+                        <div className="text-xs opacity-75 hidden md:block">Le tue informazioni</div>
+                      </div>
+                    </button>
 
-{/* ✅ AGGIUNGI - bottone Info Profilo visibile a tutti */}
-<button
-  onClick={() => setActiveProfileTab('info-profilo')}
-  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-    activeProfileTab === 'info-profilo'
-      ? 'bg-blue-600 text-white'
-      : 'text-gray-700 hover:bg-gray-100'
-  }`}
->
-  <User className="w-5 h-5" />
-  <div className="flex-1 text-left">
-    <div className="font-medium">Info Profilo</div>
-    <div className="text-xs opacity-75">Le tue informazioni</div>
-  </div>
-</button>
-                    <div className="pt-6">
-                      <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
+                    <div className="pt-2 md:pt-4 shrink-0 md:w-full">
+                      <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2 hidden md:block">
                         Account
                       </div>
 
-                      <button
-                        onClick={() => setActiveProfileTab('lingua')}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${activeProfileTab === 'lingua'
-                          ? 'text-blue-600 bg-blue-50 border border-blue-200'
-                          : 'text-gray-700 hover:bg-gray-100'
+                      <div className="flex md:flex-col gap-1.5">
+                        <button
+                          onClick={() => setActiveProfileTab('lingua')}
+                          className={`shrink-0 md:w-full text-left px-3 py-2 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${
+                            activeProfileTab === 'lingua'
+                              ? 'text-blue-600 bg-blue-50 border border-blue-200 font-semibold'
+                              : 'text-gray-700 bg-white md:bg-transparent border md:border-0 hover:bg-gray-100'
                           }`}
-                      >
-                        Lingua
-                      </button>
+                        >
+                          Lingua
+                        </button>
 
-                      <button
-                        onClick={() => setActiveProfileTab('formato')}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${activeProfileTab === 'formato'
-                          ? 'text-blue-600 bg-blue-50 border border-blue-200'
-                          : 'text-gray-700 hover:bg-gray-100'
+                        <button
+                          onClick={() => setActiveProfileTab('formato')}
+                          className={`shrink-0 md:w-full text-left px-3 py-2 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${
+                            activeProfileTab === 'formato'
+                              ? 'text-blue-600 bg-blue-50 border border-blue-200 font-semibold'
+                              : 'text-gray-700 bg-white md:bg-transparent border md:border-0 hover:bg-gray-100'
                           }`}
-                      >
-                        Formato data/ora
-                      </button>
+                        >
+                          Formato data/ora
+                        </button>
 
-                      {isAdmin && (
-  <button
-    onClick={() => setActiveProfileTab('notifiche2')}
-    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-      activeProfileTab === 'notifiche2'
-        ? 'text-blue-600 bg-blue-50 border border-blue-200'
-        : 'text-gray-700 hover:bg-gray-100'
-    }`}
-  >
-    Notifiche
-  </button>
-)}
+                        {isAdmin && (
+                          <button
+                            onClick={() => setActiveProfileTab('notifiche2')}
+                            className={`shrink-0 md:w-full text-left px-3 py-2 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${
+                              activeProfileTab === 'notifiche2'
+                                ? 'text-blue-600 bg-blue-50 border border-blue-200 font-semibold'
+                                : 'text-gray-700 bg-white md:bg-transparent border md:border-0 hover:bg-gray-100'
+                            }`}
+                          >
+                            Notifiche
+                          </button>
+                        )}
 
-                      <button
-                        onClick={() => setActiveProfileTab('privacy')}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${activeProfileTab === 'privacy'
-                          ? 'text-blue-600 bg-blue-50 border border-blue-200'
-                          : 'text-gray-700 hover:bg-gray-100'
+                        <button
+                          onClick={() => setActiveProfileTab('privacy')}
+                          className={`shrink-0 md:w-full text-left px-3 py-2 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${
+                            activeProfileTab === 'privacy'
+                              ? 'text-blue-600 bg-blue-50 border border-blue-200 font-semibold'
+                              : 'text-gray-700 bg-white md:bg-transparent border md:border-0 hover:bg-gray-100'
                           }`}
-                      >
-                        Privacy
-                      </button>
-                      {(isAdmin || isSuperAdmin) && (
-  <button
-    onClick={() => setActiveProfileTab('session')}
-    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-      activeProfileTab === 'session'
-        ? 'text-blue-600 bg-blue-50 border border-blue-200'
-        : 'text-gray-700 hover:bg-gray-100'
-    }`}
-  >
-    ⏱️ Sessione & Timeout
-  </button>
-)}
+                        >
+                          Privacy
+                        </button>
 
-                      <div className="pt-6">
-                        <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
-                          Accesso e sicurezza
-                        </div>
+                        {(isAdmin || isSuperAdmin) && (
+                          <button
+                            onClick={() => setActiveProfileTab('session')}
+                            className={`shrink-0 md:w-full text-left px-3 py-2 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${
+                              activeProfileTab === 'session'
+                                ? 'text-blue-600 bg-blue-50 border border-blue-200 font-semibold'
+                                : 'text-gray-700 bg-white md:bg-transparent border md:border-0 hover:bg-gray-100'
+                            }`}
+                          >
+                            Sessione
+                          </button>
+                        )}
 
                         <button
                           onClick={() => setActiveProfileTab('cambia-password')}
-                          className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${activeProfileTab === 'cambia-password'
-                            ? 'text-blue-600 bg-blue-50 border border-blue-200'
-                            : 'text-gray-700 hover:bg-gray-100'
-                            }`}
+                          className={`shrink-0 md:w-full text-left px-3 py-2 rounded-lg text-xs sm:text-sm whitespace-nowrap transition-colors ${
+                            activeProfileTab === 'cambia-password'
+                              ? 'text-blue-600 bg-blue-50 border border-blue-200 font-semibold'
+                              : 'text-gray-700 bg-white md:bg-transparent border md:border-0 hover:bg-gray-100'
+                          }`}
                         >
-                          Cambia la tua password
+                          Cambia Password
                         </button>
                       </div>
+                    </div>
                       {/* Contenuto basato sulla selezione del tab */}
                       {activeProfileTab === 'notifiche2' && <div>Sezione Notifiche</div>}
                       {activeProfileTab === 'lingua' && <div>Sezione Lingua</div>}                     
@@ -26970,16 +26931,17 @@ if (loadingProfile && !user && !authUser) {
                 </div>
 
                 {/* Contenuto principale del profilo */}
-                <div className="flex-1 p-6 overflow-y-auto">
+                <div className="flex-1 p-4 sm:p-6 overflow-y-auto w-full">
                   {/* Header */}
-                  <div className="flex justify-between items-center mb-6">
-                    <div>
-                      <h1 className="text-2xl font-bold text-gray-900">Il mio profilo</h1>
-                      <p className="text-gray-600">Gestisci le tue informazioni personali e le preferenze dell'account</p>
+                  <div className="flex items-start justify-between mb-4 sm:mb-6 gap-3 border-b border-gray-100 pb-3">
+                    <div className="min-w-0">
+                      <h1 className="text-lg sm:text-2xl font-bold text-gray-900 truncate">Il mio profilo</h1>
+                      <p className="text-xs sm:text-sm text-gray-500 truncate">Gestisci le tue informazioni personali e preferenze</p>
                     </div>
                     <button
                       onClick={handleCloseModal}
-                      className="text-gray-400 hover:text-gray-600 p-2"
+                      className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition shrink-0"
+                      title="Chiudi"
                     >
                       <XCircle className="w-6 h-6" />
                     </button>
