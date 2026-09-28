@@ -509,9 +509,12 @@ export default function ImportManagementModal({
                 <h4 className="font-bold text-sm text-emerald-900 dark:text-emerald-200 flex items-center gap-2">
                   🎓 Importazione Discenti Corso per Attestati
                 </h4>
-                <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-0.5">
-                  Assicurati che il file contenga le colonne: <code className="font-bold">codicefiscale</code>, <code className="font-bold">nominativo</code>, <code className="font-bold">email</code>.
+                <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-1">
+                  Il file deve contenere le colonne: <code className="font-bold bg-emerald-100 dark:bg-emerald-900 px-1 py-0.5 rounded">codicefiscale</code>, <code className="font-bold bg-emerald-100 dark:bg-emerald-900 px-1 py-0.5 rounded">nominativo</code>, <code className="font-bold bg-emerald-100 dark:bg-emerald-900 px-1 py-0.5 rounded">email</code>.
                 </p>
+                <div className="mt-2 text-xs bg-white/80 dark:bg-slate-800/80 p-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800 text-slate-800 dark:text-slate-200">
+                  📌 <strong>Formato Allegati PDF:</strong> Gli attestati PDF da caricare nella campagna dovranno essere denominati nella forma <code className="font-bold text-emerald-700 dark:text-emerald-400 font-mono">Codicefiscale.pdf</code> (es. <code className="font-mono">RSSMRA80A01H501Z.pdf</code>) per consentire lo smistamento automatico univoco.
+                </div>
               </div>
 
               <button

@@ -61,6 +61,11 @@ export default function MatchPreviewModal({ isOpen, onClose, contacts = [], atta
           </button>
         </div>
 
+        {/* Info Banner Formato Codicefiscale.pdf */}
+        <div className="px-6 py-2.5 bg-blue-50/80 dark:bg-blue-950/40 border-b border-blue-100 dark:border-blue-900/40 text-xs text-blue-900 dark:text-blue-200">
+          📌 <strong>Formato File Attestati:</strong> I file PDF degli attestati da allegare devono essere denominati nella forma <code className="font-bold font-mono bg-blue-100 dark:bg-blue-900 px-1 py-0.5 rounded">Codicefiscale.pdf</code> (es. <code className="font-mono text-blue-700 dark:text-blue-300 font-bold">RSSMRA80A01H501Z.pdf</code>).
+        </div>
+
         {/* KPI Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-6 bg-slate-50/50 dark:bg-slate-900/50 border-b border-gray-100 dark:border-slate-800">
           <div className="bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-gray-100 dark:border-slate-700/60 shadow-sm">

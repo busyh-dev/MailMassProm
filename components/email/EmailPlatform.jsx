@@ -4187,7 +4187,7 @@ const confirmExit = () => {
                           🎓 Smistamento Attestati Nominativi (Allegati Dinamici)
                         </span>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                          Invia a ciascun discente solo l'attestato PDF abbinato al suo Nome/Cognome o Codice Fiscale.
+                          Invia a ciascun discente l'attestato PDF abbinato al suo Codice Fiscale (es. <code className="font-mono font-semibold text-blue-600 dark:text-blue-400">Codicefiscale.pdf</code>).
                         </p>
                       </div>
                     </label>
@@ -25298,7 +25298,7 @@ onClick={() => {
                         🎓 Smistamento Attestati Nominativi (Allegati Dinamici)
                       </span>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        Invia a ciascun discente solo l'attestato PDF abbinato al suo Nome/Cognome o Codice Fiscale.
+                        Invia a ciascun discente l'attestato PDF abbinato al suo Codice Fiscale (es. <code className="font-mono font-semibold text-blue-600 dark:text-blue-400">Codicefiscale.pdf</code>).
                       </p>
                     </div>
                   </label>
