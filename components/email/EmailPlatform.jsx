@@ -27,6 +27,7 @@ import { useCampaigns } from '../../hooks/useCampaigns';
 import { EditCampaignModal } from "./EditCampaignModal";
 import { ConfirmModal } from "./ConfirmModal";
 import MatchPreviewModal from "./MatchPreviewModal";
+import ImportManagementModal from '../contacts/ImportManagementModal';
 import { useEmailAccounts } from '../../hooks/useEmailAccounts';
 import RecipientSelect from './RecipientSelect';
 import AddTagModal from "../modals/AddTagModal";
@@ -10634,6 +10635,8 @@ const handleCancelDelete = () => {
   setShowDeleteModal(false);
 };
 
+const [showImportManagementModal, setShowImportManagementModal] = useState(false);
+
 // 📦 Import CSV
 const handleImportContacts = (imported) => {
   setContacts((prev) => [...prev, ...imported]);
@@ -10912,6 +10915,15 @@ return (
         {/* 👥 BARRA FILTRI */}
 
         <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
+          {/* 🎓 GESTIONE IMPORTAZIONI */}
+          <button
+            onClick={() => setShowImportManagementModal(true)}
+            className="w-full sm:w-auto justify-center bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all active:scale-95 shadow-md border border-emerald-500"
+          >
+            <Upload className="w-4 h-4" />
+            Gestione Importazioni
+          </button>
+
           {/* Scarica modello CSV */}
           <button
             onClick={() => {
@@ -11809,6 +11821,20 @@ return (
           contact={selectedContact}
           onConfirm={handleConfirmDelete}
           onCancel={handleCancelDelete}
+        />
+      )}
+
+      {showImportManagementModal && (
+        <ImportManagementModal
+          show={showImportManagementModal}
+          onClose={() => setShowImportManagementModal(false)}
+          onOpenStandardImport={() => setShowImportModal(true)}
+          onContactsImported={(newContacts) => {
+            if (newContacts && newContacts.length > 0) {
+              setContacts((prev) => [...newContacts, ...prev]);
+            }
+          }}
+          existingContacts={contacts}
         />
       )}
 
