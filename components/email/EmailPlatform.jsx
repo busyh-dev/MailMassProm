@@ -10923,40 +10923,6 @@ return (
             <Upload className="w-4 h-4" />
             Gestione Importazioni
           </button>
-
-          {/* Scarica modello CSV */}
-          <button
-            onClick={() => {
-              const headers = "name,email,email_2,tags,tag_labels,contact_labels,settore,canale,ruolo,area,testata,tipologia_canale,periodicita_canale,copertura_canale";
-              const exampleData = [
-                "Mario Rossi,mario@email.com,mario2@email.com,Mailing TECH - Online,trade;tech,Mailing Lista Nazionale,Information technology,Online specializzati,Direttore Editoriale,Nord,La Repubblica,Online specializzati,Quotidiano,Nazionale",
-                "Giulia Verdi,giulia@email.com,,Mailing CSR,,Edilizia/Costruzioni,Periodici specializzati,Capo Redattore,Sud,Il Corriere,Periodici specializzati,Settimanale,Regionale",
-              ];
-              const csvContent = [headers, ...exampleData].join("\n");
-              const blob = new Blob(['\uFEFF' + csvContent], { type: "text/csv;charset=utf-8;" });
-              const url = URL.createObjectURL(blob);
-              const link = document.createElement("a");
-              link.href = url;
-              link.setAttribute("download", "modello_contatti.csv");
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              toast.success("📤 Modello CSV scaricato!");
-            }}
-            className="w-full sm:w-auto justify-center bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-200 px-3 sm:px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-2 transition-all border border-gray-200 dark:border-slate-700 active:scale-95 shadow-sm"
-          >
-            <Download className="w-4 h-4" />
-            Scarica Modello
-          </button>
-
-          {/* Importa contatti CSV */}
-          <button
-            onClick={() => setShowImportModal(true)}
-            className="w-full sm:w-auto justify-center bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-200 px-3 sm:px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-2 transition-all border border-gray-200 dark:border-slate-700 active:scale-95 shadow-sm"
-          >
-            <Upload className="w-4 h-4" />
-            Importa CSV
-          </button>
           {/* 👥 Bottone Esporta CSV */}
           <button
             onClick={exportToCSV}
