@@ -14016,6 +14016,9 @@ const [draggingColumnIndex, setDraggingColumnIndex] = useState(null);
   const [recipientList, setRecipientList] = useState([]);
   const [isBuilderTemplate, setIsBuilderTemplate] = useState(false);
   const [attachments, setAttachments] = useState([]);
+  const [isDynamicAttachments, setIsDynamicAttachments] = useState(false);
+  const [matchMode, setMatchMode] = useState("auto");
+  const [showMatchPreview, setShowMatchPreview] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState("");  
   const [emailHTML, setEmailHTML] = useState("");  
 
@@ -15790,6 +15793,8 @@ useEffect(() => {
           type: a.file.type
         })),
         totalAttachmentSize: attachments.reduce((sum, a) => sum + a.file.size, 0),
+        isDynamicAttachments: isDynamicAttachments,
+        matchMode: matchMode,
         trackingEnabled: true,
         openTracking: true,
         clickTracking: true,
@@ -15875,15 +15880,28 @@ console.log('🔍 DEBUG INVIO:', {
 });
 const payload = {
   user_id: user.id,
-  from: selectedAccount?.email || "", // ✅ Aggiungi fallback
+  from: selectedAccount?.email || "",
   to: [recipients[i]],
   cc: cc ? cc.split(",").map((e) => e.trim()).filter(Boolean) : [],
   bcc: bcc ? bcc.split(",").map((e) => e.trim()).filter(Boolean) : [],
   subject: subject || "",
-  html: emailContent || emailHTML || "", // ✅ Prova entrambi
+  html: emailContent || emailHTML || "",
   attachments: attachmentsData,
-  smtp: selectedAccount?.smtp || {}, // ✅ Aggiungi fallback
-  campaign_id: campaignToSend.id, // ✅ AGGIUNGI
+  smtp: selectedAccount?.smtp || {},
+  campaign_id: campaignId || campaignToSend?.id,
+  dynamicAttachments: isDynamicAttachments,
+  matchMode: matchMode,
+  contacts: contacts
+    .filter(c => c.email === recipients[i])
+    .map(c => ({
+      id: c.id,
+      email: c.email,
+      name: c.name,
+      firstName: c.firstName || c.first_name,
+      lastName: c.lastName || c.last_name,
+      codiceFiscale: c.codiceFiscale || c.codice_fiscale || c.cf || c.taxCode,
+      customFields: c.customFields || c.custom_fields
+    })),
 };
   
           try {
@@ -25271,6 +25289,56 @@ onClick={() => {
             ) : (
               <p className="text-sm text-gray-500 italic">Nessun allegato aggiunto</p>
             )}
+
+            {/* 🎓 SEZIONE SMISTAMENTO ATTESTATI NOMINATIVI (ALLEGATI DINAMICI) */}
+            {attachments.length > 0 && (
+              <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isDynamicAttachments}
+                      onChange={(e) => setIsDynamicAttachments(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
+                    />
+                    <div>
+                      <span className="font-semibold text-sm text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+                        🎓 Smistamento Attestati Nominativi (Allegati Dinamici)
+                      </span>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Invia a ciascun discente solo l'attestato PDF abbinato al suo Nome/Cognome o Codice Fiscale.
+                      </p>
+                    </div>
+                  </label>
+
+                  {isDynamicAttachments && (
+                    <button
+                      type="button"
+                      onClick={() => setShowMatchPreview(true)}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors shadow-sm"
+                    >
+                      <FileText className="w-3.5 h-3.5" /> Verifica Match Destinatari
+                    </button>
+                  )}
+                </div>
+
+                {isDynamicAttachments && (
+                  <div className="flex items-center gap-3 pt-2 border-t border-slate-200 dark:border-slate-700/60 text-xs">
+                    <span className="text-gray-600 dark:text-gray-400 font-medium">Modalità di riscontro:</span>
+                    <select
+                      value={matchMode}
+                      onChange={(e) => setMatchMode(e.target.value)}
+                      className="px-2.5 py-1 bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-md text-xs text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="auto">⚡ Automatico (Codice Fiscale o Nome/Cognome)</option>
+                      <option value="cf">🪪 Solo per Codice Fiscale (più preciso)</option>
+                      <option value="name">👤 Solo per Nome e Cognome</option>
+                      <option value="email">✉️ Solo per Indirizzo Email</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Destinatari */}
@@ -25281,6 +25349,19 @@ onClick={() => {
               contacts={localContacts}
             />
           </div>
+
+          <MatchPreviewModal
+            isOpen={showMatchPreview}
+            onClose={() => setShowMatchPreview(false)}
+            contacts={localContacts.filter(c => {
+              if (!recipientList) return true;
+              if (Array.isArray(recipientList) && recipientList.includes('all')) return true;
+              if (Array.isArray(recipientList)) return recipientList.includes(c.email);
+              return true;
+            })}
+            attachments={attachments}
+            matchMode={matchMode}
+          />
         </div>
         </div>
        {/* Pulsanti */}
