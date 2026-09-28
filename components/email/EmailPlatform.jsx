@@ -26,6 +26,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useCampaigns } from '../../hooks/useCampaigns';
 import { EditCampaignModal } from "./EditCampaignModal";
 import { ConfirmModal } from "./ConfirmModal";
+import MatchPreviewModal from "./MatchPreviewModal";
 import { useEmailAccounts } from '../../hooks/useEmailAccounts';
 import RecipientSelect from './RecipientSelect';
 import AddTagModal from "../modals/AddTagModal";
@@ -2624,11 +2625,20 @@ if (!accountData) {
         html: campaignToSend.email_content,
         attachments: campaignToSend.attachments || [],
         smtp: accountData.smtp,
-        campaign_id: campaignToSend.id, // ✅ AGGIUNGI7
-        // ✅ AGGIUNGI
-  contacts: contacts
-  .filter(c => recipients.includes(c.email))
-  .map(c => ({ id: c.id, email: c.email })),
+        campaign_id: campaignToSend.id,
+        contacts: contacts
+          .filter(c => recipients.includes(c.email))
+          .map(c => ({
+            id: c.id,
+            email: c.email,
+            name: c.name,
+            firstName: c.firstName || c.first_name,
+            lastName: c.lastName || c.last_name,
+            codiceFiscale: c.codiceFiscale || c.codice_fiscale || c.cf || c.taxCode,
+            customFields: c.customFields || c.custom_fields
+          })),
+        dynamicAttachments: campaignToSend.isDynamicAttachments || campaignToSend.is_dynamic_attachments || campaignToSend.dynamicAttachments || false,
+        matchMode: campaignToSend.matchMode || campaignToSend.match_mode || 'auto',
       };
 
       const response = await fetch("/api/send-campaign", {
@@ -2646,11 +2656,7 @@ if (!accountData) {
 
     // ✅ INVIO RESEND
     if (accountData.provider === "resend") {
-      // const resendApiKey = process.env.NEXT_PUBLIC_RESEND_API_KEY;
-      // const resendApiKey = accountData.resend_api_key;
       const resendApiKey = accountData.api_key;
-      // ✅ Prima di inviare, inietta il tracking
-
       
       const payload = {
         apiKey: resendApiKey,
@@ -2662,11 +2668,20 @@ if (!accountData) {
         subject: campaignToSend.subject,
         html: campaignToSend.email_content,
         attachments: campaignToSend.attachments || [],
-        campaign_id: campaignToSend.id, // ✅ AGGIUNGI
-        // ✅ AGGIUNGI
-  contacts: contacts
-  .filter(c => recipients.includes(c.email))
-  .map(c => ({ id: c.id, email: c.email })),
+        campaign_id: campaignToSend.id,
+        contacts: contacts
+          .filter(c => recipients.includes(c.email))
+          .map(c => ({
+            id: c.id,
+            email: c.email,
+            name: c.name,
+            firstName: c.firstName || c.first_name,
+            lastName: c.lastName || c.last_name,
+            codiceFiscale: c.codiceFiscale || c.codice_fiscale || c.cf || c.taxCode,
+            customFields: c.customFields || c.custom_fields
+          })),
+        dynamicAttachments: campaignToSend.isDynamicAttachments || campaignToSend.is_dynamic_attachments || campaignToSend.dynamicAttachments || false,
+        matchMode: campaignToSend.matchMode || campaignToSend.match_mode || 'auto',
       };
 
       const response = await fetch("/api/resend/send", {
@@ -3634,6 +3649,9 @@ console.log('✏️ Rendering TiptapEditor with content:', emailContent.substrin
 // 📎 Allegati
 const fileInputRef = useRef(null);
 const [attachments, setAttachments] = useState(campaign.attachments || []);
+const [isDynamicAttachments, setIsDynamicAttachments] = useState(campaign.isDynamicAttachments || campaign.is_dynamic_attachments || false);
+const [matchMode, setMatchMode] = useState(campaign.matchMode || campaign.match_mode || 'auto');
+const [showMatchPreview, setShowMatchPreview] = useState(false);
 
   
     // 📎 Allegati
@@ -3759,6 +3777,8 @@ const [attachments, setAttachments] = useState(campaign.attachments || []);
         cc: cc,
         bcc: bcc,
         attachments: attachments,
+        isDynamicAttachments: isDynamicAttachments,
+        matchMode: matchMode,
         totalAttachmentSize: attachments.reduce(
           (sum, a) => sum + (a.file?.size || a.size || 0),
           0
@@ -4149,6 +4169,69 @@ const confirmExit = () => {
               ) : (
                 <p className="text-sm text-gray-500 italic">Nessun allegato aggiunto</p>
               )}
+
+              {/* 🎓 SEZIONE SMISTAMENTO ATTESTATI NOMINATIVI (ALLEGATI DINAMICI) */}
+              {attachments.length > 0 && (
+                <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="flex items-center gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isDynamicAttachments}
+                        onChange={(e) => setIsDynamicAttachments(e.target.checked)}
+                        className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <div>
+                        <span className="font-semibold text-sm text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+                          🎓 Smistamento Attestati Nominativi (Allegati Dinamici)
+                        </span>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Invia a ciascun discente solo l'attestato PDF abbinato al suo Nome/Cognome o Codice Fiscale.
+                        </p>
+                      </div>
+                    </label>
+
+                    {isDynamicAttachments && (
+                      <button
+                        type="button"
+                        onClick={() => setShowMatchPreview(true)}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors shadow-sm"
+                      >
+                        <FileText className="w-3.5 h-3.5" /> Verifica Match Destinatari
+                      </button>
+                    )}
+                  </div>
+
+                  {isDynamicAttachments && (
+                    <div className="flex items-center gap-3 pt-2 border-t border-slate-200 dark:border-slate-700/60 text-xs">
+                      <span className="text-gray-600 dark:text-gray-400 font-medium">Modalità di riscontro:</span>
+                      <select
+                        value={matchMode}
+                        onChange={(e) => setMatchMode(e.target.value)}
+                        className="px-2.5 py-1 bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-md text-xs text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="auto">⚡ Automatico (Codice Fiscale o Nome/Cognome)</option>
+                        <option value="cf">🪪 Solo per Codice Fiscale (più preciso)</option>
+                        <option value="name">👤 Solo per Nome e Cognome</option>
+                        <option value="email">✉️ Solo per Indirizzo Email</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <MatchPreviewModal
+                isOpen={showMatchPreview}
+                onClose={() => setShowMatchPreview(false)}
+                contacts={contacts.filter(c => {
+                  if (!recipientList) return true;
+                  if (Array.isArray(recipientList) && recipientList.includes('all')) return true;
+                  if (Array.isArray(recipientList)) return recipientList.includes(c.email);
+                  return true;
+                })}
+                attachments={attachments}
+                matchMode={matchMode}
+              />
             </div>
           </div>
           </div>

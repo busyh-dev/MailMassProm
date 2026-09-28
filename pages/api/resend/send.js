@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { matchAttachmentsForContact } from "../../../lib/matchAttachments";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -88,9 +89,9 @@ export default async function handler(req, res) {
     bcc,
     attachments,
     campaign_id,
-    // ✅ Nuovo: lista contatti con ID per generare token univoci
-    // Se presente, invia una email per contatto con token personalizzato
-    contacts, // Array di { id, email } — opzionale
+    contacts,
+    dynamicAttachments,
+    matchMode,
   } = req.body;
 
   if (!apiKey || !from || !to || !subject || !html) {
@@ -121,7 +122,13 @@ export default async function handler(req, res) {
           // 2. Inietta tracking
           personalizedHtml = injectTracking(personalizedHtml, campaign_id, contact.email);
 
-          // 3. Invia email
+          // 3. Smistamento Allegati Dinamici (Attestati Nominativi)
+          let recipientAttachments = attachments || [];
+          if (dynamicAttachments && attachments && attachments.length > 0) {
+            recipientAttachments = matchAttachmentsForContact(contact, attachments, { matchMode: matchMode || 'auto' });
+          }
+
+          // 4. Invia email
           const response = await fetch("https://api.resend.com/emails", {
             method: "POST",
             headers: {
@@ -135,7 +142,7 @@ export default async function handler(req, res) {
               html: personalizedHtml,
               cc: cc || [],
               bcc: bcc || [],
-              attachments: attachments || [],
+              attachments: recipientAttachments,
             }),
           });
 

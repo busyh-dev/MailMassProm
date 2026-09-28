@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import nodemailer from "nodemailer";
+import { matchAttachmentsForContact } from "../../lib/matchAttachments";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -48,7 +49,7 @@ export default async function handler(req, res) {
     });
   }
 
-  const { from, to, cc, bcc, subject, html, attachments, smtp, user_id } = req.body;
+  const { from, to, cc, bcc, subject, html, attachments, smtp, user_id, contacts, dynamicAttachments, matchMode } = req.body;
 
   console.log('📥 Payload ricevuto:', {
     from,
@@ -58,6 +59,8 @@ export default async function handler(req, res) {
     subject,
     smtp: smtp ? 'presente' : 'mancante',
     attachments: attachments?.length || 0,
+    dynamicAttachments: !!dynamicAttachments,
+    matchMode: matchMode || 'auto',
     user_id: user_id || 'mancante'
   });
 
@@ -101,7 +104,7 @@ export default async function handler(req, res) {
 
     // Prepara gli allegati
     const emailAttachments = attachments?.map((att) => ({
-      filename: att.filename,
+      filename: att.filename || att.name,
       content: att.content,
       encoding: "base64",
     })) || [];
@@ -163,6 +166,14 @@ export default async function handler(req, res) {
         
         const trackableHtml = prepareTrackableHtml(html, campaignId, recipient, baseUrl);
 
+        // ✅ Smistamento Allegati Dinamici (Attestati Nominativi)
+        let recipientAttachments = emailAttachments;
+        if (dynamicAttachments && emailAttachments.length > 0) {
+          const contactObj = contacts?.find(c => (c.email || '').toLowerCase() === recipient.toLowerCase()) || { email: recipient };
+          recipientAttachments = matchAttachmentsForContact(contactObj, emailAttachments, { matchMode: matchMode || 'auto' });
+          console.log(`📎 [Dynamic Match] per ${recipient}: ${recipientAttachments.length} allegati trovati (${recipientAttachments.map(a => a.filename).join(', ') || 'Nessuno'})`);
+        }
+
         await transporter.sendMail({
           from,
           to: recipient,
@@ -170,7 +181,7 @@ export default async function handler(req, res) {
           bcc: bcc || [],
           subject,
           html: trackableHtml,
-          attachments: emailAttachments,
+          attachments: recipientAttachments,
         });
 
         sent++;
