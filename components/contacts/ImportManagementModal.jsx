@@ -1,5 +1,9 @@
-import React, { useState } from 'react';
-import { X, Upload, Download, FileSpreadsheet, FileText, CheckCircle2, AlertCircle, ArrowLeft, Users, ShieldCheck, Sparkles } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  X, Upload, Download, FileSpreadsheet, FileText, CheckCircle2, 
+  AlertCircle, ArrowLeft, Users, ShieldCheck, Sparkles, Trash2, 
+  ListPlus, FolderPlus, CheckSquare, Square
+} from 'lucide-react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import toast from 'react-hot-toast';
@@ -16,10 +20,46 @@ export default function ImportManagementModal({
   
   // Stati per Importazione Attestati
   const [attestatiFile, setAttestatiFile] = useState(null);
-  const [courseName, setCourseName] = useState('Corso Antincendio');
+  const [courseName, setCourseName] = useState('Corso Antincendio 2026');
   const [parsedAttendees, setParsedAttendees] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
+
+  // Stati per Creazione / Assegnazione Lista Contatti
+  const [createList, setCreateList] = useState(true);
+  const [selectedListOption, setSelectedListOption] = useState('new'); // 'new' o list.id
+  const [newListName, setNewListName] = useState('Corso Antincendio 2026');
+  const [newListDesc, setNewListDesc] = useState('Lista discenti creata da importazione attestati');
+  const [existingLists, setExistingLists] = useState([]);
+
+  // Carica le liste contatti esistenti dal database Supabase
+  useEffect(() => {
+    if (show) {
+      loadContactLists();
+    }
+  }, [show]);
+
+  const loadContactLists = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('contact_lists')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      if (data) setExistingLists(data);
+    } catch (err) {
+      console.warn("Errore caricamento liste:", err);
+    }
+  };
+
+  // Sincronizza il nome della nuova lista col nome del corso
+  useEffect(() => {
+    if (courseName && selectedListOption === 'new') {
+      setNewListName(courseName.trim());
+    }
+  }, [courseName, selectedListOption]);
 
   if (!show) return null;
 
@@ -115,7 +155,6 @@ export default function ImportManagementModal({
     }
 
     const processed = data.map((row, index) => {
-      // Normalizzazione chiavi insensitive
       const keys = Object.keys(row);
       const getVal = (possibleKeys) => {
         for (const pk of possibleKeys) {
@@ -129,7 +168,6 @@ export default function ImportManagementModal({
       const nominativo = getVal(['nominativo', 'nome_cognome', 'nomecognome', 'name']);
       const email = getVal(['email', 'mail', 'e-mail']).toLowerCase();
 
-      // Splitting Nome / Cognome da Nominativo
       let firstName = '';
       let lastName = '';
       if (nominativo) {
@@ -145,7 +183,7 @@ export default function ImportManagementModal({
       const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
       return {
-        id: `row-${index}`,
+        id: `att-${index}-${Date.now()}`,
         codiceFiscale: cf,
         nominativo,
         firstName,
@@ -153,6 +191,7 @@ export default function ImportManagementModal({
         email,
         isValidEmail,
         isValidCf: cf.length >= 6,
+        selected: true, // ✅ Selezionato di default
       };
     }).filter(r => r.nominativo || r.email || r.codiceFiscale);
 
@@ -164,10 +203,27 @@ export default function ImportManagementModal({
     }
   };
 
-  // Esegue l'importazione dei discenti nel DB / Supabase
+  // Gestione Selezione / Deselezione / Eliminazione dall'anteprima
+  const handleToggleRowSelect = (id) => {
+    setParsedAttendees(prev => prev.map(r => r.id === id ? { ...r, selected: !r.selected } : r));
+  };
+
+  const handleToggleSelectAll = (checked) => {
+    setParsedAttendees(prev => prev.map(r => ({ ...r, selected: checked })));
+  };
+
+  const handleDeleteAttendee = (id) => {
+    setParsedAttendees(prev => prev.filter(r => r.id !== id));
+    toast.success("Contatto rimosso dall'elenco di importazione");
+  };
+
+  const selectedAttendees = parsedAttendees.filter(r => r.selected);
+  const allSelected = parsedAttendees.length > 0 && selectedAttendees.length === parsedAttendees.length;
+
+  // Esegue l'importazione dei discenti nel DB / Supabase e aggiorna/crea la Lista Contatti
   const handleExecuteAttestatiImport = async () => {
-    if (parsedAttendees.length === 0) {
-      toast.error("⚠️ Carica un file prima di procedere con l'importazione");
+    if (selectedAttendees.length === 0) {
+      toast.error("⚠️ Seleziona almeno un contatto da importare");
       return;
     }
 
@@ -181,9 +237,10 @@ export default function ImportManagementModal({
       let successCount = 0;
       let errorCount = 0;
       const importedContacts = [];
+      const importedContactIds = [];
 
-      for (let i = 0; i < parsedAttendees.length; i++) {
-        const row = parsedAttendees[i];
+      for (let i = 0; i < selectedAttendees.length; i++) {
+        const row = selectedAttendees[i];
         if (!row.email) {
           errorCount++;
           continue;
@@ -194,8 +251,10 @@ export default function ImportManagementModal({
           tagList.push(courseName.trim());
         }
 
+        const contactId = crypto.randomUUID();
+
         const contactPayload = {
-          id: crypto.randomUUID(),
+          id: contactId,
           user_id: user.id,
           name: row.nominativo || `${row.firstName} ${row.lastName}`.trim(),
           email: row.email,
@@ -221,18 +280,65 @@ export default function ImportManagementModal({
           errorCount++;
         } else {
           successCount++;
-          if (data && data[0]) {
-            importedContacts.push({
-              ...data[0],
-              firstName: row.firstName,
-              lastName: row.lastName,
-              codiceFiscale: row.codiceFiscale,
-              customFields: { codiceFiscale: row.codiceFiscale },
-            });
-          }
+          const savedContact = data && data[0] ? data[0] : contactPayload;
+          importedContacts.push({
+            ...savedContact,
+            firstName: row.firstName,
+            lastName: row.lastName,
+            codiceFiscale: row.codiceFiscale,
+            customFields: { codiceFiscale: row.codiceFiscale },
+          });
+          importedContactIds.push(String(savedContact.id));
         }
 
-        setImportProgress(Math.round(((i + 1) / parsedAttendees.length) * 100));
+        setImportProgress(Math.round(((i + 1) / selectedAttendees.length) * 100));
+      }
+
+      // ✅ CREAZIONE / AGGIORNAMENTO LISTA CONTATTI SE SELEZIONATO
+      if (createList && importedContactIds.length > 0) {
+        if (selectedListOption === 'new') {
+          const finalListName = newListName.trim() || courseName.trim() || `Lista Importazione (${new Date().toLocaleDateString()})`;
+          const newListPayload = {
+            id: crypto.randomUUID(),
+            user_id: user.id,
+            name: finalListName,
+            description: newListDesc || `Creata da importazione attestati (${importedContactIds.length} contatti)`,
+            contact_count: importedContactIds.length,
+            contact_ids: importedContactIds,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+
+          const { error: listErr } = await supabase
+            .from('contact_lists')
+            .insert(newListPayload);
+
+          if (!listErr) {
+            toast.success(`📁 Creata nuova lista "${finalListName}" con ${importedContactIds.length} contatti!`);
+          } else {
+            console.error("Errore creazione lista:", listErr);
+          }
+        } else {
+          // Aggiunta a lista esistente
+          const targetList = existingLists.find(l => String(l.id) === String(selectedListOption));
+          if (targetList) {
+            const existingIds = Array.isArray(targetList.contact_ids) ? targetList.contact_ids.map(String) : [];
+            const mergedIds = Array.from(new Set([...existingIds, ...importedContactIds]));
+
+            const { error: updateListErr } = await supabase
+              .from('contact_lists')
+              .update({
+                contact_ids: mergedIds,
+                contact_count: mergedIds.length,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', targetList.id);
+
+            if (!updateListErr) {
+              toast.success(`📁 Aggiunti ${importedContactIds.length} contatti alla lista "${targetList.name}"!`);
+            }
+          }
+        }
       }
 
       toast.success(`🎉 Importazione completata! ${successCount} discenti importati/aggiornati.`);
@@ -416,7 +522,7 @@ export default function ImportManagementModal({
               </button>
             </div>
 
-            {/* Configurazione Corso / Tag */}
+            {/* Configurazione Corso & Sezione Lista Contatti */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
@@ -444,29 +550,126 @@ export default function ImportManagementModal({
               </div>
             </div>
 
-            {/* Tabella Anteprima Dati Caricati */}
+            {/* 📁 SEZIONE CREAZIONE / ASSEGNAZIONE A LISTA CONTATTI */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={createList}
+                  onChange={(e) => setCreateList(e.target.checked)}
+                  className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer"
+                />
+                <span className="font-bold text-xs text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+                  <FolderPlus className="w-4 h-4 text-emerald-600" />
+                  Crea o Assegna a una Lista Contatti
+                </span>
+              </label>
+
+              {createList && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1 border-t border-slate-200 dark:border-slate-700">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                      Destinazione Lista
+                    </label>
+                    <select
+                      value={selectedListOption}
+                      onChange={(e) => setSelectedListOption(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    >
+                      <option value="new">➕ Crea Nuova Lista Contatti</option>
+                      {existingLists.map(l => (
+                        <option key={l.id} value={l.id}>
+                          📁 {l.name} ({l.contact_count || l.contact_ids?.length || 0} contatti)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {selectedListOption === 'new' && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                        Nome Nuova Lista
+                      </label>
+                      <input
+                        type="text"
+                        value={newListName}
+                        onChange={(e) => setNewListName(e.target.value)}
+                        placeholder="Nome della lista contatti"
+                        className="w-full px-3 py-1.5 text-xs bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Tabella Anteprima Dati Caricati con Checkbox e Pulsante Elimina */}
             {parsedAttendees.length > 0 && (
               <div className="space-y-2 pt-2">
-                <div className="flex items-center justify-between text-xs font-semibold text-gray-700 dark:text-gray-300">
-                  <span>Anteprima Discenti da Importare ({parsedAttendees.length} trovati)</span>
-                  <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                    Pronto all'importazione
-                  </span>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300">
+                  <div className="flex items-center gap-3">
+                    <span>Totale righe: <strong>{parsedAttendees.length}</strong></span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                      Selezionati per l'importazione: {selectedAttendees.length} su {parsedAttendees.length}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleSelectAll(true)}
+                      className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold underline"
+                    >
+                      Seleziona Tutti
+                    </button>
+                    <span className="text-gray-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleSelectAll(false)}
+                      className="text-[11px] text-gray-500 hover:text-gray-700 font-semibold underline"
+                    >
+                      Deseleziona Tutti
+                    </button>
+                  </div>
                 </div>
 
                 <div className="border border-gray-200 dark:border-slate-800 rounded-xl overflow-hidden max-h-60 overflow-y-auto">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead className="bg-gray-50 dark:bg-slate-800/80 sticky top-0 border-b border-gray-200 dark:border-slate-800 text-gray-500 font-semibold uppercase">
                       <tr>
+                        <th className="px-3 py-2 w-10 text-center">
+                          <input
+                            type="checkbox"
+                            checked={allSelected}
+                            onChange={(e) => handleToggleSelectAll(e.target.checked)}
+                            className="w-4 h-4 text-emerald-600 rounded border-gray-300 cursor-pointer"
+                          />
+                        </th>
                         <th className="px-3 py-2">Codice Fiscale</th>
                         <th className="px-3 py-2">Nominativo (Nome / Cognome)</th>
                         <th className="px-3 py-2">Email</th>
                         <th className="px-3 py-2 text-center">Stato Validità</th>
+                        <th className="px-3 py-2 text-center w-16">Azione</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                      {parsedAttendees.map((row, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      {parsedAttendees.map((row) => (
+                        <tr 
+                          key={row.id} 
+                          className={`transition-colors ${
+                            row.selected 
+                              ? 'bg-emerald-50/40 dark:bg-emerald-950/20' 
+                              : 'opacity-60 hover:opacity-100 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                          }`}
+                        >
+                          <td className="px-3 py-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={row.selected}
+                              onChange={() => handleToggleRowSelect(row.id)}
+                              className="w-4 h-4 text-emerald-600 rounded border-gray-300 cursor-pointer"
+                            />
+                          </td>
                           <td className="px-3 py-2 font-mono text-gray-800 dark:text-gray-200">
                             {row.codiceFiscale || <span className="text-amber-500 italic">Mancante</span>}
                           </td>
@@ -492,6 +695,16 @@ export default function ImportManagementModal({
                               </span>
                             )}
                           </td>
+                          <td className="px-3 py-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteAttendee(row.id)}
+                              title="Elimina contatto dall'importazione"
+                              className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -504,7 +717,7 @@ export default function ImportManagementModal({
             {isProcessing && (
               <div className="space-y-1.5 pt-2">
                 <div className="flex justify-between text-xs font-semibold text-emerald-600">
-                  <span>Importazione discenti in corso...</span>
+                  <span>Importazione e creazione lista in corso...</span>
                   <span>{importProgress}%</span>
                 </div>
                 <div className="w-full bg-gray-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
@@ -526,15 +739,15 @@ export default function ImportManagementModal({
               </button>
               <button
                 onClick={handleExecuteAttestatiImport}
-                disabled={parsedAttendees.length === 0 || isProcessing}
+                disabled={selectedAttendees.length === 0 || isProcessing}
                 className={`px-5 py-2.5 rounded-xl text-xs font-bold text-white flex items-center gap-2 shadow-sm transition-all ${
-                  parsedAttendees.length === 0 || isProcessing
+                  selectedAttendees.length === 0 || isProcessing
                     ? 'bg-gray-400 cursor-not-allowed'
                     : 'bg-emerald-600 hover:bg-emerald-700 active:scale-95'
                 }`}
               >
                 <Upload className="w-4 h-4" />
-                Importa {parsedAttendees.length} Discenti
+                Importa {selectedAttendees.length} Discenti Selezionati
               </button>
             </div>
 

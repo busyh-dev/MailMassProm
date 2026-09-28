@@ -170,6 +170,16 @@ const ImportContactsModal = ({ show, onClose, onImport, existingContacts }) => {
     setSelectedRows(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
+  const handleToggleSelectAll = (checked) => {
+    setSelectedRows(checked ? previewData.map(c => c.id) : []);
+  };
+
+  const handleDeletePreviewRow = (id) => {
+    setPreviewData(prev => prev.filter(c => c.id !== id));
+    setSelectedRows(prev => prev.filter(i => i !== id));
+    toast.success("Contatto rimosso dall'anteprima");
+  };
+
   const handleImport = async () => {
     const selectedContacts = previewData.filter(c => selectedRows.includes(c.id));
     console.log('🔍 selectedContacts:', selectedContacts.length);
@@ -495,27 +505,54 @@ try {
           {step === 3 && (
             <>
               <h3 className="text-xl font-bold mb-4">Anteprima Contatti</h3>
-              <p className="text-gray-600 text-sm mb-4">
-                Seleziona i contatti da importare ({selectedRows.length}/{previewData.length})
-              </p>
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-gray-600 text-sm">
+                  Seleziona i contatti da importare: <strong>{selectedRows.length}</strong> su {previewData.length}
+                </p>
+                <div className="flex gap-2 text-xs">
+                  <button 
+                    type="button" 
+                    onClick={() => handleToggleSelectAll(true)} 
+                    className="text-blue-600 hover:text-blue-800 font-semibold underline"
+                  >
+                    Seleziona Tutti
+                  </button>
+                  <span className="text-gray-300">|</span>
+                  <button 
+                    type="button" 
+                    onClick={() => handleToggleSelectAll(false)} 
+                    className="text-gray-500 hover:text-gray-700 font-semibold underline"
+                  >
+                    Deseleziona Tutti
+                  </button>
+                </div>
+              </div>
               <div className="overflow-x-auto border border-gray-200 rounded-lg mb-4">
                 <table className="min-w-full text-sm text-left">
                   <thead className="bg-gray-100 text-gray-700 text-xs uppercase">
                     <tr>
-                      <th className="px-3 py-2 w-10 text-center">✔</th>
+                      <th className="px-3 py-2 w-10 text-center">
+                        <input
+                          type="checkbox"
+                          checked={previewData.length > 0 && selectedRows.length === previewData.length}
+                          onChange={(e) => handleToggleSelectAll(e.target.checked)}
+                          className="cursor-pointer"
+                        />
+                      </th>
                       <th className="px-4 py-2">Nome</th>
                       <th className="px-4 py-2">Email</th>
                       <th className="px-4 py-2">Settore</th>
                       <th className="px-4 py-2">Canale</th>
                       <th className="px-4 py-2">Testata</th>
                       <th className="px-4 py-2">Tag</th>
+                      <th className="px-3 py-2 text-center w-16">Azione</th>
                     </tr>
                   </thead>
                   <tbody>
                     {previewData.map(c => (
                       <tr key={c.id} className={`${selectedRows.includes(c.id) ? "bg-blue-50" : "hover:bg-gray-50"} border-b`}>
                         <td className="text-center px-3 py-2">
-                          <input type="checkbox" checked={selectedRows.includes(c.id)} onChange={() => toggleSelect(c.id)} />
+                          <input type="checkbox" checked={selectedRows.includes(c.id)} onChange={() => toggleSelect(c.id)} className="cursor-pointer" />
                         </td>
                         <td className="px-4 py-2 font-medium text-gray-800">{c.name}</td>
                         <td className="px-4 py-2 text-gray-600 text-xs">{c.email}</td>
@@ -523,6 +560,16 @@ try {
                         <td className="px-4 py-2 text-gray-500 text-xs">{c.canale || '-'}</td>
                         <td className="px-4 py-2 text-gray-500 text-xs">{c.testata || '-'}</td>
                         <td className="px-4 py-2 text-gray-500 text-xs">{(c.tags || []).join(", ") || '-'}</td>
+                        <td className="px-3 py-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePreviewRow(c.id)}
+                            title="Elimina contatto dall'importazione"
+                            className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                          >
+                            🗑️
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
