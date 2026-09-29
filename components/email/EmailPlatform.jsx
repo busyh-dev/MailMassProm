@@ -27,6 +27,7 @@ import { useCampaigns } from '../../hooks/useCampaigns';
 import { EditCampaignModal } from "./EditCampaignModal";
 import { ConfirmModal } from "./ConfirmModal";
 import MatchPreviewModal from "./MatchPreviewModal";
+import CampaignTrackingModal from './CampaignTrackingModal';
 import ImportManagementModal from '../contacts/ImportManagementModal';
 import { useEmailAccounts } from '../../hooks/useEmailAccounts';
 import RecipientSelect from './RecipientSelect';
@@ -3279,12 +3280,13 @@ const exportResendLog = (format = "csv", autoDownload = false) => {
         {/* TABELLA CAMPAGNE */}
         <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
           <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+            <thead className="bg-gray-50 text-gray-500 font-semibold uppercase text-xs">
               <tr>
-                <th className="px-6 py-3 text-xs text-gray-500 uppercase">Nome</th>
-                <th className="px-6 py-3 text-xs text-gray-500 uppercase">Destinatari</th>
-                <th className="px-6 py-3 text-xs text-gray-500 uppercase">Stato</th>
-                <th className="px-6 py-3 text-xs text-gray-500 uppercase">Data</th>
+                <th className="px-6 py-3 text-left">Nome</th>
+                <th className="px-6 py-3 text-left">Destinatari</th>
+                <th className="px-6 py-3 text-center">Stato</th>
+                <th className="px-6 py-3 text-left">Data</th>
+                <th className="px-6 py-3 text-center">Tracciamento Lettura</th>
               </tr>
             </thead>
   
@@ -3300,14 +3302,20 @@ const exportResendLog = (format = "csv", autoDownload = false) => {
                       minute: "2-digit",
                     })
                   : "-";
+
+                let recipCount = 0;
+                if (Array.isArray(c.recipient_list)) recipCount = c.recipient_list.length;
+                else if (Array.isArray(c.recipients)) recipCount = c.recipients.length;
+                else if (typeof c.recipients === 'number') recipCount = c.recipients;
+                else if (c.sent_count) recipCount = c.sent_count;
   
                 return (
-                  <tr key={c.id}>
-                    <td className="px-6 py-4">{c.name}</td>
-                    <td className="px-6 py-4">{c.recipients || 0}</td>
-                    <td className="px-6 py-4">
+                  <tr key={c.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4 font-semibold text-gray-900">{c.name || c.campaign_name || c.subject}</td>
+                    <td className="px-6 py-4 text-gray-600">{recipCount} destinatari</td>
+                    <td className="px-6 py-4 text-center">
                       <span
-                        className={`px-2 py-1 text-xs rounded-full ${
+                        className={`px-2 py-1 text-xs rounded-full font-semibold ${
                           c.status === "sent"
                             ? "bg-green-100 text-green-700"
                             : "bg-yellow-100 text-yellow-700"
@@ -3316,7 +3324,19 @@ const exportResendLog = (format = "csv", autoDownload = false) => {
                         {c.status === "sent" ? "Inviata" : "Bozza"}
                       </span>
                     </td>
-                    <td className="px-6 py-4">{formatted}</td>
+                    <td className="px-6 py-4 text-gray-500">{formatted}</td>
+                    <td className="px-6 py-4 text-center">
+                      <button
+                        onClick={() => {
+                          setSelectedTrackingCampaign(c);
+                          setShowTrackingModal(true);
+                        }}
+                        className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-xs inline-flex items-center gap-1.5 transition-all border border-indigo-200 shadow-2xs active:scale-95"
+                      >
+                        <Eye className="w-4 h-4 text-indigo-600" />
+                        Controllo Lettura
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -3354,6 +3374,19 @@ const exportResendLog = (format = "csv", autoDownload = false) => {
             </button>
           </div>
         </div>
+
+        {/* MODALE TRACCIAMENTO AVVENUTA LETTURA */}
+        {showTrackingModal && selectedTrackingCampaign && (
+          <CampaignTrackingModal
+            isOpen={showTrackingModal}
+            onClose={() => {
+              setShowTrackingModal(false);
+              setSelectedTrackingCampaign(null);
+            }}
+            campaign={selectedTrackingCampaign}
+            contacts={contacts}
+          />
+        )}
       </div>
     );
   };

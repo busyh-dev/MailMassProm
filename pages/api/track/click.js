@@ -30,9 +30,20 @@ export default async function handler(req, res) {
         }
       }
 
-      // 2. Aggiorna campaign_logs per il singolo destinatario
+      // 2. Aggiorna campaign_logs e campaign_recipients per il singolo destinatario
       if (recipient && recipient !== 'bulk') {
         try {
+          const targetEmail = decodeURIComponent(recipient).toLowerCase().trim();
+          await supabase
+            .from('campaign_recipients')
+            .update({
+              opened: true,
+              read: true,
+              read_at: new Date().toISOString()
+            })
+            .eq('campaign_id', campaign_id)
+            .eq('email', targetEmail);
+
           await supabase
             .from('campaign_logs')
             .update({
@@ -40,7 +51,7 @@ export default async function handler(req, res) {
               clicked_at: new Date().toISOString()
             })
             .eq('campaign_id', campaign_id)
-            .eq('recipient_email', decodeURIComponent(recipient));
+            .eq('recipient_email', targetEmail);
         } catch (cErr) {
           // Ignora se non presente
         }

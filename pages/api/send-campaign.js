@@ -186,6 +186,33 @@ export default async function handler(req, res) {
 
         sent++;
         console.log(`✅ Inviata a ${recipient}`);
+
+        // ✅ Salva lo stato in campaign_recipients per il tracciamento avvenuta lettura
+        if (campaignId) {
+          try {
+            const contactObj = contacts?.find(c => (c.email || '').toLowerCase() === recipient.toLowerCase()) || {};
+            let cf = contactObj.codiceFiscale || contactObj.codice_fiscale || '';
+            if (!cf && contactObj.customFields) {
+              let custom = contactObj.customFields;
+              if (typeof custom === 'string') { try { custom = JSON.parse(custom); } catch {} }
+              if (typeof custom === 'object' && custom) cf = custom.codiceFiscale || custom.cf || '';
+            }
+
+            await supabase.from("campaign_recipients").upsert({
+              id: crypto.randomUUID(),
+              campaign_id: campaignId,
+              email: recipient,
+              name: contactObj.name || contactObj.nominativo || recipient.split('@')[0],
+              codice_fiscale: cf,
+              status: 'sent',
+              opened: false,
+              read: false,
+              sent_at: new Date().toISOString()
+            }, { onConflict: 'campaign_id,email' });
+          } catch (rErr) {
+            console.warn('⚠️ Log recipient:', rErr.message);
+          }
+        }
       } catch (err) {
         failed++;
         console.error(`❌ Errore invio a ${recipient}:`, err.message);
