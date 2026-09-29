@@ -383,7 +383,7 @@ const deleteCampaign = async (campaignId) => {
       if (!updateField) throw new Error('Tipo tracking non valido');
 
       // Incrementa il contatore
-      const { data, error } = await supabase.rpc('increment_campaign_counter', {
+      const { error } = await supabase.rpc('increment_campaign_counter', {
         campaign_uuid: campaignId,
         counter_field: updateField
       });

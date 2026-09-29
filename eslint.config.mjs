@@ -18,6 +18,11 @@ const eslintConfig = [
       "out/**",
       "build/**",
       "next-env.d.ts",
+      "fix_strings.js",
+      "patch_contacts_limit.js",
+      "refactor_builder.js",
+      "scratch_*.jsx",
+      "backup/**",
     ],
   },
 ];

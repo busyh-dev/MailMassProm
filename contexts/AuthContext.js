@@ -50,7 +50,7 @@ export const AuthProvider = ({ children }) => {
           });
           logout();
         }
-      } catch (err) {
+      } catch {
         // Ignora temporanei problemi di rete
       }
     };
@@ -60,6 +60,7 @@ export const AuthProvider = ({ children }) => {
     const interval = setInterval(checkSessionHeartbeat, 30000);
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, isLoggingOut]);
 
   // ✅ AGGIUNGI QUESTO useEffect
@@ -235,6 +236,7 @@ if (event === 'SIGNED_OUT') {
     });
 
     return () => subscription.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggingOut]);
 
   const login = async (email, password) => {

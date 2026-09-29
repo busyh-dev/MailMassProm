@@ -7514,23 +7514,57 @@ useEffect(() => {
 console.log('📱 editingContact.phones:', editingContact.phones);
   
       let savedContact;
-  
+      const cleanPayload = (payload) => {
+        const p = { ...payload };
+        delete p.codice_fiscale;
+        delete p.sesso;
+        delete p.data_nascita;
+        delete p.luogo_nascita;
+        delete p.provincia_nascita;
+        return p;
+      };
+
       if (editingContact.id) {
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from('contacts')
           .update(dataToSave)
           .eq('id', editingContact.id)
           .select()
           .single();
+
+        if (error && (error.message?.includes('codice_fiscale') || error.code === 'PGRST204' || error.message?.includes('schema cache'))) {
+          console.warn('⚠️ Colonna codice_fiscale non trovata in contacts DB schema, salvo tramite custom_fields');
+          const fallbackRes = await supabase
+            .from('contacts')
+            .update(cleanPayload(dataToSave))
+            .eq('id', editingContact.id)
+            .select()
+            .single();
+          data = fallbackRes.data;
+          error = fallbackRes.error;
+        }
+
         if (error) throw error;
         savedContact = data;
       } else {
         const { data: { user } } = await supabase.auth.getUser();
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from('contacts')
           .insert({ ...dataToSave, user_id: user.id })
           .select()
           .single();
+
+        if (error && (error.message?.includes('codice_fiscale') || error.code === 'PGRST204' || error.message?.includes('schema cache'))) {
+          console.warn('⚠️ Colonna codice_fiscale non trovata in contacts DB schema, salvo tramite custom_fields');
+          const fallbackRes = await supabase
+            .from('contacts')
+            .insert({ ...cleanPayload(dataToSave), user_id: user.id })
+            .select()
+            .single();
+          data = fallbackRes.data;
+          error = fallbackRes.error;
+        }
+
         if (error) throw error;
         savedContact = data;
       }
@@ -25930,46 +25964,64 @@ const handleAdd = async () => {
     return;
   }
   try {
-    // ✅ 1. Inserisci il contatto
-    const { data: savedContact, error: contactError } = await supabase
-  .from('contacts')
-  .insert({
-    user_id: user.id,
-    name: name.trim(),
-    name_contact: nomeEditore.trim() || null,   // ← nome editore va qui
-    email: email.trim(),
-    email_2: email2.trim() || null,
-    email_3: email3.trim() || null,              // ← colonna dedicata
-    email_4: email4.trim() || null,              // ← colonna dedicata
-    contact_label_id: contactLabelId || null,
-    indirizzo: indirizzo.trim() || null,         // ← colonna dedicata
-    cap: cap.trim() || null,                     // ← colonna dedicata
-    citta: citta.trim() || null,                 // ← colonna dedicata
-    provincia: provincia.trim() || null,         // ← colonna dedicata
-    regione: regione.trim() || null,             // ← colonna dedicata
-    paese: paese.trim() || null,                 // ← colonna dedicata
-    note: note.trim() || null,
-    phones: phones.length > 0 ? phones : null,
-    codice_fiscale: codiceFiscale.trim().toUpperCase() || null,
-    sesso: sesso || null,
-    data_nascita: dataNascita || null,
-    luogo_nascita: luogoNascita.trim() || null,
-    provincia_nascita: provinciaNascita.trim().toUpperCase() || null,
-    custom_fields: JSON.stringify({
-      codiceFiscale: codiceFiscale.trim().toUpperCase(),
-      cf: codiceFiscale.trim().toUpperCase(),
-      sesso: sesso,
-      dataNascita: dataNascita.trim(),
-      luogoNascita: luogoNascita.trim(),
-      provinciaNascita: provinciaNascita.trim().toUpperCase(),
-      cap: cap.trim(),
-    }),
-    status: 'active',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  })
-  .select()
-  .single();
+    const payloadToInsert = {
+      user_id: user.id,
+      name: name.trim(),
+      name_contact: nomeEditore.trim() || null,   // ← nome editore va qui
+      email: email.trim(),
+      email_2: email2.trim() || null,
+      email_3: email3.trim() || null,              // ← colonna dedicata
+      email_4: email4.trim() || null,              // ← colonna dedicata
+      contact_label_id: contactLabelId || null,
+      indirizzo: indirizzo.trim() || null,         // ← colonna dedicata
+      cap: cap.trim() || null,                     // ← colonna dedicata
+      citta: citta.trim() || null,                 // ← colonna dedicata
+      provincia: provincia.trim() || null,         // ← colonna dedicata
+      regione: regione.trim() || null,             // ← colonna dedicata
+      paese: paese.trim() || null,                 // ← colonna dedicata
+      note: note.trim() || null,
+      phones: phones.length > 0 ? phones : null,
+      codice_fiscale: codiceFiscale.trim().toUpperCase() || null,
+      sesso: sesso || null,
+      data_nascita: dataNascita || null,
+      luogo_nascita: luogoNascita.trim() || null,
+      provincia_nascita: provinciaNascita.trim().toUpperCase() || null,
+      custom_fields: JSON.stringify({
+        codiceFiscale: codiceFiscale.trim().toUpperCase(),
+        cf: codiceFiscale.trim().toUpperCase(),
+        sesso: sesso,
+        dataNascita: dataNascita.trim(),
+        luogoNascita: luogoNascita.trim(),
+        provinciaNascita: provinciaNascita.trim().toUpperCase(),
+        cap: cap.trim(),
+      }),
+      status: 'active',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    let { data: savedContact, error: contactError } = await supabase
+      .from('contacts')
+      .insert(payloadToInsert)
+      .select()
+      .single();
+
+    if (contactError && (contactError.message?.includes('codice_fiscale') || contactError.code === 'PGRST204' || contactError.message?.includes('schema cache'))) {
+      const fallbackPayload = { ...payloadToInsert };
+      delete fallbackPayload.codice_fiscale;
+      delete fallbackPayload.sesso;
+      delete fallbackPayload.data_nascita;
+      delete fallbackPayload.luogo_nascita;
+      delete fallbackPayload.provincia_nascita;
+
+      const fallbackRes = await supabase
+        .from('contacts')
+        .insert(fallbackPayload)
+        .select()
+        .single();
+      savedContact = fallbackRes.data;
+      contactError = fallbackRes.error;
+    }
 
     if (contactError) throw contactError;
 

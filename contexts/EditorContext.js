@@ -76,6 +76,7 @@ export const EditorProvider = ({ children }) => {
     // ✅ NESSUN handleFocus / handleVisibilityChange
     // erano la causa del reset di campaignMode ad ogni click su contentEditable
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // ✅ solo al mount
 
   const closeEditor = () => {
