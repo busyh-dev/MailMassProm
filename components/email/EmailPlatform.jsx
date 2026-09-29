@@ -28,7 +28,7 @@ import { EditCampaignModal } from "./EditCampaignModal";
 import { ConfirmModal } from "./ConfirmModal";
 import MatchPreviewModal from "./MatchPreviewModal";
 import CampaignTrackingModal from './CampaignTrackingModal';
-import { validateCodiceFiscale } from '../../lib/codiceFiscale';
+import { validateCodiceFiscale, parseCodiceFiscale, verifyCodiceFiscaleMatch } from '../../lib/codiceFiscale';
 import ImportManagementModal from '../contacts/ImportManagementModal';
 import { useEmailAccounts } from '../../hooks/useEmailAccounts';
 import RecipientSelect from './RecipientSelect';
@@ -7785,85 +7785,15 @@ console.log('✨electedTags finale:', selectedTags);
                 />
               </div>
 
-              {/* 🎓 ANAGRAFICA DISCENTE: CODICE FISCALE, SESSO, DATA, LUOGO, PROVINCIA, CAP */}
+              {/* 🎓 ANAGRAFICA DISCENTE: DATA, LUOGO, PROVINCIA, CAP, SESSO -> CODICE FISCALE ALLA FINE */}
               <div className="md:col-span-2 p-4 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-sm text-emerald-900 flex items-center gap-1.5">
-                    🪪 Codice Fiscale & Dati Anagrafici Discente
+                    🪪 Dati Anagrafici & Codice Fiscale Discente
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {/* CODICE FISCALE */}
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      Codice Fiscale Discente (CF)
-                    </label>
-                    <input
-                      type="text"
-                      value={editingContact.codiceFiscale || editingContact.codice_fiscale || ''}
-                      onChange={(e) => {
-                        const upper = e.target.value.toUpperCase();
-                        setEditingContact({
-                          ...editingContact,
-                          codiceFiscale: upper,
-                          codice_fiscale: upper
-                        });
-                        if (upper.length === 16) {
-                          const result = validateCodiceFiscale(upper);
-                          if (!result.valid) {
-                            toast.error(`❌ Codice Fiscale non valido! ${result.error || ''}. Campo azzerato.`);
-                            setEditingContact(prev => ({
-                              ...prev,
-                              codiceFiscale: '',
-                              codice_fiscale: ''
-                            }));
-                          } else {
-                            toast.success("✅ Codice Fiscale valido!");
-                          }
-                        }
-                      }}
-                      onBlur={() => {
-                        const currentCF = editingContact.codiceFiscale || editingContact.codice_fiscale;
-                        if (currentCF && currentCF.length > 0) {
-                          const result = validateCodiceFiscale(currentCF);
-                          if (!result.valid) {
-                            toast.error(`❌ Codice Fiscale non valido! ${result.error || ''}. Campo azzerato.`);
-                            setEditingContact(prev => ({
-                              ...prev,
-                              codiceFiscale: '',
-                              codice_fiscale: ''
-                            }));
-                          }
-                        }
-                      }}
-                      maxLength={16}
-                      placeholder="Es. RSSMRA80A01H501Z"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 font-mono text-sm uppercase font-semibold bg-white"
-                    />
-                    <p className="text-[11px] text-emerald-700 mt-1 font-medium">
-                      📌 Controllato automaticamente. Se errato verrà azzerato.
-                    </p>
-                  </div>
-
-                  {/* SESSO */}
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">
-                      Sesso
-                    </label>
-                    <select
-                      value={editingContact.sesso || ''}
-                      onChange={(e) => setEditingContact({ ...editingContact, sesso: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 text-sm bg-white font-medium"
-                    >
-                      <option value="">Seleziona...</option>
-                      <option value="M">👨 Maschile (M)</option>
-                      <option value="F">👩 Femminile (F)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                   {/* DATA DI NASCITA */}
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 mb-1">
@@ -7920,6 +7850,96 @@ console.log('✨electedTags finale:', selectedTags);
                       className="w-full px-2.5 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 text-xs bg-white"
                     />
                   </div>
+
+                  {/* SESSO */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Sesso
+                    </label>
+                    <select
+                      value={editingContact.sesso || ''}
+                      onChange={(e) => setEditingContact({ ...editingContact, sesso: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 text-sm bg-white font-medium"
+                    >
+                      <option value="">Seleziona...</option>
+                      <option value="M">👨 Maschile (M)</option>
+                      <option value="F">👩 Femminile (F)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* CODICE FISCALE - ALLA FINE DEGLI ALTRI CAMPI ANAGRAFICI */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Codice Fiscale Discente (CF)
+                  </label>
+                  <input
+                    type="text"
+                    value={editingContact.codiceFiscale || editingContact.codice_fiscale || ''}
+                    onChange={(e) => {
+                      const upper = e.target.value.toUpperCase();
+                      setEditingContact(prev => ({
+                        ...prev,
+                        codiceFiscale: upper,
+                        codice_fiscale: upper
+                      }));
+                      if (upper.length === 16) {
+                        const valResult = validateCodiceFiscale(upper);
+                        if (!valResult.valid) {
+                          toast.error(`❌ Codice Fiscale non valido! ${valResult.error || ''}. Campo azzerato.`);
+                          setEditingContact(prev => ({ ...prev, codiceFiscale: '', codice_fiscale: '' }));
+                        } else {
+                          const parsed = parseCodiceFiscale(upper);
+                          const curData = editingContact.dataNascita || editingContact.data_nascita || '';
+                          const curSesso = editingContact.sesso || '';
+                          const matchCheck = verifyCodiceFiscaleMatch(upper, { dataNascita: curData, sesso: curSesso });
+                          if (!matchCheck.match && (curData || curSesso)) {
+                            toast.error(`⚠️ ${matchCheck.error}`);
+                          } else {
+                            toast.success("✅ Codice Fiscale valido!");
+                          }
+                          setEditingContact(prev => ({
+                            ...prev,
+                            codiceFiscale: upper,
+                            codice_fiscale: upper,
+                            dataNascita: prev.dataNascita || prev.data_nascita || parsed?.dataNascita || '',
+                            data_nascita: prev.data_nascita || prev.dataNascita || parsed?.dataNascita || '',
+                            sesso: prev.sesso || parsed?.sesso || ''
+                          }));
+                        }
+                      }
+                    }}
+                    onBlur={() => {
+                      const currentCF = editingContact.codiceFiscale || editingContact.codice_fiscale;
+                      if (currentCF && currentCF.length > 0) {
+                        const valResult = validateCodiceFiscale(currentCF);
+                        if (!valResult.valid) {
+                          toast.error(`❌ Codice Fiscale non valido! ${valResult.error || ''}. Campo azzerato.`);
+                          setEditingContact(prev => ({ ...prev, codiceFiscale: '', codice_fiscale: '' }));
+                        } else {
+                          const parsed = parseCodiceFiscale(currentCF);
+                          const curData = editingContact.dataNascita || editingContact.data_nascita || '';
+                          const curSesso = editingContact.sesso || '';
+                          const matchCheck = verifyCodiceFiscaleMatch(currentCF, { dataNascita: curData, sesso: curSesso });
+                          if (!matchCheck.match && (curData || curSesso)) {
+                            toast.error(`⚠️ ${matchCheck.error}`);
+                          }
+                          setEditingContact(prev => ({
+                            ...prev,
+                            dataNascita: prev.dataNascita || prev.data_nascita || parsed?.dataNascita || '',
+                            data_nascita: prev.data_nascita || prev.dataNascita || parsed?.dataNascita || '',
+                            sesso: prev.sesso || parsed?.sesso || ''
+                          }));
+                        }
+                      }
+                    }}
+                    maxLength={16}
+                    placeholder="Es. RSSMRA80A01H501Z"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 font-mono text-sm uppercase font-semibold bg-white"
+                  />
+                  <p className="text-[11px] text-emerald-700 mt-1 font-medium">
+                    📌 Controllato e verificato automaticamente. Completa i campi mancanti se esatto.
+                  </p>
                 </div>
               </div>
 
@@ -26194,72 +26214,15 @@ return (
             placeholder="mario.rossi@email.com" />
         </div>
 
-        {/* 🎓 ANAGRAFICA DISCENTE: CODICE FISCALE, SESSO, DATA, LUOGO, PROVINCIA, CAP */}
+        {/* 🎓 ANAGRAFICA DISCENTE: DATA, LUOGO, PROVINCIA, CAP, SESSO -> CODICE FISCALE ALLA FINE */}
         <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-3">
           <div className="flex items-center justify-between">
             <span className="font-bold text-sm text-emerald-900 flex items-center gap-1.5">
-              🪪 Codice Fiscale & Dati Anagrafici Discente
+              🪪 Dati Anagrafici & Codice Fiscale Discente
             </span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {/* CODICE FISCALE */}
-            <div className="md:col-span-2">
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Codice Fiscale Discente (CF)
-              </label>
-              <input
-                type="text"
-                value={codiceFiscale}
-                onChange={(e) => {
-                  const upper = e.target.value.toUpperCase();
-                  setCodiceFiscale(upper);
-                  if (upper.length === 16) {
-                    const result = validateCodiceFiscale(upper);
-                    if (!result.valid) {
-                      toast.error(`❌ Codice Fiscale non valido! ${result.error || ''}. Campo azzerato.`);
-                      setCodiceFiscale('');
-                    } else {
-                      toast.success("✅ Codice Fiscale valido!");
-                    }
-                  }
-                }}
-                onBlur={() => {
-                  if (codiceFiscale && codiceFiscale.length > 0) {
-                    const result = validateCodiceFiscale(codiceFiscale);
-                    if (!result.valid) {
-                      toast.error(`❌ Codice Fiscale non valido! ${result.error || ''}. Campo azzerato.`);
-                      setCodiceFiscale('');
-                    }
-                  }
-                }}
-                maxLength={16}
-                placeholder="Es. RSSMRA80A01H501Z"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 font-mono text-sm uppercase font-semibold bg-white"
-              />
-              <p className="text-[11px] text-emerald-700 mt-1">
-                📌 Controllato automaticamente. Se errato verrà azzerato.
-              </p>
-            </div>
-
-            {/* SESSO */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Sesso
-              </label>
-              <select
-                value={sesso}
-                onChange={(e) => setSesso(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 text-sm bg-white font-medium"
-              >
-                <option value="">Seleziona...</option>
-                <option value="M">👨 Maschile (M)</option>
-                <option value="F">👩 Femminile (F)</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {/* DATA DI NASCITA */}
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
@@ -26316,6 +26279,77 @@ return (
                 className="w-full px-2.5 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 text-xs bg-white"
               />
             </div>
+
+            {/* SESSO */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Sesso
+              </label>
+              <select
+                value={sesso}
+                onChange={(e) => setSesso(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 text-sm bg-white font-medium"
+              >
+                <option value="">Seleziona...</option>
+                <option value="M">👨 Maschile (M)</option>
+                <option value="F">👩 Femminile (F)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* CODICE FISCALE - ALLA FINE DEGLI ALTRI CAMPI ANAGRAFICI */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">
+              Codice Fiscale Discente (CF)
+            </label>
+            <input
+              type="text"
+              value={codiceFiscale}
+              onChange={(e) => {
+                const upper = e.target.value.toUpperCase();
+                setCodiceFiscale(upper);
+                if (upper.length === 16) {
+                  const valResult = validateCodiceFiscale(upper);
+                  if (!valResult.valid) {
+                    toast.error(`❌ Codice Fiscale non valido! ${valResult.error || ''}. Campo azzerato.`);
+                    setCodiceFiscale('');
+                  } else {
+                    const parsed = parseCodiceFiscale(upper);
+                    const matchCheck = verifyCodiceFiscaleMatch(upper, { dataNascita, sesso });
+                    if (!matchCheck.match && (dataNascita || sesso)) {
+                      toast.error(`⚠️ ${matchCheck.error}`);
+                    } else {
+                      toast.success("✅ Codice Fiscale valido!");
+                    }
+                    if (!dataNascita && parsed?.dataNascita) setDataNascita(parsed.dataNascita);
+                    if (!sesso && parsed?.sesso) setSesso(parsed.sesso);
+                  }
+                }
+              }}
+              onBlur={() => {
+                if (codiceFiscale && codiceFiscale.length > 0) {
+                  const valResult = validateCodiceFiscale(codiceFiscale);
+                  if (!valResult.valid) {
+                    toast.error(`❌ Codice Fiscale non valido! ${valResult.error || ''}. Campo azzerato.`);
+                    setCodiceFiscale('');
+                  } else {
+                    const parsed = parseCodiceFiscale(codiceFiscale);
+                    const matchCheck = verifyCodiceFiscaleMatch(codiceFiscale, { dataNascita, sesso });
+                    if (!matchCheck.match && (dataNascita || sesso)) {
+                      toast.error(`⚠️ ${matchCheck.error}`);
+                    }
+                    if (!dataNascita && parsed?.dataNascita) setDataNascita(parsed.dataNascita);
+                    if (!sesso && parsed?.sesso) setSesso(parsed.sesso);
+                  }
+                }
+              }}
+              maxLength={16}
+              placeholder="Es. RSSMRA80A01H501Z"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 font-mono text-sm uppercase font-semibold bg-white"
+            />
+            <p className="text-[11px] text-emerald-700 mt-1 font-medium">
+              📌 Controllato e verificato automaticamente. Completa i campi mancanti se esatto.
+            </p>
           </div>
         </div>
 
