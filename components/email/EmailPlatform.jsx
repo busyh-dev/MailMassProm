@@ -9627,7 +9627,7 @@ const DeleteConfirmModal = ({ contact, onConfirm, onCancel }) => (
           onClick={onConfirm}
           className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg transition"
         >
-          S├¼, elimina
+          Sì, elimina
         </button>
       </div>
     </div>
@@ -11979,7 +11979,7 @@ return (
           }}
           className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-medium transition text-sm"
         >
-          S├¼, resetta
+          Sì, resetta
         </button>
       </div>
     </div>
@@ -26801,7 +26801,7 @@ return (
             </button>
             <button onClick={confirmCancel}
               className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors">
-              S├¼, Annulla
+              Sì, Annulla
             </button>
           </div>
         </div>
@@ -29853,7 +29853,7 @@ if (loadingProfile && !user && !authUser) {
                 onClick={confirmClose}
                 className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
               >
-                S├¼, chiudi
+                Sì, chiudi
               </motion.button>
             </div>
           </motion.div>
@@ -37604,7 +37604,7 @@ const CancelConfirmModal = ({ show, onCancel, onConfirm, title, message }) => {
             onClick={onConfirm} 
             className="flex-1 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg transition font-medium"
           >
-            S├¼, Annulla
+            Sì, Annulla
           </button>
         </div>
       </div>
