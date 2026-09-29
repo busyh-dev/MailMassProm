@@ -68,6 +68,60 @@ import { usePersistentModal } from "../../hooks/usePersistentModal";
 import TemplateLibraryModal from "../../components/email/TemplateLibraryModal";
 import TemplatePreviewModal from "../../components/email/TemplatePreviewModal";
 
+async function executeSafeContactsQuery(actionType, initialPayload, matchCondition = null) {
+  let currentPayload = { ...initialPayload };
+  let attempts = 0;
+  const maxAttempts = 12;
+
+  while (attempts < maxAttempts) {
+    attempts++;
+    let query = supabase.from('contacts');
+    if (actionType === 'update') {
+      query = query.update(currentPayload);
+      if (matchCondition?.id) {
+        query = query.eq('id', matchCondition.id);
+      }
+    } else {
+      query = query.insert(currentPayload);
+    }
+
+    const { data, error } = await query.select().single();
+
+    if (!error) {
+      return { data, error: null };
+    }
+
+    const match = error.message?.match(/Could not find the '([^']+)' column/i) || 
+                  error.message?.match(/column ['"]([^'"]+)['"] of ['"]contacts['"]/i) ||
+                  error.message?.match(/['"]([^'"]+)['"] column of ['"]contacts['"]/i);
+    
+    if (match && match[1]) {
+      const missingCol = match[1];
+      console.warn(`⚠️ Colonna '${missingCol}' non trovata nello schema DB contacts. Rimuovo e riprovo...`);
+      delete currentPayload[missingCol];
+      continue;
+    }
+
+    if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+      const candidates = ['custom_fields', 'customFields', 'codice_fiscale', 'sesso', 'data_nascita', 'luogo_nascita', 'provincia_nascita', 'email_3', 'email_4', 'name_contact', 'indirizzo', 'cap', 'citta', 'provincia', 'regione', 'paese'];
+      let removed = false;
+      for (const col of candidates) {
+        if (col in currentPayload) {
+          console.warn(`⚠️ Rimozione colonna candidata '${col}' per errore schema cache.`);
+          delete currentPayload[col];
+          removed = true;
+          break;
+        }
+      }
+      if (removed) continue;
+    }
+
+    return { data: null, error };
+  }
+
+  return { data: null, error: new Error('Impossibile completare il salvataggio del contatto.') };
+}
+
 const sanitizeAvatarUrl = (url) => {
   if (!url) return null;
   if (typeof url !== 'string') return url;
@@ -7514,57 +7568,14 @@ useEffect(() => {
 console.log('📱 editingContact.phones:', editingContact.phones);
   
       let savedContact;
-      const cleanPayload = (payload) => {
-        const p = { ...payload };
-        delete p.codice_fiscale;
-        delete p.sesso;
-        delete p.data_nascita;
-        delete p.luogo_nascita;
-        delete p.provincia_nascita;
-        return p;
-      };
 
       if (editingContact.id) {
-        let { data, error } = await supabase
-          .from('contacts')
-          .update(dataToSave)
-          .eq('id', editingContact.id)
-          .select()
-          .single();
-
-        if (error && (error.message?.includes('codice_fiscale') || error.code === 'PGRST204' || error.message?.includes('schema cache'))) {
-          console.warn('⚠️ Colonna codice_fiscale non trovata in contacts DB schema, salvo tramite custom_fields');
-          const fallbackRes = await supabase
-            .from('contacts')
-            .update(cleanPayload(dataToSave))
-            .eq('id', editingContact.id)
-            .select()
-            .single();
-          data = fallbackRes.data;
-          error = fallbackRes.error;
-        }
-
+        const { data, error } = await executeSafeContactsQuery('update', dataToSave, { id: editingContact.id });
         if (error) throw error;
         savedContact = data;
       } else {
         const { data: { user } } = await supabase.auth.getUser();
-        let { data, error } = await supabase
-          .from('contacts')
-          .insert({ ...dataToSave, user_id: user.id })
-          .select()
-          .single();
-
-        if (error && (error.message?.includes('codice_fiscale') || error.code === 'PGRST204' || error.message?.includes('schema cache'))) {
-          console.warn('⚠️ Colonna codice_fiscale non trovata in contacts DB schema, salvo tramite custom_fields');
-          const fallbackRes = await supabase
-            .from('contacts')
-            .insert({ ...cleanPayload(dataToSave), user_id: user.id })
-            .select()
-            .single();
-          data = fallbackRes.data;
-          error = fallbackRes.error;
-        }
-
+        const { data, error } = await executeSafeContactsQuery('insert', { ...dataToSave, user_id: user.id });
         if (error) throw error;
         savedContact = data;
       }
@@ -26020,29 +26031,7 @@ const handleAdd = async () => {
       updated_at: new Date().toISOString(),
     };
 
-    let { data: savedContact, error: contactError } = await supabase
-      .from('contacts')
-      .insert(payloadToInsert)
-      .select()
-      .single();
-
-    if (contactError && (contactError.message?.includes('codice_fiscale') || contactError.code === 'PGRST204' || contactError.message?.includes('schema cache'))) {
-      const fallbackPayload = { ...payloadToInsert };
-      delete fallbackPayload.codice_fiscale;
-      delete fallbackPayload.sesso;
-      delete fallbackPayload.data_nascita;
-      delete fallbackPayload.luogo_nascita;
-      delete fallbackPayload.provincia_nascita;
-
-      const fallbackRes = await supabase
-        .from('contacts')
-        .insert(fallbackPayload)
-        .select()
-        .single();
-      savedContact = fallbackRes.data;
-      contactError = fallbackRes.error;
-    }
-
+    const { data: savedContact, error: contactError } = await executeSafeContactsQuery('insert', payloadToInsert);
     if (contactError) throw contactError;
 
     // ✅ 2. Salva tags
