@@ -7388,13 +7388,29 @@ useEffect(() => {
       try { custom = JSON.parse(custom); } catch {}
     }
 
+    let cleanNote = contact.note || '';
+    if (cleanNote && cleanNote.includes('<!--ANAGRAFICA:')) {
+      try {
+        const metaMatch = cleanNote.match(/<!--ANAGRAFICA:(.*?)-->/s);
+        if (metaMatch && metaMatch[1]) {
+          const parsedMeta = JSON.parse(metaMatch[1]);
+          custom = { ...parsedMeta, ...custom };
+          cleanNote = cleanNote.replace(/<!--ANAGRAFICA:(.*?)-->/s, '').trim();
+        }
+      } catch (e) {
+        console.warn('Errore parsing anagrafica da note:', e);
+      }
+    }
+
     setEditingContact({
       ...contact,
+      note: cleanNote,
       codiceFiscale: contact.codiceFiscale || contact.codice_fiscale || custom.codiceFiscale || custom.cf || '',
       sesso: contact.sesso || custom.sesso || '',
       dataNascita: contact.dataNascita || contact.data_nascita || custom.dataNascita || '',
       luogoNascita: contact.luogoNascita || contact.luogo_nascita || custom.luogoNascita || '',
       provinciaNascita: contact.provinciaNascita || contact.provincia_nascita || custom.provinciaNascita || '',
+      cap: contact.cap || custom.cap || '',
       tags: tagIds,
       tag_labels: contact.tag_labels || [],
       phones: Array.isArray(contact.phones) ? contact.phones : []
@@ -7545,7 +7561,19 @@ useEffect(() => {
         copertura_canale_id: editingContact.copertura_canale_id || null,
         testata_id: editingContact.testata_id || null,
         contact_label_id: editingContact.contact_label_id || null,
-        note: editingContact.note || '',
+        note: (() => {
+          const metaObj = {
+            codiceFiscale: (editingContact.codiceFiscale || editingContact.codice_fiscale || '').trim().toUpperCase(),
+            cf: (editingContact.codiceFiscale || editingContact.codice_fiscale || '').trim().toUpperCase(),
+            sesso: editingContact.sesso || '',
+            dataNascita: (editingContact.dataNascita || editingContact.data_nascita || '').trim(),
+            luogoNascita: (editingContact.luogoNascita || editingContact.luogo_nascita || '').trim(),
+            provinciaNascita: (editingContact.provinciaNascita || editingContact.provincia_nascita || '').trim().toUpperCase(),
+            cap: (editingContact.cap || '').trim(),
+          };
+          const userNote = (editingContact.note || '').replace(/<!--ANAGRAFICA:(.*?)-->/s, '').trim();
+          return userNote ? `${userNote}\n<!--ANAGRAFICA:${JSON.stringify(metaObj)}-->` : `<!--ANAGRAFICA:${JSON.stringify(metaObj)}-->`;
+        })(),
         phones: phonesData,
         codice_fiscale: (editingContact.codiceFiscale || editingContact.codice_fiscale || '').trim().toUpperCase() || null,
         sesso: editingContact.sesso || null,
@@ -26010,7 +26038,19 @@ const handleAdd = async () => {
       provincia: provincia.trim() || null,         // ← colonna dedicata
       regione: regione.trim() || null,             // ← colonna dedicata
       paese: paese.trim() || null,                 // ← colonna dedicata
-      note: note.trim() || null,
+      note: (() => {
+        const metaObj = {
+          codiceFiscale: codiceFiscale.trim().toUpperCase(),
+          cf: codiceFiscale.trim().toUpperCase(),
+          sesso: sesso,
+          dataNascita: dataNascita.trim(),
+          luogoNascita: luogoNascita.trim(),
+          provinciaNascita: provinciaNascita.trim().toUpperCase(),
+          cap: cap.trim(),
+        };
+        const userNote = note.trim();
+        return userNote ? `${userNote}\n<!--ANAGRAFICA:${JSON.stringify(metaObj)}-->` : `<!--ANAGRAFICA:${JSON.stringify(metaObj)}-->`;
+      })(),
       phones: phones.length > 0 ? phones : null,
       codice_fiscale: codiceFiscale.trim().toUpperCase() || null,
       sesso: sesso || null,
