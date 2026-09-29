@@ -7388,14 +7388,14 @@ useEffect(() => {
       try { custom = JSON.parse(custom); } catch {}
     }
 
-    let cleanNote = contact.note || '';
-    if (cleanNote && cleanNote.includes('<!--ANAGRAFICA:')) {
+    let cleanNote = typeof contact.note === 'string' ? contact.note : '';
+    if (cleanNote && cleanNote.indexOf('<!--ANAGRAFICA:') !== -1) {
       try {
-        const metaMatch = cleanNote.match(/<!--ANAGRAFICA:(.*?)-->/s);
+        const metaMatch = cleanNote.match(/<!--ANAGRAFICA:([\s\S]*?)-->/);
         if (metaMatch && metaMatch[1]) {
           const parsedMeta = JSON.parse(metaMatch[1]);
           custom = { ...parsedMeta, ...custom };
-          cleanNote = cleanNote.replace(/<!--ANAGRAFICA:(.*?)-->/s, '').trim();
+          cleanNote = cleanNote.replace(/<!--ANAGRAFICA:([\s\S]*?)-->/g, '').trim();
         }
       } catch (e) {
         console.warn('Errore parsing anagrafica da note:', e);
@@ -7571,7 +7571,8 @@ useEffect(() => {
             provinciaNascita: (editingContact.provinciaNascita || editingContact.provincia_nascita || '').trim().toUpperCase(),
             cap: (editingContact.cap || '').trim(),
           };
-          const userNote = (editingContact.note || '').replace(/<!--ANAGRAFICA:(.*?)-->/s, '').trim();
+          const rawNote = typeof editingContact.note === 'string' ? editingContact.note : '';
+          const userNote = rawNote.replace(/<!--ANAGRAFICA:([\s\S]*?)-->/g, '').trim();
           return userNote ? `${userNote}\n<!--ANAGRAFICA:${JSON.stringify(metaObj)}-->` : `<!--ANAGRAFICA:${JSON.stringify(metaObj)}-->`;
         })(),
         phones: phonesData,
@@ -26048,7 +26049,8 @@ const handleAdd = async () => {
           provinciaNascita: provinciaNascita.trim().toUpperCase(),
           cap: cap.trim(),
         };
-        const userNote = note.trim();
+        const rawNote = typeof note === 'string' ? note : '';
+        const userNote = rawNote.replace(/<!--ANAGRAFICA:([\s\S]*?)-->/g, '').trim();
         return userNote ? `${userNote}\n<!--ANAGRAFICA:${JSON.stringify(metaObj)}-->` : `<!--ANAGRAFICA:${JSON.stringify(metaObj)}-->`;
       })(),
       phones: phones.length > 0 ? phones : null,
