@@ -7328,8 +7328,17 @@ useEffect(() => {
 
     console.log('⚙️ Tags convertiti:', tagIds);
 
+    let custom = contact.customFields || contact.custom_fields || {};
+    if (typeof custom === 'string') {
+      try { custom = JSON.parse(custom); } catch {}
+    }
+
     setEditingContact({
       ...contact,
+      codiceFiscale: contact.codiceFiscale || contact.codice_fiscale || custom.codiceFiscale || custom.cf || '',
+      dataNascita: contact.dataNascita || contact.data_nascita || custom.dataNascita || '',
+      luogoNascita: contact.luogoNascita || contact.luogo_nascita || custom.luogoNascita || '',
+      provinciaNascita: contact.provinciaNascita || contact.provincia_nascita || custom.provinciaNascita || '',
       tags: tagIds,
       tag_labels: contact.tag_labels || [],
       phones: Array.isArray(contact.phones) ? contact.phones : []
@@ -7482,6 +7491,14 @@ useEffect(() => {
         contact_label_id: editingContact.contact_label_id || null,
         note: editingContact.note || '',
         phones: phonesData,
+        custom_fields: JSON.stringify({
+          ...(typeof editingContact.custom_fields === 'string' ? JSON.parse(editingContact.custom_fields || '{}') : (editingContact.custom_fields || {})),
+          codiceFiscale: (editingContact.codiceFiscale || editingContact.codice_fiscale || '').trim().toUpperCase(),
+          cf: (editingContact.codiceFiscale || editingContact.codice_fiscale || '').trim().toUpperCase(),
+          dataNascita: (editingContact.dataNascita || editingContact.data_nascita || '').trim(),
+          luogoNascita: (editingContact.luogoNascita || editingContact.luogo_nascita || '').trim(),
+          provinciaNascita: (editingContact.provinciaNascita || editingContact.provincia_nascita || '').trim().toUpperCase(),
+        }),
         updated_at: new Date().toISOString()
       };
       console.log('📱 phonesData da salvare:', phonesData);
@@ -7832,6 +7849,75 @@ console.log('✨electedTags finale:', selectedTags);
     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
     placeholder="Lazio"
   />
+</div>
+
+{/* 🎓 DATI ANAGRAFICI DISCENTE & ATTESTATI */}
+<div className="md:col-span-2 p-4 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-3">
+  <div className="flex items-center gap-2 text-emerald-900 font-bold text-sm">
+    <span>🪪 Dati Anagrafici Discente (Codice Fiscale & Nascita)</span>
+  </div>
+
+  <div>
+    <label className="block text-xs font-semibold text-gray-700 mb-1">
+      Codice Fiscale Discente (CF)
+    </label>
+    <input
+      type="text"
+      value={editingContact.codiceFiscale || editingContact.codice_fiscale || ''}
+      onChange={(e) => setEditingContact({ 
+        ...editingContact, 
+        codiceFiscale: e.target.value.toUpperCase(),
+        codice_fiscale: e.target.value.toUpperCase()
+      })}
+      maxLength={16}
+      placeholder="Es. RSSMRA80A01H501Z"
+      className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 font-mono text-sm uppercase font-semibold bg-white"
+    />
+    <p className="text-[11px] text-emerald-700 mt-1 font-medium">
+      📌 Indispensabile per lo smistamento automatico degli attestati PDF denominati <code className="font-bold font-mono">Codicefiscale.pdf</code>.
+    </p>
+  </div>
+
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <div>
+      <label className="block text-xs font-semibold text-gray-700 mb-1">
+        Data di Nascita
+      </label>
+      <input
+        type="date"
+        value={editingContact.dataNascita || editingContact.data_nascita || ''}
+        onChange={(e) => setEditingContact({ ...editingContact, dataNascita: e.target.value })}
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 text-sm bg-white"
+      />
+    </div>
+
+    <div>
+      <label className="block text-xs font-semibold text-gray-700 mb-1">
+        Luogo di Nascita (Comune)
+      </label>
+      <input
+        type="text"
+        value={editingContact.luogoNascita || editingContact.luogo_nascita || ''}
+        onChange={(e) => setEditingContact({ ...editingContact, luogoNascita: e.target.value })}
+        placeholder="Es. Roma"
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 text-sm bg-white"
+      />
+    </div>
+
+    <div>
+      <label className="block text-xs font-semibold text-gray-700 mb-1">
+        Provincia Nascita
+      </label>
+      <input
+        type="text"
+        value={editingContact.provinciaNascita || editingContact.provincia_nascita || ''}
+        onChange={(e) => setEditingContact({ ...editingContact, provinciaNascita: e.target.value.toUpperCase() })}
+        maxLength={2}
+        placeholder="Es. RM"
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 text-sm uppercase bg-white"
+      />
+    </div>
+  </div>
 </div>
 
 {/* PAESE */}
@@ -9434,6 +9520,52 @@ const ViewContactModal = ({ contact, onClose, tags, tagLabels, sectors, channels
 
         {/* BODY */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+
+          {/* 🪪 DATI ANAGRAFICI DISCENTE & ATTESTATI */}
+          {(() => {
+            let customObj = contact.customFields || contact.custom_fields || {};
+            if (typeof customObj === 'string') {
+              try { customObj = JSON.parse(customObj); } catch {}
+            }
+            const cf = contact.codiceFiscale || contact.codice_fiscale || customObj.codiceFiscale || customObj.cf;
+            const dataNas = contact.dataNascita || contact.data_nascita || customObj.dataNascita;
+            const luogoNas = contact.luogoNascita || contact.luogo_nascita || customObj.luogoNascita;
+            const provNas = contact.provinciaNascita || contact.provincia_nascita || customObj.provinciaNascita;
+
+            return (
+              <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-4 space-y-2">
+                <h4 className="text-xs font-bold text-emerald-800 uppercase tracking-wide flex items-center gap-1.5">
+                  🪪 Dati Anagrafici Discente & Attestati
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                  <div>
+                    <span className="text-gray-500 font-medium block">Codice Fiscale:</span>
+                    <span className="font-mono font-bold text-emerald-700 text-sm">
+                      {cf || <span className="text-gray-400 font-normal italic">—</span>}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 font-medium block">Data Nascita:</span>
+                    <span className="font-semibold text-gray-800">
+                      {dataNas || <span className="text-gray-400 font-normal italic">—</span>}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 font-medium block">Luogo Nascita:</span>
+                    <span className="font-semibold text-gray-800">
+                      {luogoNas || <span className="text-gray-400 font-normal italic">—</span>}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 font-medium block">Provincia Nascita:</span>
+                    <span className="font-semibold text-gray-800">
+                      {provNas || <span className="text-gray-400 font-normal italic">—</span>}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Informazioni contatto */}
           <div>
@@ -25586,6 +25718,11 @@ const [provincia, setProvincia] = useState('');
 const [regione, setRegione] = useState('');
 const [paese, setPaese] = useState('');
 const [note, setNote] = useState('');
+// 🎓 Campi Anagrafici Discente & Attestati
+const [codiceFiscale, setCodiceFiscale] = useState('');
+const [dataNascita, setDataNascita] = useState('');
+const [luogoNascita, setLuogoNascita] = useState('');
+const [provinciaNascita, setProvinciaNascita] = useState('');
 // Aggiungi questo ref in cima al componente
 const extraFieldsRef = useRef(null);
 
@@ -25726,7 +25863,14 @@ const handleAdd = async () => {
     regione: regione.trim() || null,             // ← colonna dedicata
     paese: paese.trim() || null,                 // ← colonna dedicata
     note: note.trim() || null,
-    phones: phones.length > 0 ? phones : null,  // ← solo array telefoni
+    phones: phones.length > 0 ? phones : null,
+    custom_fields: JSON.stringify({
+      codiceFiscale: codiceFiscale.trim().toUpperCase(),
+      cf: codiceFiscale.trim().toUpperCase(),
+      dataNascita: dataNascita.trim(),
+      luogoNascita: luogoNascita.trim(),
+      provinciaNascita: provinciaNascita.trim().toUpperCase(),
+    }),
     status: 'active',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -25944,6 +26088,71 @@ return (
               <input type="email" value={email4} onChange={(e) => setEmail4(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition bg-white"
                 placeholder="email4@email.com" />
+            </div>
+
+            {/* 🎓 DATI ANAGRAFICI DISCENTE & ATTESTATI */}
+            <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-3">
+              <div className="flex items-center gap-2 text-emerald-900 font-bold text-sm">
+                <span>🪪 Dati Anagrafici Discente (Codice Fiscale & Nascita)</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Codice Fiscale Discente (CF)
+                </label>
+                <input
+                  type="text"
+                  value={codiceFiscale}
+                  onChange={(e) => setCodiceFiscale(e.target.value.toUpperCase())}
+                  maxLength={16}
+                  placeholder="Es. RSSMRA80A01H501Z"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 font-mono text-sm uppercase font-semibold bg-white"
+                />
+                <p className="text-[11px] text-emerald-700 mt-1 font-medium">
+                  📌 Indispensabile per lo smistamento automatico degli attestati PDF denominati <code className="font-bold font-mono">Codicefiscale.pdf</code>.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Data di Nascita
+                  </label>
+                  <input
+                    type="date"
+                    value={dataNascita}
+                    onChange={(e) => setDataNascita(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 text-sm bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Luogo di Nascita (Comune)
+                  </label>
+                  <input
+                    type="text"
+                    value={luogoNascita}
+                    onChange={(e) => setLuogoNascita(e.target.value)}
+                    placeholder="Es. Roma"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 text-sm bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Provincia Nascita
+                  </label>
+                  <input
+                    type="text"
+                    value={provinciaNascita}
+                    onChange={(e) => setProvinciaNascita(e.target.value.toUpperCase())}
+                    maxLength={2}
+                    placeholder="Es. RM"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 text-sm uppercase bg-white"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* NOME EDITORE */}
