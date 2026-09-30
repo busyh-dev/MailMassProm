@@ -169,18 +169,39 @@ const RecipientSelect = ({
       // Filtro per ETICHETTA / LISTA CONTATTO
       contactLabels.forEach(label => {
         const listIds = new Set((label.contact_ids || []).map(id => String(id).toLowerCase().trim()));
-        const count = activeContacts.filter(c => {
+        let matchedCount = activeContacts.filter(c => {
           const cId = String(c.id || '').toLowerCase().trim();
+          const altId = String(c.contact_id || '').toLowerCase().trim();
           const cEmail = String(c.email || '').toLowerCase().trim();
           if (cId && listIds.has(cId)) return true;
+          if (altId && listIds.has(altId)) return true;
           if (cEmail && listIds.has(cEmail)) return true;
           if (label.id && (String(c.contact_label_id) === String(label.id) || String(c.list_id) === String(label.id))) return true;
           return false;
         }).length;
 
+        if (matchedCount === 0 && label.nome) {
+          const cleanName = label.nome
+            .toLowerCase()
+            .replace(/^(dipendenti|lista|gruppo|contatti|clienti)\s+/gi, '')
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+          const keywords = cleanName.split(/\s+/).filter(k => k.length >= 2);
+          if (cleanName.startsWith('prom') && !keywords.includes('prom')) keywords.push('prom');
+          if (keywords.length > 0) {
+            matchedCount = activeContacts.filter(c => {
+              const rawStr = [
+                c.name, c.email, c.email_2,
+                ...(c.tags || []), ...(c.tag_labels || []),
+                c.settore, c.canale, c.ruolo, c.area, c.testata
+              ].filter(Boolean).join(' ').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+              return keywords.some(kw => rawStr.includes(kw));
+            }).length;
+          }
+        }
+
         options.push({
           value: `label:${label.id}`,
-          label: `📌 ${label.nome} (${count})`,
+          label: `📌 ${label.nome} (${matchedCount})`,
           color: label.color,
           isCustomTag: true,
           type: 'label',
@@ -319,17 +340,44 @@ const RecipientSelect = ({
         );
         if (targetLabel) {
           const listIds = new Set((targetLabel.contact_ids || []).map(id => String(id).toLowerCase().trim()));
+          const listMatched = [];
           activeContacts.forEach(c => {
             const cId = String(c.id || '').toLowerCase().trim();
+            const altId = String(c.contact_id || '').toLowerCase().trim();
             const cEmail = String(c.email || '').toLowerCase().trim();
             if (cId && listIds.has(cId)) {
-              matchedMap.set(c.id || c.email, c);
+              listMatched.push(c);
+            } else if (altId && listIds.has(altId)) {
+              listMatched.push(c);
             } else if (cEmail && listIds.has(cEmail)) {
-              matchedMap.set(c.id || c.email, c);
+              listMatched.push(c);
             } else if (targetLabel.id && (String(c.contact_label_id) === String(targetLabel.id) || String(c.list_id) === String(targetLabel.id))) {
-              matchedMap.set(c.id || c.email, c);
+              listMatched.push(c);
             }
           });
+
+          if (listMatched.length === 0 && targetLabel.nome) {
+            const cleanName = targetLabel.nome
+              .toLowerCase()
+              .replace(/^(dipendenti|lista|gruppo|contatti|clienti)\s+/gi, '')
+              .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            const keywords = cleanName.split(/\s+/).filter(k => k.length >= 2);
+            if (cleanName.startsWith('prom') && !keywords.includes('prom')) keywords.push('prom');
+            if (keywords.length > 0) {
+              activeContacts.forEach(c => {
+                const rawStr = [
+                  c.name, c.email, c.email_2,
+                  ...(c.tags || []), ...(c.tag_labels || []),
+                  c.settore, c.canale, c.ruolo, c.area, c.testata
+                ].filter(Boolean).join(' ').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                if (keywords.some(kw => rawStr.includes(kw))) {
+                  listMatched.push(c);
+                }
+              });
+            }
+          }
+
+          listMatched.forEach(c => matchedMap.set(c.id || c.email, c));
         } else {
           activeContacts.forEach(c => {
             if (String(c.contact_label_id) === String(labelId) || String(c.list_id) === String(labelId)) {
