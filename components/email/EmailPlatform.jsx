@@ -4349,12 +4349,15 @@ const confirmExit = () => {
               <MatchPreviewModal
                 isOpen={showMatchPreview}
                 onClose={() => setShowMatchPreview(false)}
-                contacts={contacts.filter(c => {
-                  if (!recipientList) return true;
-                  if (Array.isArray(recipientList) && recipientList.includes('all')) return true;
-                  if (Array.isArray(recipientList)) return recipientList.includes(c.email);
-                  return true;
-                })}
+                contacts={(() => {
+                  const activePool = contacts && contacts.length > 0 ? contacts : localContacts;
+                  if (!recipientList || (Array.isArray(recipientList) && recipientList.length === 0)) return activePool;
+                  if (Array.isArray(recipientList) && recipientList.includes('all')) return activePool;
+                  const targetEmails = resolveRecipientEmails(recipientList, activePool, tagLabels, contactLabels);
+                  if (!targetEmails || targetEmails.length === 0) return activePool;
+                  const eSet = new Set(targetEmails.map(e => String(e).toLowerCase().trim()));
+                  return activePool.filter(c => c.email && eSet.has(String(c.email).toLowerCase().trim()));
+                })()}
                 attachments={attachments}
                 matchMode={matchMode}
               />
@@ -25763,12 +25766,15 @@ onClick={() => {
           <MatchPreviewModal
             isOpen={showMatchPreview}
             onClose={() => setShowMatchPreview(false)}
-            contacts={localContacts.filter(c => {
-              if (!recipientList) return true;
-              if (Array.isArray(recipientList) && recipientList.includes('all')) return true;
-              if (Array.isArray(recipientList)) return recipientList.includes(c.email);
-              return true;
-            })}
+            contacts={(() => {
+              const activePool = localContacts && localContacts.length > 0 ? localContacts : contacts;
+              if (!recipientList || (Array.isArray(recipientList) && recipientList.length === 0)) return activePool;
+              if (Array.isArray(recipientList) && recipientList.includes('all')) return activePool;
+              const targetEmails = resolveRecipientEmails(recipientList, activePool, tagLabels, contactLabels);
+              if (!targetEmails || targetEmails.length === 0) return activePool;
+              const eSet = new Set(targetEmails.map(e => String(e).toLowerCase().trim()));
+              return activePool.filter(c => c.email && eSet.has(String(c.email).toLowerCase().trim()));
+            })()}
             attachments={attachments}
             matchMode={matchMode}
           />
