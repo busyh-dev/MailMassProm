@@ -9702,6 +9702,7 @@ const ViewContactModal = ({ contact, onClose, tags, tagLabels, sectors, channels
             const cf = contact.codiceFiscale || contact.codice_fiscale || customObj.codiceFiscale || customObj.cf;
             const dataNas = contact.dataNascita || contact.data_nascita || customObj.dataNascita;
             const luogoNas = contact.luogoNascita || contact.luogo_nascita || customObj.luogoNascita;
+            const provNas = contact.provinciaNascita || contact.provincia_nascita || customObj.provinciaNascita || customObj.provNas || contact.provincia || customObj.provincia;
             const sessoVal = contact.sesso || customObj.sesso;
             const capVal = contact.cap || customObj.cap;
 
