@@ -1425,10 +1425,45 @@ const fetchContacts = useCallback(async () => {
       page++;
     }
 
-    setContacts(allData.map(c => ({
-      ...c,
-      name: c.name?.replace(/\bnan\b/gi, '').trim() || c.name
-    })));
+    setContacts(allData.map(c => {
+      let customObj = c.customFields || c.custom_fields || {};
+      if (typeof customObj === 'string') {
+        try { customObj = JSON.parse(customObj); } catch {}
+      }
+      let cleanNote = typeof c.note === 'string' ? c.note : '';
+      let noteMeta = {};
+      if (cleanNote && cleanNote.indexOf('<!--ANAGRAFICA:') !== -1) {
+        try {
+          const metaMatch = cleanNote.match(/<!--ANAGRAFICA:([\s\S]*?)-->/);
+          if (metaMatch && metaMatch[1]) {
+            noteMeta = JSON.parse(metaMatch[1]);
+          }
+        } catch (e) {}
+      }
+      const cf = c.codiceFiscale || c.codice_fiscale || noteMeta.codiceFiscale || noteMeta.cf || customObj.codiceFiscale || customObj.cf || '';
+      const sesso = c.sesso || noteMeta.sesso || customObj.sesso || '';
+      const dataNascita = c.dataNascita || c.data_nascita || noteMeta.dataNascita || customObj.dataNascita || '';
+      const luogoNascita = c.luogoNascita || c.luogo_nascita || noteMeta.luogoNascita || customObj.luogoNascita || '';
+      const provinciaNascita = c.provinciaNascita || c.provincia_nascita || noteMeta.provinciaNascita || noteMeta.provNas || customObj.provinciaNascita || customObj.provNas || c.provincia || customObj.provincia || '';
+      const cap = c.cap || noteMeta.cap || customObj.cap || '';
+
+      const cleanedName = c.name?.replace(/\bnan\b/gi, '').trim() || c.name;
+
+      return {
+        ...c,
+        name: cleanedName,
+        codiceFiscale: cf,
+        codice_fiscale: cf,
+        sesso: sesso,
+        dataNascita: dataNascita,
+        data_nascita: dataNascita,
+        luogoNascita: luogoNascita,
+        luogo_nascita: luogoNascita,
+        provinciaNascita: provinciaNascita,
+        provincia_nascita: provinciaNascita,
+        cap: cap
+      };
+    }));
   } catch (error) {
     console.error('❌ Errore contatti:', error);
   } finally {
@@ -7667,7 +7702,29 @@ if (phonesToSave.length > 0) {
         .eq('id', savedContact.id)
         .single();
   
-      onSave(fullContact || savedContact);
+      const baseContact = fullContact || savedContact;
+      const cfVal = (editingContact.codiceFiscale || editingContact.codice_fiscale || '').trim().toUpperCase();
+      const sessoVal = editingContact.sesso || '';
+      const dataNasVal = (editingContact.dataNascita || editingContact.data_nascita || '').trim();
+      const luogoNasVal = (editingContact.luogoNascita || editingContact.luogo_nascita || '').trim();
+      const provNasVal = (editingContact.provinciaNascita || editingContact.provincia_nascita || '').trim().toUpperCase();
+      const capVal = (editingContact.cap || '').trim();
+
+      const normalizedSavedContact = {
+        ...baseContact,
+        codiceFiscale: cfVal,
+        codice_fiscale: cfVal,
+        sesso: sessoVal,
+        dataNascita: dataNasVal,
+        data_nascita: dataNasVal,
+        luogoNascita: luogoNasVal,
+        luogo_nascita: luogoNasVal,
+        provinciaNascita: provNasVal,
+        provincia_nascita: provNasVal,
+        cap: capVal
+      };
+
+      onSave(normalizedSavedContact);
   
       toast.success(editingContact.id ? "✅ Contatto aggiornato!" : "✅ Contatto creato!");
       setShowSuccess(true);
@@ -9693,18 +9750,27 @@ const ViewContactModal = ({ contact, onClose, tags, tagLabels, sectors, channels
         {/* BODY */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
 
-          {/* 🪪 DATI ANAGRAFICI DISCENTE & ATTESTATI */}
           {(() => {
             let customObj = contact.customFields || contact.custom_fields || {};
             if (typeof customObj === 'string') {
               try { customObj = JSON.parse(customObj); } catch {}
             }
-            const cf = contact.codiceFiscale || contact.codice_fiscale || customObj.codiceFiscale || customObj.cf;
-            const dataNas = contact.dataNascita || contact.data_nascita || customObj.dataNascita;
-            const luogoNas = contact.luogoNascita || contact.luogo_nascita || customObj.luogoNascita;
-            const provNas = contact.provinciaNascita || contact.provincia_nascita || customObj.provinciaNascita || customObj.provNas || contact.provincia || customObj.provincia;
-            const sessoVal = contact.sesso || customObj.sesso;
-            const capVal = contact.cap || customObj.cap;
+            let cleanNote = typeof contact.note === 'string' ? contact.note : '';
+            let noteMeta = {};
+            if (cleanNote && cleanNote.indexOf('<!--ANAGRAFICA:') !== -1) {
+              try {
+                const metaMatch = cleanNote.match(/<!--ANAGRAFICA:([\s\S]*?)-->/);
+                if (metaMatch && metaMatch[1]) {
+                  noteMeta = JSON.parse(metaMatch[1]);
+                }
+              } catch (e) {}
+            }
+            const cf = contact.codiceFiscale || contact.codice_fiscale || noteMeta.codiceFiscale || noteMeta.cf || customObj.codiceFiscale || customObj.cf;
+            const dataNas = contact.dataNascita || contact.data_nascita || noteMeta.dataNascita || customObj.dataNascita;
+            const luogoNas = contact.luogoNascita || contact.luogo_nascita || noteMeta.luogoNascita || customObj.luogoNascita;
+            const provNas = contact.provinciaNascita || contact.provincia_nascita || noteMeta.provinciaNascita || noteMeta.provNas || customObj.provinciaNascita || customObj.provNas || contact.provincia || customObj.provincia;
+            const sessoVal = contact.sesso || noteMeta.sesso || customObj.sesso;
+            const capVal = contact.cap || noteMeta.cap || customObj.cap;
 
             return (
               <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-4 space-y-2">
@@ -9835,16 +9901,21 @@ const ViewContactModal = ({ contact, onClose, tags, tagLabels, sectors, channels
           )}
 
           {/* Note */}
-          {contact.note && (
-            <div>
-              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
-                🛠️ Note
-              </h4>
-              <div className="bg-yellow-50 border border-yellow-100 rounded-xl p-4">
-                <p className="text-sm text-gray-700 whitespace-pre-wrap">{contact.note}</p>
+          {(() => {
+            const rawNote = typeof contact.note === 'string' ? contact.note : '';
+            const userNote = rawNote.replace(/<!--ANAGRAFICA:([\s\S]*?)-->/g, '').trim();
+            if (!userNote) return null;
+            return (
+              <div>
+                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                  🛠️ Note
+                </h4>
+                <div className="bg-yellow-50 border border-yellow-100 rounded-xl p-4">
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap">{userNote}</p>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
         </div>
 
