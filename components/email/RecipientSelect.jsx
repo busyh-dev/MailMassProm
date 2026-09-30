@@ -70,7 +70,17 @@ const RecipientSelect = ({
   // Stato per modalità filtro
   const [filterMode, setFilterMode] = useState('tag'); // 'tag' | 'label' | 'tag_label'
   
-  // ✅ NUOVO: stato per etichette contatto e sotto-etichette
+  // Ref per scroll automatico alla selezione
+  const containerRef = React.useRef(null);
+
+  // ✅ Auto-scroll quando viene selezionata una lista/destinatario
+  React.useEffect(() => {
+    if (value && value.length > 0 && containerRef.current) {
+      setTimeout(() => {
+        containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
+    }
+  }, [value]);
   const [contactLabels, setContactLabels] = useState([]);
   const [tagLabels, setTagLabels] = useState([]);
   const [loadingLabels, setLoadingLabels] = useState(false);
@@ -536,15 +546,15 @@ const RecipientSelect = ({
         </div>
       )}
 
-      {/* Conteggio destinatari ed Elenco Dettagliato (Nomi + Email) */}
+      {/* Conteggio destinatari ed Elenco Dettagliato (Nomi + Email) SUBITO VISIBILE INLINE */}
       {value.length > 0 && (
-        <div className="space-y-2">
+        <div ref={containerRef} className="space-y-2.5 mt-3 animate-fadeIn">
           <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs sm:text-sm font-medium px-3.5 py-2.5 rounded-xl border ${
-            recipientCount > 0 ? 'bg-green-50 border-green-200 text-green-800' : 'bg-gray-50 border-gray-200 text-gray-600'
+            recipientCount > 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-gray-50 border-gray-200 text-gray-600'
           }`}>
             <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-green-600 shrink-0" />
-              <span>
+              <Users className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="font-bold">
                 {value.includes('all') 
                   ? `${recipientCount} contatti attivi totali`
                   : `${recipientCount} destinatari unici dalle liste selezionate`
@@ -558,10 +568,38 @@ const RecipientSelect = ({
                 className="text-xs font-bold text-blue-600 hover:text-blue-800 underline flex items-center gap-1.5 transition shrink-0"
               >
                 <Eye className="w-3.5 h-3.5" />
-                Vedi Nomi & Email ({resolvedContactsList.length})
+                Espandi in Modale ({resolvedContactsList.length})
               </button>
             )}
           </div>
+
+          {/* ⚡ LISTA NOMI & EMAIL AUTOMATICAMENTE VISIBILE SUBITO INLINE */}
+          {resolvedContactsList.length > 0 && (
+            <div className="bg-slate-50 border border-slate-200 dark:bg-slate-800/60 dark:border-slate-700/60 rounded-xl p-3 space-y-2 shadow-xs">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 pb-2">
+                <span>📋 Destinatari Estratti Visibili Subito ({resolvedContactsList.length})</span>
+                <span className="text-[11px] text-blue-600 dark:text-blue-400 font-normal">Nomi & Email pronti</span>
+              </div>
+              <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1 divide-y divide-slate-100 dark:divide-slate-700/50">
+                {resolvedContactsList.map((c, idx) => {
+                  const displayName = c.full_name || c.name || c.azienda || (c.email ? c.email.split('@')[0] : 'Destinatario');
+                  return (
+                    <div key={c.id || idx} className="pt-1.5 flex items-center justify-between text-xs hover:bg-slate-100/70 dark:hover:bg-slate-700/50 p-1.5 rounded-lg transition-colors">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px] shrink-0">
+                          {displayName.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="font-bold text-slate-800 dark:text-slate-100 truncate">{displayName}</span>
+                      </div>
+                      <span className="font-mono text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-[11px] shrink-0 ml-2">
+                        {c.email || 'Nessuna email'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
