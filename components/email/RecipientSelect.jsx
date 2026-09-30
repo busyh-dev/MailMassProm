@@ -45,7 +45,11 @@ const parseContactIds = (raw) => {
   }
 
   return items
-    .map(item => String(item).replace(/['"{} \t\n\r]/g, '').trim())
+    .map(item => {
+      if (item === null || item === undefined) return '';
+      if (typeof item === 'object') return String(item.id || item.value || item.email || '').trim();
+      return String(item).replace(/['"{} \t\n\r]/g, '').trim();
+    })
     .filter(Boolean);
 };
 
@@ -127,10 +131,10 @@ const RecipientSelect = ({
 
   const activeContacts = useMemo(() => 
     contacts.filter(c => {
-      if (!c) return false;
+      if (!c || !c.email) return false;
       if (!c.status) return true;
-      const s = String(c.status).toLowerCase();
-      return s === 'active' || s === 'attivo' || s === 'approved';
+      const s = String(c.status).trim().toLowerCase();
+      return s !== 'inactive' && s !== 'disiscritto' && s !== 'bounced' && s !== 'blocked' && s !== 'unsubscribed' && s !== 'disabled';
     }), 
     [contacts]
   );
@@ -167,7 +171,9 @@ const RecipientSelect = ({
         const listIds = new Set((label.contact_ids || []).map(id => String(id).toLowerCase().trim()));
         const count = activeContacts.filter(c => {
           const cId = String(c.id || '').toLowerCase().trim();
+          const cEmail = String(c.email || '').toLowerCase().trim();
           if (cId && listIds.has(cId)) return true;
+          if (cEmail && listIds.has(cEmail)) return true;
           if (label.id && (String(c.contact_label_id) === String(label.id) || String(c.list_id) === String(label.id))) return true;
           return false;
         }).length;
@@ -305,15 +311,22 @@ const RecipientSelect = ({
             matchedMap.set(c.id || c.email, c);
           }
         });
-      } else if (val.startsWith('label:')) {
-        const labelId = val.replace('label:', '');
-        const targetLabel = contactLabels.find(l => String(l.id) === String(labelId));
+      } else if (val.startsWith('label:') || val.startsWith('list:')) {
+        const labelId = val.replace(/^(label|list):/, '');
+        const targetLabel = contactLabels.find(l => 
+          String(l.id) === String(labelId) || 
+          String(l.nome || l.name || '').toLowerCase() === labelId.toLowerCase()
+        );
         if (targetLabel) {
           const listIds = new Set((targetLabel.contact_ids || []).map(id => String(id).toLowerCase().trim()));
           activeContacts.forEach(c => {
             const cId = String(c.id || '').toLowerCase().trim();
-            if (cId && listIds.has(cId)) matchedMap.set(c.id || c.email, c);
-            else if (targetLabel.id && (String(c.contact_label_id) === String(targetLabel.id) || String(c.list_id) === String(targetLabel.id))) {
+            const cEmail = String(c.email || '').toLowerCase().trim();
+            if (cId && listIds.has(cId)) {
+              matchedMap.set(c.id || c.email, c);
+            } else if (cEmail && listIds.has(cEmail)) {
+              matchedMap.set(c.id || c.email, c);
+            } else if (targetLabel.id && (String(c.contact_label_id) === String(targetLabel.id) || String(c.list_id) === String(targetLabel.id))) {
               matchedMap.set(c.id || c.email, c);
             }
           });

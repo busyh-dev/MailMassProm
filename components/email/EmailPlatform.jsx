@@ -1702,10 +1702,11 @@ const resolveRecipientEmails = (recipientList, contacts = [], tagLabels = [], sa
         String(l.id) === String(target) || 
         String(l.nome || l.name || l.label || '').toLowerCase() === target.toLowerCase()
       );
-      const listIds = new Set(parseContactIds(listObj?.contact_ids));
+      const listIds = new Set(parseContactIds(listObj?.contact_ids).map(id => String(id).toLowerCase().trim()));
 
       activeContacts.forEach(c => {
-        const cIdStr = String(c.id);
+        const cIdStr = String(c.id || '').toLowerCase().trim();
+        const cEmailStr = String(c.email || '').toLowerCase().trim();
         const cLabelIdStr = String(c.contact_label_id || '');
         const cListIdStr = String(c.list_id || '');
         const cLabels = Array.isArray(c.contact_labels) 
@@ -1715,14 +1716,15 @@ const resolveRecipientEmails = (recipientList, contacts = [], tagLabels = [], sa
             : [];
 
         if (
-          listIds.has(cIdStr) || 
+          (cIdStr && listIds.has(cIdStr)) || 
+          (cEmailStr && listIds.has(cEmailStr)) ||
           cLabelIdStr === String(target) || 
           cListIdStr === String(target) ||
           (listObj?.id && (cLabelIdStr === String(listObj.id) || cListIdStr === String(listObj.id))) ||
           cLabels.map(l => String(l).trim().toLowerCase()).includes(target.toLowerCase()) ||
           (listObj?.nome && cLabels.map(l => String(l).trim().toLowerCase()).includes(String(listObj.nome).toLowerCase()))
         ) {
-          emailSet.add(c.email.trim());
+          if (c.email) emailSet.add(c.email.trim());
         }
       });
     } else if (prefix === 'tag_label') {
