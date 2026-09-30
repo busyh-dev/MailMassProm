@@ -32,6 +32,7 @@ import { validateCodiceFiscale, parseCodiceFiscale, verifyCodiceFiscaleMatch } f
 import ImportManagementModal from '../contacts/ImportManagementModal';
 import { useEmailAccounts } from '../../hooks/useEmailAccounts';
 import RecipientSelect from './RecipientSelect';
+import { DISPLAY_VERSION } from '../../lib/versionInfo';
 import AddTagModal from "../modals/AddTagModal";
 import { useUserSettings } from '../../hooks/useUserSettings';
 import { useTags } from "../../hooks/useTags";
@@ -29974,7 +29975,7 @@ if (loadingProfile && !user && !authUser) {
                     MailMassProm
                   </h1>
                   <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/50 hidden xs:inline-block shadow-2xs">
-                    PRO
+                    PRO {DISPLAY_VERSION}
                   </span>
                 </div>
               </div>
@@ -31448,8 +31449,8 @@ if (loadingProfile && !user && !authUser) {
 
           {/* Copyright */}
           <div className="text-xs text-slate-400 dark:text-slate-500 text-center md:text-right font-medium">
-            ┬® {new Date().getFullYear()} Promotergroup Spa<br />
-            MailMassProm v2.5 · Tutti i diritti riservati
+            © {new Date().getFullYear()} Promotergroup Spa<br />
+            MailMassProm {DISPLAY_VERSION} · Tutti i diritti riservati
           </div>
 
         </div>

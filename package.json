@@ -1,10 +1,11 @@
 {
   "name": "mailmassprom",
-  "version": "1.6.6",
+  "version": "1.6.7",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build",
+    "bump": "node scripts/bump-version.js",
+    "build": "node scripts/bump-version.js && next build",
     "start": "next start",
     "lint": "eslint"
   },
