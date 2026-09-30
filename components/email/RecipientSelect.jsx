@@ -53,6 +53,41 @@ const parseContactIds = (raw) => {
     .filter(Boolean);
 };
 
+const getContactTagStrings = (tags) => {
+  if (!tags) return [];
+  let list = [];
+  if (Array.isArray(tags)) {
+    list = tags;
+  } else if (typeof tags === 'string') {
+    let str = tags.trim();
+    if (str.startsWith('{') && str.endsWith('}')) {
+      str = str.slice(1, -1);
+    } else if (str.startsWith('[') && str.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(str);
+        if (Array.isArray(parsed)) list = parsed;
+        else str = str.slice(1, -1);
+      } catch {
+        str = str.slice(1, -1);
+      }
+    }
+    if (list.length === 0 && str) {
+      list = str.split(',');
+    }
+  } else if (typeof tags === 'object' && tags !== null) {
+    list = [tags];
+  }
+  return list.flatMap(item => {
+    if (!item) return [];
+    if (typeof item === 'object') {
+      return [item.id, item.value, item.label, item.name, item.tag]
+        .filter(Boolean)
+        .map(v => String(v).trim().toLowerCase());
+    }
+    return [String(item).replace(/['"{} \t\n\r]/g, '').trim().toLowerCase()].filter(Boolean);
+  });
+};
+
 const RecipientSelect = ({
   value,
   onChange,
@@ -163,11 +198,19 @@ const RecipientSelect = ({
       // Filtro per TAG
       if (tags && tags.length > 0) {
         tags.forEach(tag => {
-          const count = activeContacts.filter(
-            c => c.tags && (c.tags.includes(tag.value) || c.tags.includes(tag.label))
-          ).length;
+          const targetValues = [
+            String(tag.id || '').toLowerCase().trim(),
+            String(tag.value || '').toLowerCase().trim(),
+            String(tag.label || '').toLowerCase().trim()
+          ].filter(Boolean);
+
+          const count = activeContacts.filter(c => {
+            const cTagStrings = getContactTagStrings(c.tags);
+            return targetValues.some(tv => cTagStrings.includes(tv));
+          }).length;
+
           options.push({
-            value: `tag:${tag.value}`,
+            value: `tag:${tag.value || tag.label || tag.id}`,
             label: `🏷️ ${tag.label} (${count})`,
             color: tag.color,
             isCustomTag: true,

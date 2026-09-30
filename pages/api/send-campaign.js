@@ -168,8 +168,30 @@ export default async function handler(req, res) {
 
         // ✅ Smistamento Allegati Dinamici (Attestati Nominativi)
         let recipientAttachments = emailAttachments;
-        if (dynamicAttachments && emailAttachments.length > 0) {
-          const contactObj = contacts?.find(c => (c.email || '').toLowerCase() === recipient.toLowerCase()) || { email: recipient };
+        const hasCfNamedAttachments = emailAttachments.some(att => {
+          const fname = (att.filename || att.name || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+          return /[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]/i.test(fname) || fname.length >= 11;
+        });
+
+        const shouldMatchDynamically = dynamicAttachments || (emailAttachments.length > 1 && hasCfNamedAttachments);
+
+        if (shouldMatchDynamically && emailAttachments.length > 0) {
+          let contactObj = contacts?.find(c => (c.email || '').toLowerCase() === recipient.toLowerCase());
+          if (!contactObj || (!contactObj.codiceFiscale && !contactObj.codice_fiscale)) {
+            try {
+              const { data: dbContact } = await supabase
+                .from('contacts')
+                .select('*')
+                .eq('user_id', user_id)
+                .ilike('email', recipient)
+                .maybeSingle();
+              if (dbContact) {
+                contactObj = { ...(contactObj || {}), ...dbContact };
+              }
+            } catch (_) {}
+          }
+          if (!contactObj) contactObj = { email: recipient };
+
           recipientAttachments = matchAttachmentsForContact(contactObj, emailAttachments, { matchMode: matchMode || 'auto' });
           console.log(`📎 [Dynamic Match] per ${recipient}: ${recipientAttachments.length} allegati trovati (${recipientAttachments.map(a => a.filename).join(', ') || 'Nessuno'})`);
         }

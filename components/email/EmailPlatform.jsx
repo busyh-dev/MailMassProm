@@ -1688,13 +1688,26 @@ const resolveRecipientEmails = (recipientList, contacts = [], tagLabels = [], sa
     }
 
     if (prefix === 'tag') {
+      const targetLower = target.toLowerCase();
       activeContacts.forEach(c => {
-        const cTags = Array.isArray(c.tags) 
-          ? c.tags 
-          : typeof c.tags === 'string' 
-            ? c.tags.split(',') 
-            : [];
-        if (cTags.map(t => String(t).trim().toLowerCase()).includes(target.toLowerCase())) {
+        let cTagList = [];
+        if (Array.isArray(c.tags)) cTagList = c.tags;
+        else if (typeof c.tags === 'string') {
+          let s = c.tags.trim();
+          if (s.startsWith('{') && s.endsWith('}')) s = s.slice(1, -1);
+          if (s.startsWith('[') && s.endsWith(']')) {
+            try { const p = JSON.parse(s); if (Array.isArray(p)) cTagList = p; else s = s.slice(1, -1); } catch { s = s.slice(1, -1); }
+          }
+          if (cTagList.length === 0 && s) cTagList = s.split(',');
+        } else if (typeof c.tags === 'object' && c.tags !== null) {
+          cTagList = [c.tags];
+        }
+        const cTagStrings = cTagList.flatMap(t => {
+          if (!t) return [];
+          if (typeof t === 'object') return [t.id, t.value, t.label, t.name, t.tag].filter(Boolean).map(v => String(v).trim().toLowerCase());
+          return [String(t).replace(/['"{} \t\n\r]/g, '').trim().toLowerCase()].filter(Boolean);
+        });
+        if (cTagStrings.includes(targetLower) && c.email) {
           emailSet.add(c.email.trim());
         }
       });
@@ -1755,7 +1768,23 @@ const resolveRecipientEmails = (recipientList, contacts = [], tagLabels = [], sa
         const cIdStr = String(c.id);
         const cLabelIdStr = String(c.contact_label_id || '');
         const cListIdStr = String(c.list_id || '');
-        const cTags = Array.isArray(c.tags) ? c.tags : typeof c.tags === 'string' ? c.tags.split(',') : [];
+        let cTagList = [];
+        if (Array.isArray(c.tags)) cTagList = c.tags;
+        else if (typeof c.tags === 'string') {
+          let s = c.tags.trim();
+          if (s.startsWith('{') && s.endsWith('}')) s = s.slice(1, -1);
+          if (s.startsWith('[') && s.endsWith(']')) {
+            try { const p = JSON.parse(s); if (Array.isArray(p)) cTagList = p; else s = s.slice(1, -1); } catch { s = s.slice(1, -1); }
+          }
+          if (cTagList.length === 0 && s) cTagList = s.split(',');
+        } else if (typeof c.tags === 'object' && c.tags !== null) {
+          cTagList = [c.tags];
+        }
+        const cTagStrings = cTagList.flatMap(t => {
+          if (!t) return [];
+          if (typeof t === 'object') return [t.id, t.value, t.label, t.name, t.tag].filter(Boolean).map(v => String(v).trim().toLowerCase());
+          return [String(t).replace(/['"{} \t\n\r]/g, '').trim().toLowerCase()].filter(Boolean);
+        });
         const cLabels = Array.isArray(c.contact_labels) ? c.contact_labels : typeof c.contact_labels === 'string' ? c.contact_labels.split(',') : [];
         const cTagLabels = Array.isArray(c.tag_labels) ? c.tag_labels : typeof c.tag_labels === 'string' ? c.tag_labels.split(',') : [];
 
@@ -1764,7 +1793,7 @@ const resolveRecipientEmails = (recipientList, contacts = [], tagLabels = [], sa
           cLabelIdStr === String(valStr) ||
           cListIdStr === String(valStr) ||
           (listObj?.id && (cLabelIdStr === String(listObj.id) || cListIdStr === String(listObj.id))) ||
-          cTags.map(t => String(t).trim().toLowerCase()).includes(valStr.toLowerCase()) ||
+          cTagStrings.includes(valStr.toLowerCase()) ||
           cLabels.map(l => String(l).trim().toLowerCase()).includes(valStr.toLowerCase()) ||
           cTagLabels.map(tl => String(tl).trim().toLowerCase()).includes(valStr.toLowerCase())
         ) {

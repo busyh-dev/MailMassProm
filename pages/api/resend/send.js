@@ -124,7 +124,13 @@ export default async function handler(req, res) {
 
           // 3. Smistamento Allegati Dinamici (Attestati Nominativi)
           let recipientAttachments = attachments || [];
-          if (dynamicAttachments && attachments && attachments.length > 0) {
+          const hasCfNamedAttachments = (attachments || []).some(att => {
+            const fname = (att.filename || att.name || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+            return /[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]/i.test(fname) || fname.length >= 11;
+          });
+          const shouldMatchDynamically = dynamicAttachments || ((attachments || []).length > 1 && hasCfNamedAttachments);
+
+          if (shouldMatchDynamically && attachments && attachments.length > 0) {
             recipientAttachments = matchAttachmentsForContact(contact, attachments, { matchMode: matchMode || 'auto' });
           }
 
