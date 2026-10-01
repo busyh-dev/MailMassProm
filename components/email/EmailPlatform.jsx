@@ -7456,7 +7456,9 @@ const [recipients, setRecipients] = useState([]);
   setShowCampaignModal={setShowCampaignModal}
   campaignMode={campaignMode}
   setCampaignMode={setCampaignMode}
-  loadNotifications={loadNotifications}  // ← AGGIUNGI
+  loadNotifications={loadNotifications}
+  setShowSendingProgress={setShowSendingProgress}
+  setSendingProgress={setSendingProgress}
   contacts={contacts}
   onSaveDraft={() => {}}
   setActiveTab={setActiveTab}
@@ -13187,11 +13189,13 @@ const CampaignModal = ({
   setCampaignMode,
   contacts,
   onSaveDraft,
-  editingCampaign, // ✅ Nuova prop
-  skipModeSelection, // ✅ Ricevi la prop
-  onCloseBuilder, // ✅ Assicurati che sia qui
+  editingCampaign,
+  skipModeSelection,
+  onCloseBuilder,
   setActiveTab,
-  loadNotifications  // ← AGGIUNGI
+  loadNotifications,
+  setShowSendingProgress,
+  setSendingProgress,
 }) => {
 
   console.log('🔍 CampaignModal render:', {
@@ -16873,326 +16877,338 @@ const resolveRecipientEmailsModal = (recipientList, contacts, tagLabels = [], sa
   const confirmSend = async () => {
     console.log('═══════════════════════════════════════');
     console.log('🔍 DEBUG confirmSend:');
-    console.log('  selectedAccount (stringa):', selectedAccount);
-    
-    // ✅ Trova l'oggetto account completo
-    // const accountObj = accounts.find(acc => acc.email === selectedAccount);
-    const accountObj = allAccounts.find(acc => acc.email === selectedAccount);
-    
-    console.log('  accountObj trovato:', accountObj);
-    console.log('  accountObj.email:', accountObj?.email);
-    console.log('  accountObj.smtp:', accountObj?.smtp);
-    console.log('  subject:', subject);
-    console.log('  emailContent:', emailContent?.substring(0, 100));
-    console.log('═══════════════════════════════════════');
-  
+    console.log('  selectedAccount:', selectedAccount);
+
+    let accountObj = (allAccounts || []).find(acc => acc.email === selectedAccount) || (accounts || []).find(acc => acc.email === selectedAccount);
+    if (!accountObj && selectedAccount) {
+      const emailToFind = typeof selectedAccount === 'string' ? selectedAccount.trim() : selectedAccount.email;
+      const { data } = await supabase
+        .from('email_accounts')
+        .select('*')
+        .eq('email', emailToFind)
+        .maybeSingle();
+      accountObj = data;
+    }
+    if (!accountObj) {
+      const { data } = await supabase
+        .from('email_accounts')
+        .select('*')
+        .order('is_default', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      accountObj = data;
+    }
+
     setShowConfirmSend(false);
     setIsSending(true);
     setProgress(0);
     setSentCount(0);
     setFailedCount(0);
-  
+
     try {
-      // ✅ Usa accountObj invece di selectedAccount
       if (!accountObj) {
-        toast.error("⚠️ Account non trovato!");
+        toast.error("⚠️ Nessun account email trovato per l'invio!");
         setIsSending(false);
         return;
       }
-  
-      console.log('📨 Account completo:', accountObj);
-   // ✅ CHECK DUPLICATO - DENTRO il try
-   const isDuplicate = await checkDuplicateCampaign(subject, emailContent, recipientList);
-     
-    if (isDuplicate) {
-      setIsSending(false);
-      toast((t) => (
-        <div className="p-3">
-          <p className="font-medium text-gray-800 mb-1">⚠️ Campagna già esistente</p>
-          <p className="text-sm text-gray-500 mb-3">
-            Esiste già una campagna con lo stesso oggetto e contenuto. Vuoi inviarla comunque?
-          </p>
-          <div className="flex gap-2 justify-end">
-            <button
-              onClick={() => toast.dismiss(t.id)}
-              className="px-3 py-1 rounded bg-gray-200 text-gray-700 text-sm"
-            >
-              Annulla
-            </button>
-            <button
-              onClick={async () => {
-                toast.dismiss(t.id);
-                setIsSending(true);
-                await proceedWithSend(accountObj);
-              }}
-              className="px-3 py-1 rounded bg-blue-600 text-white text-sm"
-            >
-              Invia comunque
-            </button>
-          </div>
-        </div>
-      ), { duration: 8000 });
-      return;
-    }
 
-    await proceedWithSend(accountObj);
+      console.log('📨 Account completo trovato:', accountObj);
 
-  } catch (error) {
-    console.error('❌ Errore:', error);
-    toast.error(`❌ ${error.message}`);
-    setIsSending(false);
-  }
-};
-
-// ✅ LOGICA DI INVIO ESTRATTA IN FUNZIONE SEPARATA
-const proceedWithSend = async (accountObj) => {
-  try {
-    const recipients = resolveRecipientEmails(recipientList, localContacts, tagLabels, contactLabels);
-
-    if (recipients.length === 0) {
-      toast.error("⚠️ Nessun destinatario trovato!");
-      setIsSending(false);
-      return;
-    }
-
-    setTotalRecipients(recipients.length);
-
-    const attachmentsData = await Promise.all(
-      attachments.map(async (a) => ({
-        filename: a.file.name,
-        content: await fileToBase64(a.file),
-      }))
-    );
-
-    const campaignData = {
-      campaignName,
-      subject,
-      emailContent,
-      recipientList,
-      recipients,
-      cc,
-      bcc,
-      senderEmail: accountObj.email,
-      attachments: attachmentsData.map(a => ({
-        filename: a.filename,
-        content: a.content,
-      })),
-      totalAttachmentSize: attachments.reduce((sum, a) => sum + (a.file?.size || a.size || 0), 0),
-      builderBlocks: canvasBlocks,
-      isBuilderTemplate: isBuilderTemplate,
-      trackingEnabled: true,
-      openTracking: true,
-      clickTracking: true,
-      status: "sending",
-    };
-
-    const saveResult = await saveCampaign(campaignData, false);
-    if (!saveResult.success) throw new Error('Impossibile salvare la campagna');
-
-    const campaignId = saveResult.data.id;
-    let successCount = 0;
-    let failedRecipients = [];
-
-    // ✨MTP vs RESEND
-    if (accountObj.provider === "resend") {
-      const resendApiKey = accountObj.api_key;
-      if (!resendApiKey) throw new Error("API key Resend mancante");
-      
-
-      for (let i = 0; i < recipients.length; i++) {
-        // Trova il contatto con ID corrispondente
-        const contactObj = localContacts.find(c => c.email === recipients[i]);
-      
-        const payload = {
-          apiKey: resendApiKey,
-          from: accountObj.email,
-          to: [recipients[i]],
-          subject,
-          html: emailContent,
-          cc: cc ? cc.split(",").map((e) => e.trim()).filter(Boolean) : [],
-          bcc: bcc ? bcc.split(",").map((e) => e.trim()).filter(Boolean) : [],
-          attachments: attachmentsData,
-          campaign_id: campaignId,
-          // ✅ Passa il contatto per generare token disiscrizione univoco
-          contacts: contactObj ? [{ id: contactObj.id, email: contactObj.email }] : undefined,
-        };
-
-        try {
-          const response = await fetch("/api/resend/send", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-
-          if (response.ok) { successCount++; setSentCount(prev => prev + 1); }
-          else { setFailedCount(prev => prev + 1); failedRecipients.push(recipients[i]); }
-        } catch (error) {
-          setFailedCount(prev => prev + 1);
-          failedRecipients.push(recipients[i]);
-        }
-
-        setProgress(Math.round(((i + 1) / recipients.length) * 100));
-      }
-
-    } else {
-      const payload = {
-        user_id: user.id,
-        from: accountObj.email,
-        to: recipients,
-        cc: cc ? cc.split(",").map((e) => e.trim()).filter(Boolean) : [],
-        bcc: bcc ? bcc.split(",").map((e) => e.trim()).filter(Boolean) : [],
-        subject,
-        // html: emailContent,
-        html: trackedContent, // ✅ usa trackedContent invece di emailContent
-        attachments: attachmentsData,
-        smtp: accountObj.smtp,
-        campaign_id: campaignToSend.id, // ✅ AGGIUNGI
-      };
-
-      const response = await fetch("/api/resend/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const result = await response.json();
-      if (!result.success) throw new Error(result.message || "Errore durante l'invio");
-
-      successCount = result.sent;
-      failedRecipients = result.errors?.map(e => e.email) || [];
-      setSentCount(result.sent);
-      setFailedCount(result.failed || 0);
-      setProgress(100);
-    }
-
-    // ✅ Aggiorna campagna
-    await updateCampaignAfterSend(campaignId, {
-      sentCount: successCount,
-      failedCount: failedRecipients.length,
-      totalRecipients: recipients.length,
-      status: "sent",
-    });
-
-    // ✅ Salva log
-    const logsPayload = recipients.map(email => ({
-      campaign_id: campaignId,
-      user_id: user.id,
-      recipient_email: email,
-      sender_email: accountObj.email || accountObj.name || accountObj.label || 'Comunicazione Interna',
-      status: failedRecipients.includes(email) ? 'failed' : 'sent',
-      sent_at: new Date().toISOString(),
-    }));
-    await supabase.from('campaign_logs').insert(logsPayload);
-
-    const recipientsPayload = recipients.map(email => {
-      const contact = localContacts.find(c => c.email === email);
-      return {
-        campaign_id: campaignId,
-        contact_id: contact?.id || null,
-        email,
-        name: contact?.name || null,
-        status: failedRecipients.includes(email) ? 'failed' : 'sent',
-        sent_at: new Date().toISOString(),
-        provider: accountObj.provider || 'smtp',
-      };
-    });
-    await supabase.from('campaign_recipients').insert(recipientsPayload);
-// ✅ Notifica email se abilitata
-try {
-  const { data: userSettings } = await supabase
-    .from('user_settings')
-    .select('notify_new_campaigns, email')
-    .eq('user_id', user.id)
-    .single();
-
-  if (userSettings?.notify_new_campaigns) {
-    await fetch('/api/notifications/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        apiKey: accountObj.api_key,
-        to: userSettings.email,
-        subject: `✅ Campagna "${subject}" inviata con successo`,
-        html: `
-          <div style="font-family:Arial;max-width:600px;margin:auto;padding:20px;">
-            <h2 style="color:#16a34a;">✅ Campagna Inviata</h2>
-            <p>La tua campagna <strong>${subject}</strong> è stata inviata.</p>
-            <div style="background:#f0fdf4;border-radius:8px;padding:16px;margin:20px 0;">
-              <p>🚀 <strong>Inviata a:</strong> ${successCount} destinatari</p>
-              ${failedRecipients.length > 0 ? `<p>❌ <strong>Fallite:</strong> ${failedRecipients.length}</p>` : ''}
-              <p>📅 <strong>Data:</strong> ${new Date().toLocaleString('it-IT')}</p>
+      const isDuplicate = await checkDuplicateCampaign(subject, emailContent, recipientList);
+      if (isDuplicate) {
+        setIsSending(false);
+        toast((t) => (
+          <div className="p-3">
+            <p className="font-medium text-gray-800 mb-1">⚠️ Campagna già esistente</p>
+            <p className="text-sm text-gray-500 mb-3">
+              Esiste già una campagna con lo stesso oggetto e contenuto. Vuoi inviarla comunque?
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => toast.dismiss(t.id)}
+                className="px-3 py-1 rounded bg-gray-200 text-gray-700 text-sm"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={async () => {
+                  toast.dismiss(t.id);
+                  setIsSending(true);
+                  await proceedWithSend(accountObj);
+                }}
+                className="px-3 py-1 rounded bg-blue-600 text-white text-sm"
+              >
+                Invia comunque
+              </button>
             </div>
           </div>
-        `,
-      }),
-    });
-  }
-} catch (notifyError) {
-  console.warn('⚠️ Notifica email fallita:', notifyError.message);
-}
+        ), { duration: 8000 });
+        return;
+      }
 
-try {
-  const { data: userSettings } = await supabase
-    .from('user_settings')
-    .select('notify_push_new_tasks')
-    .eq('user_id', user.id)
-    .single();
+      await proceedWithSend(accountObj);
 
-  if (userSettings?.notify_push_new_tasks) {
-    await fetch('/api/push/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: user.id,
-        title: '✅ Campagna Inviata',
-        body: `"${subject}" inviata a ${successCount} destinatari`,
-        icon: '/icon.png',
-      }),
-    });
-  }
-} catch (pushError) {
-  console.warn('⚠️ Push notification fallita:', pushError.message);
-}
-
-// ✅ Salva notifica nel DB  ← AGGIUNGI QUI
-try {
-  await supabase.from('notifications').insert({
-    user_id: user.id,
-    title: `✅ Campagna "${subject}" inviata`,
-    description: `Inviata a ${successCount} destinatari${failedRecipients.length > 0 ? `, ${failedRecipients.length} fallite` : ''}`,
-    type: failedRecipients.length > 0 ? 'warning' : 'success',
-    read: false,
-  });
-  loadNotifications();
-} catch (notifDbError) {
-  console.warn('⚠️ Salvataggio notifica DB fallito:', notifDbError.message);
-}
-
-
-    toast.dismiss();
-
-    if (failedRecipients.length === 0) {
-      toast.success(`✅ Campagna inviata a ${successCount} destinatari!`);
-    } else {
-      toast.success(`⚠️ Completata: ${successCount} inviate, ${failedRecipients.length} fallite`);
+    } catch (error) {
+      console.error('❌ Errore:', error);
+      toast.error(`❌ ${error.message}`);
+      setIsSending(false);
     }
+  };
 
-    await loadCampaigns();
+  // ✅ LOGICA DI INVIO COMPLETA E ALLINEATA AL RE-INVIO
+  const proceedWithSend = async (accountObj) => {
+    try {
+      const recipients = resolveRecipientEmails(recipientList, (localContacts && localContacts.length > 0) ? localContacts : (contacts || []), tagLabels, contactLabels);
 
-    setTimeout(() => {
+      if (!recipients || recipients.length === 0) {
+        toast.error("⚠️ Nessun destinatario valido trovato per questa campagna!");
+        setIsSending(false);
+        return;
+      }
+
+      setTotalRecipients(recipients.length);
+
+      // 1) Prepara allegati con contenuto base64
+      let attachmentsData = [];
+      if (attachments && attachments.length > 0) {
+        attachmentsData = await Promise.all(
+          attachments.map(async (a) => {
+            if (a.file) {
+              return {
+                filename: a.file.name,
+                content: await fileToBase64(a.file),
+                size: a.file.size,
+                type: a.file.type,
+              };
+            } else if (a.content) {
+              return {
+                filename: a.filename || a.name || 'allegato',
+                content: a.content,
+                size: a.size || 0,
+                type: a.type || 'application/octet-stream',
+              };
+            } else {
+              return {
+                filename: a.filename || a.name || 'allegato',
+                content: '',
+                size: a.size || 0,
+                type: a.type || 'application/octet-stream',
+              };
+            }
+          })
+        );
+      }
+
+      const validAttachments = (attachmentsData || []).filter(a =>
+        a && ((a.content && typeof a.content === 'string' && a.content.length > 0) || a.path || a.url)
+      );
+
+      const htmlContent = emailContent || emailHTML || "<p></p>";
+      const emailSubject = subject || campaignName || "(Nessun Oggetto)";
+      const emailCc = cc ? (Array.isArray(cc) ? cc : cc.split(',').map(e => e.trim()).filter(Boolean)) : [];
+      const emailBcc = bcc ? (Array.isArray(bcc) ? bcc : bcc.split(',').map(e => e.trim()).filter(Boolean)) : [];
+
+      // 2) Salva campagna nel DB
+      const campaignData = {
+        campaignName: campaignName || emailSubject,
+        subject: emailSubject,
+        emailContent: htmlContent,
+        recipientList,
+        recipients,
+        cc: Array.isArray(emailCc) ? emailCc.join(',') : emailCc,
+        bcc: Array.isArray(emailBcc) ? emailBcc.join(',') : emailBcc,
+        senderEmail: accountObj.email,
+        attachments: validAttachments.map(a => ({
+          filename: a.filename,
+          content: a.content,
+        })),
+        totalAttachmentSize: (attachments || []).reduce((sum, a) => sum + (a.file?.size || a.size || 0), 0),
+        builderBlocks: canvasBlocks,
+        isBuilderTemplate: isBuilderTemplate,
+        isDynamicAttachments: isDynamicAttachments || false,
+        matchMode: matchMode || 'auto',
+        trackingEnabled: true,
+        openTracking: true,
+        clickTracking: true,
+        status: "sending",
+      };
+
+      const saveResult = await saveCampaign(campaignData, false);
+      if (!saveResult.success) throw new Error(saveResult.error || 'Impossibile salvare la campagna');
+
+      const campaignId = saveResult.data?.id;
+
+      // 3) Prepara contatti per tokens e matching attestati/CF
+      const allContactList = (localContacts && localContacts.length > 0) ? localContacts : (contacts || []);
+      const contactsForSend = (allContactList || [])
+        .filter(c => recipients.includes(c.email))
+        .map(c => ({
+          id: c.id,
+          email: c.email,
+          name: c.name || c.nominativo,
+          firstName: c.firstName || c.first_name,
+          lastName: c.lastName || c.last_name,
+          codiceFiscale: c.codiceFiscale || c.codice_fiscale || c.cf || c.taxCode,
+          customFields: c.customFields || c.custom_fields
+        }));
+
+      let successCount = 0;
+      let failedRecipients = [];
+      const currentUserId = user?.id || session?.user?.id;
+
+      // 4) Invio tramite SMTP/Brevo o Resend
+      if (accountObj.provider === "brevo" || (accountObj.smtp && accountObj.provider !== "resend")) {
+        console.log('🚀 Invio Nuova Campagna via SMTP a:', recipients.length, 'destinatari');
+        const payload = {
+          user_id: currentUserId,
+          from: accountObj.email,
+          to: recipients,
+          cc: emailCc,
+          bcc: emailBcc,
+          subject: emailSubject,
+          html: htmlContent,
+          attachments: validAttachments,
+          smtp: accountObj.smtp,
+          campaign_id: campaignId,
+          contacts: contactsForSend,
+          dynamicAttachments: isDynamicAttachments || false,
+          matchMode: matchMode || 'auto',
+        };
+
+        const response = await fetch("/api/send-campaign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const result = await response.json();
+        if (!result.success) throw new Error(result.message || "Errore durante l'invio SMTP");
+
+        successCount = result.sent || recipients.length;
+        failedRecipients = result.errors?.map(e => e.email) || [];
+      } else if (accountObj.provider === "resend") {
+        console.log('🚀 Invio Nuova Campagna via Resend a:', recipients.length, 'destinatari');
+        const resendApiKey = accountObj.api_key || localStorage.getItem("resend_api_key");
+        if (!resendApiKey) {
+          throw new Error("API key Resend mancante per l'account mittente");
+        }
+
+        const payload = {
+          apiKey: resendApiKey,
+          user_id: currentUserId,
+          from: accountObj.email,
+          to: recipients,
+          cc: emailCc,
+          bcc: emailBcc,
+          subject: emailSubject,
+          html: htmlContent,
+          attachments: validAttachments,
+          campaign_id: campaignId,
+          contacts: contactsForSend,
+          dynamicAttachments: isDynamicAttachments || false,
+          matchMode: matchMode || 'auto',
+        };
+
+        const response = await fetch("/api/resend/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const result = await response.json();
+        if (!result.success) throw new Error(result.message || "Errore durante l'invio Resend");
+
+        successCount = result.sent || recipients.length;
+        failedRecipients = result.errors?.map(e => e.email) || [];
+      }
+
+      setSentCount(successCount);
+      setFailedCount(failedRecipients.length);
+      setProgress(100);
+
+      // 5) Aggiorna stato campagna su DB
+      if (campaignId) {
+        await updateCampaignAfterSend(campaignId, {
+          sentCount: successCount,
+          failedCount: failedRecipients.length,
+          totalRecipients: recipients.length,
+          status: "sent",
+        });
+
+        // Salva log
+        if (currentUserId) {
+          const logsPayload = recipients.map(email => ({
+            campaign_id: campaignId,
+            user_id: currentUserId,
+            recipient_email: email,
+            sender_email: accountObj.email || accountObj.name || 'Comunicazione Interna',
+            status: failedRecipients.includes(email) ? 'failed' : 'sent',
+            sent_at: new Date().toISOString(),
+          }));
+          await supabase.from('campaign_logs').insert(logsPayload);
+
+          const recipientsPayload = recipients.map(email => {
+            const contact = allContactList.find(c => c.email === email);
+            return {
+              campaign_id: campaignId,
+              contact_id: contact?.id || null,
+              email,
+              name: contact?.name || null,
+              status: failedRecipients.includes(email) ? 'failed' : 'sent',
+              sent_at: new Date().toISOString(),
+              provider: accountObj.provider || 'smtp',
+            };
+          });
+          await supabase.from('campaign_recipients').insert(recipientsPayload);
+        }
+      }
+
+      // 6) Notifiche
+      try {
+        if (currentUserId) {
+          await supabase.from('notifications').insert({
+            user_id: currentUserId,
+            title: `✅ Campagna "${emailSubject}" inviata`,
+            description: `Inviata a ${successCount} destinatari${failedRecipients.length > 0 ? `, ${failedRecipients.length} fallite` : ''}`,
+            type: failedRecipients.length > 0 ? 'warning' : 'success',
+            read: false,
+          });
+          if (typeof loadNotifications === 'function') loadNotifications();
+        }
+      } catch (e) {
+        console.warn('⚠️ Salvataggio notifica:', e.message);
+      }
+
+      // 7) Chiudi il form e MOSTRA IL POPUP DI SUCCESSO
       setIsSending(false);
       setShowCampaignModal(false);
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 10000);
-      loadCampaigns();
-    }, 1000);
 
-  } catch (error) {
-    console.error('❌ Errore durante l\'invio:', error);
-    toast.error(`❌ ${error.message}`);
-    setIsSending(false);
-  }
-};
+      if (typeof setShowSendingProgress === 'function' && typeof setSendingProgress === 'function') {
+        setShowSendingProgress(true);
+        setSendingProgress({
+          current: successCount,
+          total: recipients.length,
+          status: 'completed',
+          message: `Campagna "${emailSubject}" inviata con successo a ${successCount} destinatari!`
+        });
+
+        setTimeout(() => {
+          setShowSendingProgress(false);
+        }, 10000);
+      } else {
+        toast.success(`✅ Campagna inviata a ${successCount} destinatari con successo!`, { duration: 10000 });
+      }
+
+      if (typeof loadCampaigns === 'function') {
+        await loadCampaigns();
+      }
+
+    } catch (error) {
+      console.error('❌ Errore durante l\'invio:', error);
+      toast.error(`❌ ${error.message}`);
+      setIsSending(false);
+    }
+  };
 
   const confirmExit = () => {
     setShowConfirmExit(false);
