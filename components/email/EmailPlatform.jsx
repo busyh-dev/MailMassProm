@@ -27,6 +27,8 @@ import { useCampaigns } from '../../hooks/useCampaigns';
 import { EditCampaignModal } from "./EditCampaignModal";
 import { ConfirmModal } from "./ConfirmModal";
 import MatchPreviewModal from "./MatchPreviewModal";
+import { buildMatchingReport } from '../../lib/matchAttachments';
+// XCircle, CheckCircle, AlertTriangle, FileText già importati nel blocco lucide-react principale sotto
 import CampaignTrackingModal from './CampaignTrackingModal';
 import { validateCodiceFiscale, parseCodiceFiscale, verifyCodiceFiscaleMatch } from '../../lib/codiceFiscale';
 import ImportManagementModal from '../contacts/ImportManagementModal';
@@ -772,6 +774,8 @@ const CampaignsTable = ({
                 Data {sortIcon("sent_at")}
               </th>
 
+              <th className="px-6 py-3">Allegati</th>
+
               <th className="px-6 py-3">Azioni</th>
             </tr>
           </thead>
@@ -797,6 +801,16 @@ const CampaignsTable = ({
                   <td className="px-6 py-4 capitalize">{c.status}</td>
                   <td className="px-6 py-4">{c.total_recipients || 0}</td>
                   <td className="px-6 py-4">{formatted}</td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {getAttachmentCount(c) > 0 ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-indigo-50 text-indigo-700">
+                        <Paperclip className="w-3.5 h-3.5" />
+                        {getAttachmentCount(c)} {getAttachmentCount(c) === 1 ? 'allegato' : 'allegati'}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 text-xs">-</span>
+                    )}
+                  </td>
                   <td className="px-6 py-4">
                     <div className="flex gap-2">
                       <button
@@ -1593,6 +1607,18 @@ const fetchTagLabels = async () => {
   }
 };
 
+const getAttachmentCount = (c) => {
+  if (!c) return 0;
+  if (Array.isArray(c.attachments)) return c.attachments.length;
+  if (typeof c.attachments === 'string') {
+    try {
+      const parsed = JSON.parse(c.attachments);
+      if (Array.isArray(parsed)) return parsed.length;
+    } catch {}
+  }
+  return 0;
+};
+
 // ✅ NUOVA FUNZIONE - aggiungi prima di confirmSend
 // ✅ Aggiungi in EmailPlatform, fuori da tutti i componenti
 const isContactActive = (c) => {
@@ -1634,8 +1660,6 @@ const parseContactIds = (raw) => {
 };
 
 const resolveRecipientEmails = (recipientList, contacts = [], tagLabels = [], savedLists = []) => {
-  if (!contacts || !Array.isArray(contacts)) return [];
-
   // Normalizza recipientList se arriva come stringa, JSON o array
   let listToProcess = recipientList;
   if (typeof listToProcess === 'string') {
@@ -1659,16 +1683,23 @@ const resolveRecipientEmails = (recipientList, contacts = [], tagLabels = [], sa
 
   if (!Array.isArray(listToProcess) || listToProcess.length === 0) return [];
 
+  const safeContacts = Array.isArray(contacts) ? contacts : [];
+  const activeContacts = safeContacts.filter(isContactActive);
   const emailSet = new Set();
-  const activeContacts = contacts.filter(isContactActive);
 
-  // Se contiene 'all', restituisci tutti i contatti attivi
+  // Se contiene 'all', restituisci tutti i contatti attivi (o fallback lista contatti)
   if (listToProcess.some(v => String(v).trim().toLowerCase() === 'all')) {
-    return activeContacts.map(c => c.email.trim()).filter(Boolean);
+    if (activeContacts.length > 0) {
+      return activeContacts.map(c => c.email.trim()).filter(Boolean);
+    }
   }
 
   listToProcess.forEach(rawVal => {
     if (!rawVal) return;
+    if (typeof rawVal === 'object' && rawVal !== null && rawVal.email) {
+      emailSet.add(rawVal.email.trim());
+      return;
+    }
     const valStr = String(rawVal).replace(/^['"]|['"]$/g, '').trim();
     if (!valStr) return;
 
@@ -2737,6 +2768,15 @@ if (!accountData) {
     let successCount = 0;
     let failedCount = 0;
 
+    const rawCampaignAttachments = Array.isArray(campaignToSend.attachments)
+      ? campaignToSend.attachments
+      : (typeof campaignToSend.attachments === 'string'
+          ? (() => { try { return JSON.parse(campaignToSend.attachments); } catch(e) { return []; } })()
+          : []);
+    const validCampaignAttachments = (rawCampaignAttachments || []).filter(att =>
+      att && ((att.content && typeof att.content === 'string' && att.content.length > 0) || att.path || att.url)
+    );
+
     // ✅ INVIO SMTP
     if (accountData.provider === "brevo" || accountData.smtp) {
       const payload = {
@@ -2747,7 +2787,7 @@ if (!accountData) {
         bcc: campaignToSend.bcc ? campaignToSend.bcc.split(',').map(e => e.trim()).filter(Boolean) : [],
         subject: campaignToSend.subject,
         html: campaignToSend.email_content,
-        attachments: campaignToSend.attachments || [],
+        attachments: validCampaignAttachments,
         smtp: accountData.smtp,
         campaign_id: campaignToSend.id,
         contacts: contacts
@@ -2791,7 +2831,7 @@ if (!accountData) {
         bcc: campaignToSend.bcc ? campaignToSend.bcc.split(',').map(e => e.trim()).filter(Boolean) : [],
         subject: campaignToSend.subject,
         html: campaignToSend.email_content,
-        attachments: campaignToSend.attachments || [],
+        attachments: validCampaignAttachments,
         campaign_id: campaignToSend.id,
         contacts: contacts
           .filter(c => recipients.includes(c.email))
@@ -2864,7 +2904,25 @@ useEffect(() => {
   console.log('  - Campaigns sent:', campaigns?.filter(c => c.status === 'sent'));
   console.log('  - Campaigns con sent_at:', campaigns?.filter(c => c.sent_at));
 }, [campaigns]);
-// 📨 Invia una bozza
+
+// 🔄 Auto-refresh automatico della lista campagne alla chiusura di qualsiasi form (creazione o modifica)
+const prevShowCampaignModalRef = useRef(false);
+const prevShowEditModalRef = useRef(false);
+
+useEffect(() => {
+  const wasOpen = prevShowCampaignModalRef.current || prevShowEditModalRef.current;
+  const isNowClosed = !showCampaignModal && !showEditModal;
+
+  if (wasOpen && isNowClosed) {
+    console.log("🔄 Form chiuso/inviato: aggiornamento automatico lista campagne...");
+    loadCampaigns();
+  }
+
+  prevShowCampaignModalRef.current = showCampaignModal;
+  prevShowEditModalRef.current = showEditModal;
+}, [showCampaignModal, showEditModal]);
+
+  // 📨 Invia una bozza
 const handleSendCampaign = (campaign) => {
   console.log('🚀 handleSendCampaign chiamato con:', campaign);
   console.log('📨 sender_email:', campaign.sender_email);
@@ -3921,13 +3979,25 @@ const [showMatchPreview, setShowMatchPreview] = useState(false);
       // 🔍 Trova l'account selezionato per ottenere l'ID
       const selectedAccountData = (accounts || []).find(acc => acc.email === selectedAccount) || {};
 
+      const effectiveRecipients = (Array.isArray(recipientList) && recipientList.length > 0)
+        ? recipientList
+        : (campaign?.recipient_list || campaign?.recipients || []);
+
+      const computedTotal = (Array.isArray(effectiveRecipients) && effectiveRecipients.length > 0)
+        ? effectiveRecipients.length
+        : (campaign?.total_recipients || campaign?.totalRecipients || 0);
+
       const updatedCampaign = {
         id: campaign.id,
-        campaignName: campaignName,
-        subject: subject,
-        emailContent: emailContent,
-        recipientList: recipientList,
-        senderEmail: selectedAccount || (accounts && accounts[0]?.email) || "",
+        campaignName: campaignName || campaign?.campaign_name || campaign?.name,
+        subject: subject || campaign?.subject,
+        emailContent: emailContent || campaign?.email_content || campaign?.content,
+        recipientList: effectiveRecipients,
+        recipient_list: effectiveRecipients,
+        recipients: effectiveRecipients,
+        totalRecipients: computedTotal,
+        total_recipients: computedTotal,
+        senderEmail: selectedAccount || campaign?.sender_email || (accounts && accounts[0]?.email) || "",
         senderEmailId: selectedAccountData.id || null,
         status: campaign?.status || 'draft',
         cc: cc,
@@ -5355,8 +5425,9 @@ useEffect(() => {
   // ----------------------- COMPONENTE CAMPAGNE (Supabase) -----------------------
 const Campaigns = ({ 
   setActiveTab, 
-  contacts, 
+  contacts = [], 
   tagLabels = [],
+  contactLabels = [],
   campaigns,           // ✅ DA PROPS
   loading,             // ✅ DA PROPS
   loadCampaigns,       // ✅ DA PROPS
@@ -5366,7 +5437,7 @@ const Campaigns = ({
   getCampaignProp: getCampaign,
   loadNotifications,
 }) => {
-  const { user } = useAuth(); // ✅ AGGIUNGI QUESTA RIGA
+  const { user } = useAuth();
   useEffect(() => {
     console.log('✨AMPAIGNS IN COMPONENT:', campaigns);
     if ((campaigns || []).length > 0) {
@@ -5515,16 +5586,30 @@ const [recipients, setRecipients] = useState([]);
     });
   
     try {
+      // ✅ Sessione e utente
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id || user?.id;
+      if (!currentUserId) throw new Error("Sessione utente non valida o scaduta");
+
       // ✅ Carica destinatari
       setSendingProgress(prev => ({ ...prev, message: 'Caricamento destinatari...' }));
   
-      const recipients = resolveRecipientEmails(
-        selectedCampaign.recipient_list,
+      const rawRecipients = selectedCampaign.recipient_list || selectedCampaign.recipients || [];
+      let recipients = resolveRecipientEmails(
+        rawRecipients,
         contacts,
         tagLabels,
         contactLabels
       );
   
+      if (recipients.length === 0 && Array.isArray(rawRecipients)) {
+        recipients = rawRecipients
+          .map(r => typeof r === 'string' ? r.trim() : r?.email)
+          .filter(r => r && r.includes('@'));
+      } else if (recipients.length === 0 && typeof rawRecipients === 'string' && rawRecipients.includes('@')) {
+        recipients = rawRecipients.split(',').map(s => s.trim().replace(/^['"\[\]{}]+|['"\[\]{}]+$/g, '')).filter(s => s.includes('@'));
+      }
+
       console.log('✅ Recipients risolti:', recipients.length);
   
       if (recipients.length === 0) {
@@ -5539,11 +5624,15 @@ const [recipients, setRecipients] = useState([]);
       });
   
       const attachments = Array.isArray(selectedCampaign.attachments) ? selectedCampaign.attachments : [];
-      
+      const htmlContent = selectedCampaign.email_content || selectedCampaign.html_content || selectedCampaign.content || selectedCampaign.html || "<p></p>";
+      const emailSubject = selectedCampaign.subject || selectedCampaign.campaign_name || selectedCampaign.name || "(Nessun Oggetto)";
+      const emailCc = Array.isArray(selectedCampaign.cc) ? selectedCampaign.cc : (typeof selectedCampaign.cc === 'string' ? selectedCampaign.cc.split(',').map(e => e.trim()).filter(Boolean) : []);
+      const emailBcc = Array.isArray(selectedCampaign.bcc) ? selectedCampaign.bcc : (typeof selectedCampaign.bcc === 'string' ? selectedCampaign.bcc.split(',').map(e => e.trim()).filter(Boolean) : []);
+
       // ✅ Carica account
       setSendingProgress(prev => ({ ...prev, message: 'Verifica account mittente...' }));
   
-      const senderEmail = selectedCampaign.sender_email || "";
+      const senderEmail = selectedCampaign.sender_email || selectedCampaign.sender || selectedCampaign.from || "";
       let accountObj = null;
   
       if (senderEmail) {
@@ -5569,26 +5658,41 @@ const [recipients, setRecipients] = useState([]);
         throw new Error("Nessun account email configurato. Contatta l'amministratore.");
       }
   
-      console.log('✅ Account trovato:', accountObj.email);
+      console.log('✅ Account trovato:', accountObj.email, 'Provider:', accountObj.provider);
   
+      const contactsForSend = (contacts || [])
+        .filter(c => recipients.includes(c.email))
+        .map(c => ({
+          id: c.id,
+          email: c.email,
+          name: c.name || c.nominativo,
+          firstName: c.firstName || c.first_name,
+          lastName: c.lastName || c.last_name,
+          codiceFiscale: c.codiceFiscale || c.codice_fiscale || c.cf || c.taxCode,
+          customFields: c.customFields || c.custom_fields
+        }));
+
       let successCount = 0;
       let failedCount = 0;
   
-      // ✅ SMTP
+      // ✅ SMTP / Brevo
       if (accountObj.provider === "brevo" || (accountObj.smtp && accountObj.provider !== "resend")) {
         console.log('🚀 Invio via SMTP a:', recipients.length, 'destinatari');
   
         const payload = {
-          user_id: user.id,
+          user_id: currentUserId,
           from: accountObj.email,
           to: recipients,
-          cc: Array.isArray(selectedCampaign.cc) ? selectedCampaign.cc : [],
-          bcc: Array.isArray(selectedCampaign.bcc) ? selectedCampaign.bcc : [],
-          subject: selectedCampaign.subject || "",
-          html: selectedCampaign.email_content || "<p></p>",
+          cc: emailCc,
+          bcc: emailBcc,
+          subject: emailSubject,
+          html: htmlContent,
           attachments,
           smtp: accountObj.smtp,
-          campaign_id: selectedCampaign.id, // ✅ era campaignToSend.id
+          campaign_id: selectedCampaign.id,
+          contacts: contactsForSend,
+          dynamicAttachments: selectedCampaign.isDynamicAttachments || selectedCampaign.is_dynamic_attachments || selectedCampaign.dynamicAttachments || false,
+          matchMode: selectedCampaign.matchMode || selectedCampaign.match_mode || 'auto',
         };
   
         const response = await fetch("/api/send-campaign", {
@@ -5600,7 +5704,7 @@ const [recipients, setRecipients] = useState([]);
         const result = await response.json();
         if (!result.success) throw new Error(result.message || "Errore invio SMTP");
   
-        successCount = result.sent;
+        successCount = result.sent || recipients.length;
         failedCount = result.failed || 0;
   
         setSendingProgress({
@@ -5615,21 +5719,23 @@ const [recipients, setRecipients] = useState([]);
         console.log('🚀 Invio via Resend a:', recipients.length, 'destinatari');
         setSendingProgress(prev => ({ ...prev, message: 'Invio via Resend in corso...' }));
        
-        const resendApiKey = accountObj.api_key;
-        if (!resendApiKey) throw new Error("API key Resend mancante");
+        const resendApiKey = accountObj.api_key || localStorage.getItem("resend_api_key");
+        if (!resendApiKey) throw new Error("API key Resend mancante per l'account selezionato");
   
         const payload = {
           apiKey: resendApiKey,
-          user_id: user.id,
+          user_id: currentUserId,
           from: accountObj.email,
           to: recipients,
-          cc: Array.isArray(selectedCampaign.cc) ? selectedCampaign.cc : [],
-          bcc: Array.isArray(selectedCampaign.bcc) ? selectedCampaign.bcc : [],
-          subject: selectedCampaign.subject || "",
-          html: selectedCampaign.email_content || "<p></p>",
-          // html: trackedContent || "<p></p>", // ✅ usa trackedContent invece di emailContent
+          cc: emailCc,
+          bcc: emailBcc,
+          subject: emailSubject,
+          html: htmlContent,
           attachments,
-          campaign_id: selectedCampaign.id, // ✅ era campaignToSend.id
+          campaign_id: selectedCampaign.id,
+          contacts: contactsForSend,
+          dynamicAttachments: selectedCampaign.isDynamicAttachments || selectedCampaign.is_dynamic_attachments || selectedCampaign.dynamicAttachments || false,
+          matchMode: selectedCampaign.matchMode || selectedCampaign.match_mode || 'auto',
         };
   
         const response = await fetch("/api/resend/send", {
@@ -5642,6 +5748,7 @@ const [recipients, setRecipients] = useState([]);
         if (!result.success) throw new Error(result.message || "Errore invio Resend");
   
         successCount = result.sent || recipients.length;
+        failedCount = (result.errors?.length) || 0;
   
         setSendingProgress({
           current: successCount,
@@ -5649,6 +5756,8 @@ const [recipients, setRecipients] = useState([]);
           status: 'sending',
           message: `Inviate ${successCount}/${recipients.length} email...`
         });
+      } else {
+        throw new Error(`Provider email non supportato: ${accountObj.provider}`);
       }
   
       console.log(`✅ Email inviate: ${successCount}, fallite: ${failedCount}`);
@@ -5674,23 +5783,27 @@ const [recipients, setRecipients] = useState([]);
         .eq('id', selectedCampaign.id);
   
       // ✅ Salva log
-      const logsPayload = recipients.map(email => ({
-        campaign_id: selectedCampaign.id,
-        user_id: user.id,
-        recipient_email: email,
-        status: 'sent',
-        sent_at: new Date().toISOString(),
-      }));
-      await supabase.from('campaign_logs').insert(logsPayload);
+      try {
+        const logsPayload = recipients.map(email => ({
+          campaign_id: selectedCampaign.id,
+          user_id: currentUserId,
+          recipient_email: email,
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+        }));
+        await supabase.from('campaign_logs').insert(logsPayload);
+      } catch (logErr) {
+        console.warn('⚠️ Log error:', logErr);
+      }
   
       await loadCampaigns();
   
       setTimeout(() => {
         setShowSendingProgress(false);
-        toast.success(`✅ Campagna inviata a ${successCount} destinatari!`, { duration: 3000 });
+        toast.success(`✅ Campagna inviata a ${successCount} destinatari!`, { duration: 6000 });
         setSelectedCampaign(null);
         setSendingId(null);
-      }, 2000);
+      }, 10000);
   
     } catch (err) {
       console.error("❌ Errore invio:", err);
@@ -5704,7 +5817,7 @@ const [recipients, setRecipients] = useState([]);
   
       setTimeout(() => {
         setShowSendingProgress(false);
-      }, 3000);
+      }, 3500);
     } finally {
       setSendingId(null);
     }
@@ -5744,130 +5857,159 @@ const [recipients, setRecipients] = useState([]);
     if (!campaignToResend) return;
 
     // ✅ CHIUDI MODALE CONFERMA E APRI MODALE PROGRESSO
-  setShowResendConfirm(false);
-  setShowSendingProgress(true);
-  setSendingProgress({
-    current: 0,
-    total: 0,
-    status: 'preparing',
-    message: 'Preparazione re-invio...'
-  });
+    setShowResendConfirm(false);
+    setShowSendingProgress(true);
+    setSendingProgress({
+      current: 0,
+      total: 0,
+      status: 'preparing',
+      message: 'Preparazione re-invio...'
+    });
   
     try {
       console.log('═══════════════════════════════════');
-    console.log('🚀 INIZIO RE-INVIO');
-    console.log('═══════════════════════════════════');
-    console.log('📦 campaignToResend COMPLETO:', campaignToResend);
-    console.log('📋 recipient_list:', campaignToResend.recipient_list);
-    console.log('📋 Type:', typeof campaignToResend.recipient_list);
-    console.log('📋 Is Array:', Array.isArray(campaignToResend.recipient_list));
+      console.log('🚀 INIZIO RE-INVIO');
+      console.log('═══════════════════════════════════');
+      console.log('📦 campaignToResend:', campaignToResend);
 
+      // ✅ Sessione e utente
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id || user?.id;
+      if (!currentUserId) throw new Error("Sessione utente non valida o scaduta");
 
-     // ✅ CARICA DESTINATARI
-     setSendingProgress(prev => ({
-      ...prev,
-      message: 'Caricamento destinatari...'
-    }));
+      // ✅ CARICA DESTINATARI
+      setSendingProgress(prev => ({
+        ...prev,
+        message: 'Caricamento destinatari...'
+      }));
 
-  
-      // 1) Ricavo destinatari
-      // const recipientsRaw = getRecipientsArray(campaignToResend);
-      // ✅ SOSTITUISCI CON
-const recipients = resolveRecipientEmails(
-  campaignToResend.recipient_list,
-  contacts,
-  tagLabels,
-  contactLabels
-);
+      const rawRecipients = campaignToResend.recipient_list || campaignToResend.recipients || [];
+      let recipients = resolveRecipientEmails(
+        rawRecipients,
+        contacts,
+        tagLabels,
+        contactLabels
+      );
 
-console.log('✅ Recipients risolti:', recipients.length);
+      // Fallback estrazione email dirette se resolveRecipientEmails non ha trovato nulla
+      if (recipients.length === 0 && Array.isArray(rawRecipients)) {
+        recipients = rawRecipients
+          .map(r => typeof r === 'string' ? r.trim() : r?.email)
+          .filter(r => r && r.includes('@'));
+      } else if (recipients.length === 0 && typeof rawRecipients === 'string' && rawRecipients.includes('@')) {
+        recipients = rawRecipients.split(',').map(s => s.trim().replace(/^['"\[\]{}]+|['"\[\]{}]+$/g, '')).filter(s => s.includes('@'));
+      }
 
-if (recipients.length === 0) {
-  throw new Error("Nessun destinatario valido trovato");
-}
+      console.log('✅ Recipients risolti:', recipients.length);
 
-    // ✅ AGGIORNA TOTALE DESTINATARI
-    setSendingProgress({
-      current: 0,
-      total: recipients.length,
-      status: 'sending',
-      message: `Invio a ${recipients.length} destinatari...`
-    });
+      if (recipients.length === 0) {
+        throw new Error("Nessun destinatario valido trovato per questa campagna");
+      }
 
-    const attachments = Array.isArray(campaignToResend.attachments) ? campaignToResend.attachments : [];
+      // ✅ AGGIORNA TOTALE DESTINATARI
+      setSendingProgress({
+        current: 0,
+        total: recipients.length,
+        status: 'sending',
+        message: `Invio a ${recipients.length} destinatari...`
+      });
 
-     // ✅ CARICA ACCOUNT
-     setSendingProgress(prev => ({
-      ...prev,
-      message: 'Verifica account mittente...'
-    }));
+      const rawAttachments = Array.isArray(campaignToResend.attachments)
+        ? campaignToResend.attachments
+        : (typeof campaignToResend.attachments === 'string'
+            ? (() => { try { return JSON.parse(campaignToResend.attachments); } catch(e) { return []; } })()
+            : []);
 
-    // ✅ CARICA L'ACCOUNT
-    const senderEmail = campaignToResend.sender_email || "";
+      // ✅ Filtra solo allegati con effettivo contenuto binario base64 o URL valido per evitare errori dai provider
+      const attachments = (rawAttachments || []).filter(att =>
+        att && ((att.content && typeof att.content === 'string' && att.content.length > 0) || att.path || att.url)
+      );
 
-    console.log('🔍 Cercando account per email:', senderEmail);
-    
-    let accountsData = null;
-    
-    // ✅ Cerca per email senza filtro user_id
-    if (senderEmail) {
-      const { data } = await supabase
-        .from('email_accounts')
-        .select('*')
-        .eq('email', senderEmail.trim())
-        .maybeSingle();
-      accountsData = data;
-      console.log('📨 Account trovato per email:', accountsData?.email);
-    }
-    
-    // ✅ Fallback: primo account disponibile
-    if (!accountsData) {
-      console.log('⚠️ Account non trovato per email, uso account default...');
-      const { data } = await supabase
-        .from('email_accounts')
-        .select('*')
-        .order('is_default', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      accountsData = data;
-      console.log('📨 Account fallback:', accountsData?.email);
-    }
-    
-    if (!accountsData) {
-      throw new Error("Nessun account email configurato. Contatta l'amministratore.");
-    }
-    
-    console.log('✅ Account trovato:', accountsData.email);
-    const accountObj = accountsData;
-    
-    let successCount = 0;
-    let failedCount = 0;
+      if ((rawAttachments || []).length > 0 && attachments.length === 0) {
+        console.warn('⚠️ Allegati privi di content base64 nel DB: la campagna viene reinviata senza allegati vuoti.');
+      }
 
-  
+      const htmlContent = campaignToResend.email_content || campaignToResend.html_content || campaignToResend.content || campaignToResend.html || "<p></p>";
+      const emailSubject = campaignToResend.subject || campaignToResend.campaign_name || campaignToResend.name || "(Nessun Oggetto)";
+      const emailCc = Array.isArray(campaignToResend.cc) ? campaignToResend.cc : (typeof campaignToResend.cc === 'string' ? campaignToResend.cc.split(',').map(e => e.trim()).filter(Boolean) : []);
+      const emailBcc = Array.isArray(campaignToResend.bcc) ? campaignToResend.bcc : (typeof campaignToResend.bcc === 'string' ? campaignToResend.bcc.split(',').map(e => e.trim()).filter(Boolean) : []);
+
+      // ✅ CARICA ACCOUNT
+      setSendingProgress(prev => ({
+        ...prev,
+        message: 'Verifica account mittente...'
+      }));
+
+      const senderEmail = campaignToResend.sender_email || campaignToResend.sender || campaignToResend.from || "";
+      console.log('🔍 Cercando account per email:', senderEmail);
+      
+      let accountsData = null;
+      
+      // ✅ Cerca per email senza filtro user_id
+      if (senderEmail) {
+        const { data } = await supabase
+          .from('email_accounts')
+          .select('*')
+          .eq('email', senderEmail.trim())
+          .maybeSingle();
+        accountsData = data;
+        console.log('📨 Account trovato per email:', accountsData?.email);
+      }
+      
+      // ✅ Fallback: primo account disponibile
+      if (!accountsData) {
+        console.log('⚠️ Account non trovato per email, uso account default...');
+        const { data } = await supabase
+          .from('email_accounts')
+          .select('*')
+          .order('is_default', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        accountsData = data;
+        console.log('📨 Account fallback:', accountsData?.email);
+      }
+      
+      if (!accountsData) {
+        throw new Error("Nessun account email configurato. Contatta l'amministratore.");
+      }
+      
+      console.log('✅ Account trovato:', accountsData.email, 'Provider:', accountsData.provider);
+      const accountObj = accountsData;
+      
+      const contactsForSend = (contacts || [])
+        .filter(c => recipients.includes(c.email))
+        .map(c => ({
+          id: c.id,
+          email: c.email,
+          name: c.name || c.nominativo,
+          firstName: c.firstName || c.first_name,
+          lastName: c.lastName || c.last_name,
+          codiceFiscale: c.codiceFiscale || c.codice_fiscale || c.cf || c.taxCode,
+          customFields: c.customFields || c.custom_fields
+        }));
+
+      let successCount = 0;
+      let failedCount = 0;
+
       // ✅ 3) SMTP/Brevo
-      if (accountObj.provider === "brevo" || accountObj.smtp) {
+      if (accountObj.provider === "brevo" || (accountObj.smtp && accountObj.provider !== "resend")) {
         console.log('🚀 Invio via SMTP a:', recipients.length, 'destinatari');
-       
         
         const payload = {
-          user_id: user.id,
+          user_id: currentUserId,
           from: accountObj.email,
-          to: recipients, // ✅ Array pulito
-          cc: Array.isArray(campaignToResend.cc) ? campaignToResend.cc : [],
-          bcc: Array.isArray(campaignToResend.bcc) ? campaignToResend.bcc : [],
-          subject: campaignToResend.subject || "",
-          html: campaignToResend.email_content || campaignToResend.content || "<p></p>",
-         
+          to: recipients,
+          cc: emailCc,
+          bcc: emailBcc,
+          subject: emailSubject,
+          html: htmlContent,
           attachments: attachments,
           smtp: accountObj.smtp,
           campaign_id: campaignToResend.id,
+          contacts: contactsForSend,
+          dynamicAttachments: campaignToResend.isDynamicAttachments || campaignToResend.is_dynamic_attachments || campaignToResend.dynamicAttachments || false,
+          matchMode: campaignToResend.matchMode || campaignToResend.match_mode || 'auto',
         };
-  
-        console.log('📦 Payload SMTP:', {
-          ...payload,
-          html: '[HTML content]',
-          to: payload.to.slice(0, 3) + (payload.to.length > 3 ? '...' : '')
-        });
   
         const response = await fetch("/api/send-campaign", {
           method: "POST",
@@ -5881,52 +6023,45 @@ if (recipients.length === 0) {
           throw new Error(result.message || "Errore invio SMTP");
         }
   
-        successCount = result.sent;
+        successCount = result.sent || recipients.length;
         failedCount = result.failed || 0;
 
         // ✅ AGGIORNA PROGRESSO
-      setSendingProgress({
-        current: successCount,
-        total: recipients.length,
-        status: 'sending',
-        message: `Inviate ${successCount}/${recipients.length} email...`
-      });
-      }
-  
+        setSendingProgress({
+          current: successCount,
+          total: recipients.length,
+          status: 'sending',
+          message: `Inviate ${successCount}/${recipients.length} email...`
+        });
+
       // ✅ 4) Resend
-      if (accountObj.provider === "resend") {
+      } else if (accountObj.provider === "resend") {
         console.log('🚀 Invio via Resend a:', recipients.length, 'destinatari');
         setSendingProgress(prev => ({
           ...prev,
           message: 'Invio via Resend in corso...'
         }));
         
-        const resendApiKey = accountObj.api_key;
-  
+        const resendApiKey = accountObj.api_key || localStorage.getItem("resend_api_key");
         if (!resendApiKey) {
-          throw new Error("API key Resend mancante");
+          throw new Error("API key Resend mancante per l'account mittente");
         }
        
         const payload = {
           apiKey: resendApiKey,
-          user_id: user.id,
+          user_id: currentUserId,
           from: accountObj.email,
-          to: recipients, // ✅ Array pulito
-          cc: Array.isArray(campaignToResend.cc) ? campaignToResend.cc : [],
-          bcc: Array.isArray(campaignToResend.bcc) ? campaignToResend.bcc : [],
-          subject: campaignToResend.subject || "",
-          html: campaignToResend.email_content || campaignToResend.content || "<p></p>",
-         
+          to: recipients,
+          cc: emailCc,
+          bcc: emailBcc,
+          subject: emailSubject,
+          html: htmlContent,
           attachments: attachments,
           campaign_id: campaignToResend.id,
+          contacts: contactsForSend,
+          dynamicAttachments: campaignToResend.isDynamicAttachments || campaignToResend.is_dynamic_attachments || campaignToResend.dynamicAttachments || false,
+          matchMode: campaignToResend.matchMode || campaignToResend.match_mode || 'auto',
         };
-  
-        console.log('📦 Payload Resend:', {
-          ...payload,
-          resendApiKey: '[HIDDEN]',
-          html: '[HTML content]',
-          to: payload.to.slice(0, 3) + (payload.to.length > 3 ? '...' : '')
-        });
   
         const response = await fetch("/api/resend/send", {
           method: "POST",
@@ -5943,47 +6078,68 @@ if (recipients.length === 0) {
         }
   
         successCount = result.sent || recipients.length;
+        failedCount = (result.errors?.length) || 0;
+
         // ✅ AGGIORNA PROGRESSO
-      setSendingProgress({
-        current: successCount,
-        total: recipients.length,
-        status: 'sending',
-        message: `Inviate ${successCount}/${recipients.length} email...`
-      });
+        setSendingProgress({
+          current: successCount,
+          total: recipients.length,
+          status: 'sending',
+          message: `Inviate ${successCount}/${recipients.length} email...`
+        });
+      } else {
+        throw new Error(`Provider email non supportato: ${accountObj.provider}`);
       }
   
       console.log(`✅ Email inviate: ${successCount}, fallite: ${failedCount}`);
-   // ✅ COMPLETATO
-   setSendingProgress({
-    current: successCount,
-    total: recipients.length,
-    status: 'completed',
-    message: `✅ ${successCount} email inviate con successo!`
-  });
-      // ✅ 5) Aggiorna campagna originale invece di creare duplicato
-const baseName = campaignToResend.campaign_name?.replace(/ \(Re-invio \d+\)$/, '') || getName(campaignToResend);
-const newResendCount = (campaignToResend.resend_count || 0) + 1;
+      
+      // ✅ COMPLETATO
+      setSendingProgress({
+        current: successCount,
+        total: recipients.length,
+        status: 'completed',
+        message: `✅ ${successCount} email inviate con successo!`
+      });
 
-await supabase
-  .from('campaigns')
-  .update({
-    status: 'sent',
-    sent_at: new Date().toISOString(),
-    last_resent_at: new Date().toISOString(),
-    resend_count: newResendCount,
-    sent_count: (campaignToResend.sent_count || 0) + successCount,
-    failed_count: (campaignToResend.failed_count || 0) + failedCount,
-    total_recipients: recipients.length,
-    campaign_name: `${baseName} (Re-invio ${newResendCount})`,
-  })
-  .eq('id', campaignToResend.id);
+      // ✅ 5) Aggiorna campagna originale
+      const baseName = campaignToResend.campaign_name?.replace(/ \(Re-invio \d+\)$/, '') || getName(campaignToResend);
+      const newResendCount = (campaignToResend.resend_count || 0) + 1;
 
-await loadCampaigns();
+      await supabase
+        .from('campaigns')
+        .update({
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+          last_resent_at: new Date().toISOString(),
+          resend_count: newResendCount,
+          sent_count: (campaignToResend.sent_count || 0) + successCount,
+          failed_count: (campaignToResend.failed_count || 0) + failedCount,
+          total_recipients: recipients.length,
+          campaign_name: `${baseName} (Re-invio ${newResendCount})`,
+        })
+        .eq('id', campaignToResend.id);
 
-setTimeout(() => {
-  setShowSendingProgress(false);
-  toast.success(`✅ Campagna reinviata (${newResendCount}┬░ invio) a ${successCount} destinatari!`, { duration: 3000 });
-}, 2000);
+      // ✅ Salva log di re-invio
+      try {
+        const logsPayload = recipients.map(email => ({
+          campaign_id: campaignToResend.id,
+          user_id: currentUserId,
+          recipient_email: email,
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+        }));
+        await supabase.from('campaign_logs').insert(logsPayload);
+      } catch (logErr) {
+        console.warn('⚠️ Log error:', logErr);
+      }
+
+      await loadCampaigns();
+
+      setTimeout(() => {
+        setShowSendingProgress(false);
+        setCampaignToResend(null);
+        toast.success(`✅ Campagna reinviata (${newResendCount}° invio) a ${successCount} destinatari!`, { duration: 6000 });
+      }, 10000);
   
     } catch (err) {
       console.error("❌ Errore re-invio:", err);
@@ -5995,10 +6151,11 @@ setTimeout(() => {
         message: `❌ ${err.message}`
       });
       
-      // Chiudi dopo 3 secondi
+      // Chiudi dopo 3.5 secondi
       setTimeout(() => {
         setShowSendingProgress(false);
-      }, 3000);
+        setCampaignToResend(null);
+      }, 3500);
     } finally {
       setShowResendConfirm(false);
     }
@@ -6392,13 +6549,19 @@ setTimeout(() => {
                   {getName(campaign)}
                 </h3>
                 <p className="text-sm text-gray-500 truncate mt-0.5">{campaign.subject}</p>
-                {campaign.sent_at && (
-                  <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    {formatDate(campaign.sent_at)}
+                <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                  <svg className="w-3 h-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  {formatDate(campaign.sent_at || campaign.created_at)}
+                </p>
+                {getAttachmentCount(campaign) > 0 ? (
+                  <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 mt-1.5 flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 px-2 py-0.5 rounded-md w-fit">
+                    <Paperclip className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                    <span>📎 {getAttachmentCount(campaign)} {getAttachmentCount(campaign) === 1 ? 'allegato' : 'allegati'}</span>
                   </p>
+                ) : (
+                  <p className="text-[11px] text-gray-400 mt-1 italic">Senza allegati</p>
                 )}
               </div>
               <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full flex-shrink-0 ${
@@ -6676,6 +6839,7 @@ setTimeout(() => {
             { key: "total_recipients", label: "Destinatari" },
             { key: "opened_count", label: "Aperture" },
             { key: "sent_at", label: "Data" },
+            { key: "attachments", label: "Allegati" },
           ].map((col) => (
             <th
               key={col.key}
@@ -6727,7 +6891,30 @@ setTimeout(() => {
 
               <td className="px-6 py-4">{campaigns.opened_count || 0}</td>
 
-              <td className="px-6 py-4 text-gray-500 whitespace-nowrap">{formatted}</td>
+              <td className="px-6 py-4 text-gray-500 whitespace-nowrap">
+                <div className="font-medium text-gray-800 dark:text-gray-200">{formatted}</div>
+                {getAttachmentCount(campaigns) > 0 ? (
+                  <div className="mt-1">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 border border-indigo-200/80 dark:border-indigo-800/60">
+                      <Paperclip className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      📎 {getAttachmentCount(campaigns)} {getAttachmentCount(campaigns) === 1 ? 'allegato' : 'allegati'}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="mt-0.5 text-[11px] text-gray-400 italic">Senza allegati</div>
+                )}
+              </td>
+
+              <td className="px-6 py-4 whitespace-nowrap">
+                {getAttachmentCount(campaigns) > 0 ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900/50">
+                    <Paperclip className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    📎 {getAttachmentCount(campaigns)} {getAttachmentCount(campaigns) === 1 ? 'allegato' : 'allegati'}
+                  </span>
+                ) : (
+                  <span className="text-gray-400 text-xs">-</span>
+                )}
+              </td>
 
               <td className="px-4 sm:px-6 py-4 text-right whitespace-nowrap min-w-[240px]">
                 <div className="flex justify-end items-center gap-1.5">
@@ -6820,23 +7007,77 @@ setTimeout(() => {
       className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4"
     >
       {sendingProgress.status === 'completed' ? (
-        // ✅ SUCCESSO
-        <div className="text-center">
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ type: "spring", delay: 0.1 }}
-            className="w-20 h-20 mx-auto mb-6 bg-green-100 rounded-full flex items-center justify-center"
-          >
-            <CheckCircle className="w-12 h-12 text-green-600" />
-          </motion.div>
-          <h3 className="text-2xl font-bold text-gray-900 mb-2">
-            Invio Completato!
-          </h3>
-          <p className="text-gray-600 mb-4">{sendingProgress.message}</p>
-          <div className="text-sm text-gray-500">
-            {sendingProgress.current} / {sendingProgress.total} email inviate
+        // ✅ POPUP SUCCESSO PROFESSIONALE
+        <div className="text-center py-2 relative overflow-hidden">
+          {/* Icona animata con gradiente verde/smeraldo */}
+          <div className="relative w-20 h-20 mx-auto mb-5">
+            <motion.div
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: "spring", stiffness: 260, damping: 20 }}
+              className="w-20 h-20 bg-gradient-to-tr from-emerald-500 to-teal-400 rounded-2xl shadow-lg shadow-emerald-500/30 flex items-center justify-center text-white"
+            >
+              <CheckCircle className="w-10 h-10 stroke-[2.5]" />
+            </motion.div>
           </div>
+
+          <motion.h3 
+            initial={{ y: 10, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.1 }}
+            className="text-2xl font-extrabold text-gray-900 dark:text-white tracking-tight mb-1"
+          >
+            Invio Completato con Successo!
+          </motion.h3>
+
+          <motion.p
+            initial={{ y: 10, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.15 }}
+            className="text-sm text-gray-500 dark:text-gray-400 mb-6"
+          >
+            {sendingProgress.message || "La campagna è stata elaborata e consegnata alla coda di invio."}
+          </motion.p>
+
+          {/* Riquadro Dettagli Invio */}
+          <motion.div
+            initial={{ y: 15, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.2 }}
+            className="bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 rounded-xl p-4 mb-6 text-left"
+          >
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wider">
+              <span>Stato Operazione</span>
+              <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-bold">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                Concluso
+              </span>
+            </div>
+            
+            <div className="flex items-center justify-between py-1.5 border-b border-slate-200/50 dark:border-slate-700/40 text-sm">
+              <span className="text-gray-600 dark:text-gray-300">Email inviate:</span>
+              <span className="font-bold text-gray-900 dark:text-white text-base">
+                {sendingProgress.current} / {sendingProgress.total || sendingProgress.current}
+              </span>
+            </div>
+            
+            <div className="flex items-center justify-between pt-2.5 text-xs text-gray-400">
+              <span>Chiusura automatica:</span>
+              <span className="font-medium text-emerald-600 dark:text-emerald-400">tra 10 secondi...</span>
+            </div>
+          </motion.div>
+
+          <button
+            onClick={() => {
+              setShowSendingProgress(false);
+              setCampaignToResend(null);
+              setSelectedCampaign(null);
+              setSendingId(null);
+            }}
+            className="w-full py-2.5 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-sm font-semibold shadow-md transition-colors cursor-pointer"
+          >
+            Chiudi subito
+          </button>
         </div>
       ) : sendingProgress.status === 'error' ? (
         // ❌ ERRORE
@@ -6847,7 +7088,17 @@ setTimeout(() => {
           <h3 className="text-2xl font-bold text-gray-900 mb-2">
             Errore Invio
           </h3>
-          <p className="text-red-600">{sendingProgress.message}</p>
+          <p className="text-red-600 mb-6 text-sm">{sendingProgress.message}</p>
+          <button
+            onClick={() => {
+              setShowSendingProgress(false);
+              setCampaignToResend(null);
+              setSendingId(null);
+            }}
+            className="px-5 py-2.5 bg-gray-800 hover:bg-gray-900 text-white rounded-xl text-sm font-medium transition-colors"
+          >
+            Chiudi
+          </button>
         </div>
       ) : (
         // 🚀 IN CORSO
@@ -6877,6 +7128,19 @@ setTimeout(() => {
               </div>
             </>
           )}
+
+          <div className="mt-6">
+            <button
+              onClick={() => {
+                setShowSendingProgress(false);
+                setCampaignToResend(null);
+                setSendingId(null);
+              }}
+              className="text-xs text-gray-400 hover:text-gray-600 underline transition-colors"
+            >
+              Nascondi / Annulla
+            </button>
+          </div>
         </div>
       )}
     </motion.div>
@@ -14462,8 +14726,15 @@ const [draggingColumnIndex, setDraggingColumnIndex] = useState(null);
   const [isDynamicAttachments, setIsDynamicAttachments] = useState(false);
   const [matchMode, setMatchMode] = useState("auto");
   const [showMatchPreview, setShowMatchPreview] = useState(false);
+  const [matchVerified, setMatchVerified] = useState(false); // ✅ true solo dopo verifica match OK
   const [selectedAccount, setSelectedAccount] = useState("");  
   const [emailHTML, setEmailHTML] = useState("");  
+
+  // ✅ Reimposta la verifica match ogni volta che cambiano allegati o destinatari
+  // L'utente deve ri-verificare prima di poter inviare
+  useEffect(() => {
+    setMatchVerified(false);
+  }, [attachments, recipientList]);
 
 
   const [showPreviewModal, setShowPreviewModal] = useState(false); // ✅ Added for Preview Modal
@@ -16432,7 +16703,7 @@ const payload = {
           setShowCampaignModal(false);
         }
         setShowSuccess && setShowSuccess(true);
-        setTimeout(() => setShowSuccess && setShowSuccess(false), 3000);
+        setTimeout(() => setShowSuccess && setShowSuccess(false), 10000);
       }, 1500);
   
     } catch (error) {
@@ -16534,6 +16805,8 @@ useEffect(() => {
   
       const { success, data, error } = await saveCampaign(campaignData, true);
       if (!success) throw new Error(error);
+      // ✅ Aggiorna la lista campagne automaticamente
+      loadCampaigns();
   
       setLastSavedData(campaignData);
       setLastAutoSave(new Date());
@@ -16702,10 +16975,9 @@ const proceedWithSend = async (accountObj) => {
       cc,
       bcc,
       senderEmail: accountObj.email,
-      attachments: attachments.map(a => ({
-        filename: a.file?.name || a.filename,
-        size: a.file?.size || a.size,
-        type: a.file?.type || a.type,
+      attachments: attachmentsData.map(a => ({
+        filename: a.filename,
+        content: a.content,
       })),
       totalAttachmentSize: attachments.reduce((sum, a) => sum + (a.file?.size || a.size || 0), 0),
       builderBlocks: canvasBlocks,
@@ -16907,12 +17179,15 @@ try {
       toast.success(`⚠️ Completata: ${successCount} inviate, ${failedRecipients.length} fallite`);
     }
 
+    await loadCampaigns();
+
     setTimeout(() => {
       setIsSending(false);
       setShowCampaignModal(false);
       setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 3000);
-    }, 1500);
+      setTimeout(() => setShowSuccess(false), 10000);
+      loadCampaigns();
+    }, 1000);
 
   } catch (error) {
     console.error('❌ Errore durante l\'invio:', error);
@@ -25796,6 +26071,7 @@ onClick={() => {
           <MatchPreviewModal
             isOpen={showMatchPreview}
             onClose={() => setShowMatchPreview(false)}
+            onVerified={(ok) => setMatchVerified(ok)}
             contacts={(() => {
               const activePool = localContacts && localContacts.length > 0 ? localContacts : contacts;
               if (!recipientList || (Array.isArray(recipientList) && recipientList.length === 0)) return activePool;
@@ -25824,18 +26100,26 @@ onClick={() => {
   >
     💾 Salva come Bozza
   </button>
-  <button
-    onClick={handleSend}
-    disabled={!!ccError || !!bccError}
-    className={`flex-1 py-3 px-6 rounded-lg text-white transition font-medium flex items-center justify-center gap-2 ${
-      ccError || bccError
-        ? "bg-gray-400 cursor-not-allowed"
-        : "bg-blue-600 hover:bg-blue-700"
-    }`}
-  >
-    <Send className="w-4 h-4" />
-    Invia Ora
-  </button>
+  {/* 🔒 "Invia Ora": disabilitato finché l'utente non verifica il match con Autorizza Invio */}
+  {
+    (() => {
+      const matchRequired = isDynamicAttachments && attachments && attachments.length > 0;
+      const isSendDisabled = !!ccError || !!bccError || (matchRequired && !matchVerified);
+      return (
+        <button
+          onClick={handleSend}
+          disabled={isSendDisabled}
+          title={matchRequired && !matchVerified ? '⚠️ Effettua prima la verifica match attestati e premi "Autorizza Invio"' : ''}
+          className={`flex-1 py-3 px-6 rounded-lg text-white transition font-medium flex items-center justify-center gap-2 ${
+            isSendDisabled ? 'bg-gray-400 cursor-not-allowed opacity-60' : 'bg-blue-600 hover:bg-blue-700'
+          }`}
+        >
+          <Send className="w-4 h-4" />
+          {matchRequired && !matchVerified ? '🔒 Verifica Match Richiesta' : 'Invia Ora'}
+        </button>
+      );
+    })()
+  }
 </div>
       </div>
 
@@ -30432,6 +30716,39 @@ if (loadingProfile && !user && !authUser) {
             Dashboard
           </button>
 
+          {/* 💬 CHAT SUPPORTO (SEZIONE SUPERIORE SIDEBAR) */}
+          <button
+            onClick={() => setIsChatOpen(true)}
+            className={`shrink-0 flex items-center justify-between whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
+              isChatOpen
+                ? "bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 shadow-sm"
+                : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-gray-200 lg:hover:translate-x-1"
+            }`}
+          >
+            <div className="flex items-center">
+              <div className="relative mr-2 sm:mr-3">
+                <MessageCircle className={`w-4 h-4 sm:w-5 sm:h-5 transition-transform duration-200 ${isChatOpen ? 'scale-110' : ''}`} />
+                {unreadSupportCount > 0 ? (
+                  <span className="absolute -top-1.5 -right-2 min-w-[1.1rem] h-4 px-1 rounded-full bg-rose-500 text-white font-bold text-[9px] flex items-center justify-center shadow-xs animate-pulse border border-white dark:border-slate-900">
+                    {unreadSupportCount > 99 ? '99+' : unreadSupportCount}
+                  </span>
+                ) : (
+                  <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full"></div>
+                )}
+              </div>
+              Chat Supporto
+            </div>
+            {unreadSupportCount > 0 ? (
+              <div className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-rose-500 flex items-center justify-center text-[10px] font-bold text-white shadow-[0_0_8px_rgba(244,63,94,0.6)] animate-pulse ml-2" title={`${unreadSupportCount} nuovi messaggi`}>
+                {unreadSupportCount > 99 ? '99+' : unreadSupportCount}
+              </div>
+            ) : (!isAdmin && !isSuperAdmin && userTicketCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold border border-indigo-200/60 dark:border-indigo-800/60 ml-2">
+                {userTicketCount === 1 ? '1 ticket' : `${userTicketCount} ticket`}
+              </span>
+            ))}
+          </button>
+
           <button
             onClick={() => setActiveTab("campaigns")}
             className={`shrink-0 flex items-center whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
@@ -30482,38 +30799,6 @@ if (loadingProfile && !user && !authUser) {
               SuperAdmin
             </button>
           )}
-
-          <button
-            onClick={() => setIsChatOpen(true)}
-            className={`shrink-0 flex items-center justify-between whitespace-nowrap px-3.5 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm font-semibold rounded-xl transition-all duration-200 snap-start ${
-              isChatOpen
-                ? "bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 shadow-sm"
-                : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-800 hover:text-gray-900 dark:hover:text-gray-200"
-            }`}
-          >
-            <div className="flex items-center">
-              <div className="relative mr-2 sm:mr-3">
-                <MessageCircle className={`w-4 h-4 sm:w-5 sm:h-5 transition-transform duration-200 ${isChatOpen ? 'scale-110' : ''}`} />
-                {unreadSupportCount > 0 ? (
-                  <span className="absolute -top-1.5 -right-2 min-w-[1.1rem] h-4 px-1 rounded-full bg-rose-500 text-white font-bold text-[9px] flex items-center justify-center shadow-xs animate-pulse border border-white dark:border-slate-900">
-                    {unreadSupportCount > 99 ? '99+' : unreadSupportCount}
-                  </span>
-                ) : (
-                  <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full"></div>
-                )}
-              </div>
-              Chat Supporto
-            </div>
-            {unreadSupportCount > 0 ? (
-              <div className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-rose-500 flex items-center justify-center text-[10px] font-bold text-white shadow-[0_0_8px_rgba(244,63,94,0.6)] animate-pulse ml-2" title={`${unreadSupportCount} nuovi messaggi`}>
-                {unreadSupportCount > 99 ? '99+' : unreadSupportCount}
-              </div>
-            ) : (!isAdmin && !isSuperAdmin && userTicketCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold border border-indigo-200/60 dark:border-indigo-800/60 ml-2">
-                {userTicketCount === 1 ? '1 ticket' : `${userTicketCount} ticket`}
-              </span>
-            ))}
-          </button>
 
           {(currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'super_admin' || currentUser?.role?.name === 'super_user' || currentUser?.role?.name === 'SuperUser') && (
             <button
@@ -31222,6 +31507,7 @@ if (loadingProfile && !user && !authUser) {
    setActiveTab={setActiveTab}
    contacts={contacts}
    tagLabels={tagLabels}
+   contactLabels={contactLabels}
    campaigns={campaigns}
    loading={campaignsLoading}
    loadCampaigns={loadCampaigns}
@@ -31373,43 +31659,6 @@ if (loadingProfile && !user && !authUser) {
             <ChatInterface initialUserId={chatInitialUser} isAdmin={(isAdmin || isSuperAdmin)} onClose={() => setIsChatOpen(false)} />
           </div>
         </div>
-      </div>
-
-      {/* 🟢 FLOATING ACTION BUTTON CHAT SUPPORTO (Transizione fluida in entrata e uscita con badge numerico unread/ticket) */}
-      <div 
-        className={`fixed bottom-6 right-6 z-[190] flex items-center gap-2 transition-all duration-300 transform ${
-          !isChatOpen ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-90 pointer-events-none'
-        }`}
-      >
-        <button
-          type="button"
-          onClick={() => setIsChatOpen(true)}
-          className="px-4 py-3 bg-gradient-to-r from-emerald-500 via-teal-600 to-indigo-600 hover:from-emerald-600 hover:to-indigo-700 text-white rounded-full shadow-2xl hover:shadow-emerald-500/50 transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2.5 border-2 border-white/40 cursor-pointer group relative"
-          title="Chat di Supporto"
-        >
-          <div className="relative flex items-center justify-center">
-            <MessageCircle className="w-6 h-6 animate-bounce" />
-            {unreadSupportCount > 0 ? (
-              <span className="absolute -top-2.5 -right-2.5 min-w-[1.35rem] h-5 px-1 bg-rose-500 text-white font-extrabold text-[10px] rounded-full flex items-center justify-center border-2 border-white shadow-lg animate-pulse">
-                {unreadSupportCount > 99 ? '99+' : unreadSupportCount}
-              </span>
-            ) : (
-              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-green-400 border-2 border-white rounded-full shadow-xs"></span>
-            )}
-          </div>
-          <span className="text-xs font-extrabold tracking-wide uppercase flex items-center gap-1.5">
-            Chat Supporto
-            {unreadSupportCount > 0 ? (
-              <span className="px-1.5 py-0.5 bg-rose-500 text-white font-bold text-[10px] rounded-full shadow-2xs">
-                {unreadSupportCount}
-              </span>
-            ) : (!isAdmin && !isSuperAdmin && userTicketCount > 0 && (
-              <span className="px-1.5 py-0.5 bg-white/20 text-white text-[10px] rounded-full font-bold backdrop-blur-xs">
-                {userTicketCount === 1 ? 'Esiste 1 ticket' : `Esistono ${userTicketCount} ticket`}
-              </span>
-            ))}
-          </span>
-        </button>
       </div>
 
 <ContactModal />

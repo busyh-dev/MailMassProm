@@ -102,12 +102,19 @@ export default async function handler(req, res) {
 
     console.log('✅ Transporter creato');
 
-    // Prepara gli allegati
-    const emailAttachments = attachments?.map((att) => ({
-      filename: att.filename || att.name,
-      content: att.content,
-      encoding: "base64",
-    })) || [];
+    // Prepara gli allegati validi (esclude oggetti senza content o path)
+    const emailAttachments = (attachments || [])
+      .filter((att) => att && ((att.content && typeof att.content === 'string' && att.content.length > 0) || att.path || att.url))
+      .map((att) => {
+        const item = { filename: att.filename || att.name || 'allegato' };
+        if (att.content) {
+          item.content = att.content;
+          item.encoding = att.encoding || "base64";
+        } else if (att.path || att.url) {
+          item.path = att.path || att.url;
+        }
+        return item;
+      });
 
     console.log('📎 Allegati preparati:', emailAttachments.length);
 

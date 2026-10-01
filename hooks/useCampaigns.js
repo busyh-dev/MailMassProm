@@ -119,27 +119,37 @@ export const useCampaigns = () => {
         campaign_name: campaignData.campaignName,
         subject: campaignData.subject,
         email_content: campaignData.emailContent || '<p></p>',
-        recipient_list: campaignData.recipientList || [],
-        total_recipients: campaignData.recipients?.length || campaignData.recipientList?.length || 0,
+        recipient_list: (Array.isArray(campaignData.recipientList) && campaignData.recipientList.length > 0)
+          ? campaignData.recipientList
+          : (Array.isArray(campaignData.recipient_list) && campaignData.recipient_list.length > 0)
+          ? campaignData.recipient_list
+          : (Array.isArray(campaignData.recipients) && campaignData.recipients.length > 0)
+          ? campaignData.recipients
+          : campaignData.recipientList || campaignData.recipient_list || campaignData.recipients || [],
+        total_recipients: 
+          campaignData.total_recipients || 
+          campaignData.totalRecipients || 
+          (Array.isArray(campaignData.recipients) ? campaignData.recipients.length : 0) ||
+          (Array.isArray(campaignData.recipientList) ? campaignData.recipientList.length : 0) ||
+          (Array.isArray(campaignData.recipient_list) ? campaignData.recipient_list.length : 0),
         cc: campaignData.cc || null,
         bcc: campaignData.bcc || null,
-        sender_email: campaignData.senderEmail || localStorage.getItem('resend_sender_email'),
-        sender_name: campaignData.senderName || null,
+        sender_email: campaignData.senderEmail || campaignData.sender_email || localStorage.getItem('resend_sender_email'),
+        sender_name: campaignData.senderName || campaignData.sender_name || null,
         attachments: campaignData.attachments || [],
-        total_attachment_size: campaignData.totalAttachmentSize || 0,
+        total_attachment_size: campaignData.totalAttachmentSize || campaignData.total_attachment_size || 0,
         status: campaignData.status || (isDraft ? 'draft' : 'scheduled'),
-        scheduled_at: campaignData.scheduledAt || null,
+        scheduled_at: campaignData.scheduledAt || campaignData.scheduled_at || null,
         tracking_enabled: campaignData.trackingEnabled !== false,
         open_tracking: campaignData.openTracking !== false,
         click_tracking: campaignData.clickTracking !== false,
         tags: campaignData.tags || [],
         notes: campaignData.notes || null,
         resend_api_key: localStorage.getItem('resend_api_key') || null,
-        reply_to: campaignData.replyTo || null,
-        builder_blocks: campaignData.builderBlocks || null,
-  is_builder_template: campaignData.isBuilderTemplate || false,
-  campaign_mode: campaignData.campaignMode || 'standard', // ✅ AGGIUNGI
-  total_recipients: campaignData.totalRecipients || 0,
+        reply_to: campaignData.replyTo || campaignData.reply_to || null,
+        builder_blocks: campaignData.builderBlocks || campaignData.builder_blocks || null,
+        is_builder_template: campaignData.isBuilderTemplate || campaignData.is_builder_template || false,
+        campaign_mode: campaignData.campaignMode || campaignData.campaign_mode || 'standard',
       };
   
       console.log('💾 Campaign object da salvare:', campaign); // ✅ DEBUG

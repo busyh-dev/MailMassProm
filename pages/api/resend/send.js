@@ -73,6 +73,19 @@ const injectUnsubscribeLinks = async (html, contactId, contactEmail, campaignId)
   return finalHtml;
 };
 
+// ✅ Filtra solo allegati con effettivo contenuto (base64) o path/url valido per Resend API
+const filterValidAttachments = (attachmentsList) => {
+  if (!Array.isArray(attachmentsList)) return [];
+  return attachmentsList
+    .filter(att => att && ((att.content && typeof att.content === 'string' && att.content.length > 0) || att.path || att.url))
+    .map(att => {
+      const sanitized = { filename: att.filename || att.name || 'allegato' };
+      if (att.content) sanitized.content = att.content;
+      if (att.path || att.url) sanitized.path = att.path || att.url;
+      return sanitized;
+    });
+};
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ success: false, message: "Method not allowed" });
@@ -134,6 +147,8 @@ export default async function handler(req, res) {
             recipientAttachments = matchAttachmentsForContact(contact, attachments, { matchMode: matchMode || 'auto' });
           }
 
+          const validRecipientAttachments = filterValidAttachments(recipientAttachments);
+
           // 4. Invia email
           const response = await fetch("https://api.resend.com/emails", {
             method: "POST",
@@ -148,7 +163,7 @@ export default async function handler(req, res) {
               html: personalizedHtml,
               cc: cc || [],
               bcc: bcc || [],
-              attachments: recipientAttachments,
+              ...(validRecipientAttachments.length > 0 ? { attachments: validRecipientAttachments } : {}),
             }),
           });
 
@@ -215,6 +230,8 @@ export default async function handler(req, res) {
 
     const trackedHtml = injectTracking(finalHtml, campaign_id, recipientForTracking);
 
+    const validBulkAttachments = filterValidAttachments(attachments);
+
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -228,7 +245,7 @@ export default async function handler(req, res) {
         html: trackedHtml,
         cc: cc || [],
         bcc: bcc || [],
-        attachments: attachments || [],
+        ...(validBulkAttachments.length > 0 ? { attachments: validBulkAttachments } : {}),
       }),
     });
 

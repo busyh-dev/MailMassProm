@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { X, CheckCircle, AlertTriangle, FileText, Search, UserCheck, Users, Filter } from 'lucide-react';
+import { X, CheckCircle, AlertTriangle, FileText, Search, UserCheck, Users, Filter, ShieldCheck } from 'lucide-react';
 import { buildMatchingReport } from '../../lib/matchAttachments';
 
-export default function MatchPreviewModal({ isOpen, onClose, contacts = [], attachments = [], matchMode = 'auto' }) {
+export default function MatchPreviewModal({ isOpen, onClose, onVerified, contacts = [], attachments = [], matchMode = 'auto' }) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all'); // 'all', 'matched', 'unmatched'
 
@@ -13,6 +13,9 @@ export default function MatchPreviewModal({ isOpen, onClose, contacts = [], atta
   }, [isOpen, contacts, attachments, matchMode]);
 
   const { report, summary } = matchingData;
+
+  // ✅ Match è completamente OK solo se tutti i contatti hanno un allegato
+  const isAllMatched = summary.totalContacts > 0 && summary.unmatchedCount === 0;
 
   // Filtra la tabella
   const filteredReport = useMemo(() => {
@@ -33,6 +36,11 @@ export default function MatchPreviewModal({ isOpen, onClose, contacts = [], atta
   }, [report, search, filter]);
 
   if (!isOpen) return null;
+
+  const handleConfirm = () => {
+    if (onVerified) onVerified(true);
+    onClose();
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
@@ -66,6 +74,21 @@ export default function MatchPreviewModal({ isOpen, onClose, contacts = [], atta
           📌 <strong>Formato File Attestati:</strong> I file PDF degli attestati da allegare devono essere denominati nella forma <code className="font-bold font-mono bg-blue-100 dark:bg-blue-900 px-1 py-0.5 rounded">Codicefiscale.pdf</code> (es. <code className="font-mono text-blue-700 dark:text-blue-300 font-bold">RSSMRA80A01H501Z.pdf</code>).
         </div>
 
+        {/* ✅ Banner stato match */}
+        {summary.totalContacts > 0 && (
+          <div className={`px-6 py-3 border-b text-sm font-semibold flex items-center gap-2 ${
+            isAllMatched
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300'
+              : 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300'
+          }`}>
+            {isAllMatched ? (
+              <><CheckCircle className="w-4 h-4 text-emerald-600" /> ✅ Tutti i destinatari hanno un attestato PDF abbinato. Puoi procedere con l'invio.</>
+            ) : (
+              <><AlertTriangle className="w-4 h-4 text-amber-500" /> ⚠️ {summary.unmatchedCount} destinatario/i senza attestato abbinato. L'invio non è autorizzato fino a risoluzione.</>
+            )}
+          </div>
+        )}
+
         {/* KPI Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-6 bg-slate-50/50 dark:bg-slate-900/50 border-b border-gray-100 dark:border-slate-800">
           <div className="bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-gray-100 dark:border-slate-700/60 shadow-sm">
@@ -97,7 +120,7 @@ export default function MatchPreviewModal({ isOpen, onClose, contacts = [], atta
               <span>Copertura Match</span>
               <UserCheck className="w-4 h-4 text-blue-500" />
             </div>
-            <span className="text-xl font-bold text-blue-600 dark:text-blue-400">{summary.matchPercentage}%</span>
+            <span className={`text-xl font-bold ${isAllMatched ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}`}>{summary.matchPercentage}%</span>
           </div>
         </div>
 
@@ -224,16 +247,34 @@ export default function MatchPreviewModal({ isOpen, onClose, contacts = [], atta
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3.5 border-t border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/40 flex items-center justify-between">
+        <div className="px-6 py-3.5 border-t border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/40 flex items-center justify-between gap-3">
           <div className="text-xs text-gray-500">
             Modalità di riscontro: <span className="font-semibold text-gray-700 dark:text-gray-300">{matchMode.toUpperCase()}</span>
           </div>
-          <button
-            onClick={onClose}
-            className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors"
-          >
-            Chiudi Anteprima
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold transition-colors"
+            >
+              Chiudi
+            </button>
+            {isAllMatched ? (
+              <button
+                onClick={handleConfirm}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors flex items-center gap-1.5"
+              >
+                <ShieldCheck className="w-4 h-4" /> ✅ Autorizza Invio
+              </button>
+            ) : (
+              <button
+                disabled
+                className="px-5 py-2 bg-gray-300 text-gray-500 rounded-xl text-xs font-semibold cursor-not-allowed flex items-center gap-1.5"
+                title="Risolvi i destinatari senza allegato prima di procedere"
+              >
+                <AlertTriangle className="w-4 h-4" /> Invio non autorizzato
+              </button>
+            )}
+          </div>
         </div>
 
       </div>

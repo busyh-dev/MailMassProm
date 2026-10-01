@@ -161,13 +161,24 @@ export const EditCampaignModal = ({ campaign, onClose, onSave, loadNotifications
   /* 💾 Conferma salvataggio */
   const confirmSave = async () => {
     setShowConfirmSave(false);
+    const finalRecipients = (Array.isArray(recipientList) && recipientList.length > 0)
+      ? recipientList
+      : (campaign.recipient_list || campaign.recipients || []);
+
     const updatedCampaign = {
       ...campaign,
+      campaignName: campaignName,
       name: campaignName,
       subject,
+      emailContent: emailContent,
       content: emailContent,
-      recipients: recipientList,
+      recipientList: finalRecipients,
+      recipient_list: finalRecipients,
+      recipients: finalRecipients,
+      total_recipients: campaign.total_recipients || campaign.totalRecipients || (Array.isArray(finalRecipients) ? finalRecipients.length : 0),
+      totalRecipients: campaign.total_recipients || campaign.totalRecipients || (Array.isArray(finalRecipients) ? finalRecipients.length : 0),
       account: selectedAccount,
+      senderEmail: selectedAccount,
       cc,
       bcc,
       attachments,
