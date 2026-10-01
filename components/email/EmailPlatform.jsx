@@ -7459,6 +7459,7 @@ const [recipients, setRecipients] = useState([]);
   loadNotifications={loadNotifications}
   setShowSendingProgress={setShowSendingProgress}
   setSendingProgress={setSendingProgress}
+  loadCampaigns={loadCampaigns}
   contacts={contacts}
   onSaveDraft={() => {}}
   setActiveTab={setActiveTab}
@@ -13196,6 +13197,7 @@ const CampaignModal = ({
   loadNotifications,
   setShowSendingProgress,
   setSendingProgress,
+  loadCampaigns,
 }) => {
 
   console.log('🔍 CampaignModal render:', {
@@ -15104,7 +15106,7 @@ const saveCustomBlock = (block) => {
     saveCampaign, 
     updateCampaignAfterSend, 
     deleteCampaign,
-    loadCampaigns,  
+    loadCampaigns: loadCampaignsHook,  
     saving: isSavingToDB
   } = useCampaigns();
 
@@ -16830,6 +16832,10 @@ try {
 } catch (notifError) {
   console.warn('⚠️ Notifica fallita:', notifError.message);
 }
+      if (typeof loadCampaigns === 'function') {
+        loadCampaigns();
+      }
+
       // ✅ Toast con scelta continua/chiudi
       toast((t) => (
         <div className="p-3">
