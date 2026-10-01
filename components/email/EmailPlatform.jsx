@@ -31674,6 +31674,42 @@ if (loadingProfile && !user && !authUser) {
           </div>
         </div>
       </div>
+      {/* 🟢 FLOATING ACTION BUTTON CHAT SUPPORTO (Transizione fluida in entrata e uscita con badge numerico unread/ticket) */}
+      <div 
+        className={`fixed bottom-6 right-6 z-[190] flex items-center gap-2 transition-all duration-300 transform ${
+          !isChatOpen ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-90 pointer-events-none'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setIsChatOpen(true)}
+          className="px-4 py-3 bg-gradient-to-r from-emerald-500 via-teal-600 to-indigo-600 hover:from-emerald-600 hover:to-indigo-700 text-white rounded-full shadow-2xl hover:shadow-emerald-500/50 transition-all duration-300 transform hover:scale-105 flex items-center justify-center gap-2.5 border-2 border-white/40 cursor-pointer group relative"
+          title="Chat di Supporto"
+        >
+          <div className="relative flex items-center justify-center">
+            <MessageCircle className="w-6 h-6 animate-bounce" />
+            {unreadSupportCount > 0 ? (
+              <span className="absolute -top-2.5 -right-2.5 min-w-[1.35rem] h-5 px-1 bg-rose-500 text-white font-extrabold text-[10px] rounded-full flex items-center justify-center border-2 border-white shadow-lg animate-pulse">
+                {unreadSupportCount > 99 ? '99+' : unreadSupportCount}
+              </span>
+            ) : (
+              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-green-400 border-2 border-white rounded-full shadow-xs"></span>
+            )}
+          </div>
+          <span className="text-xs font-extrabold tracking-wide uppercase flex items-center gap-1.5">
+            Chat Supporto
+            {unreadSupportCount > 0 ? (
+              <span className="px-1.5 py-0.5 bg-rose-500 text-white font-bold text-[10px] rounded-full shadow-2xs">
+                {unreadSupportCount}
+              </span>
+            ) : (!isAdmin && !isSuperAdmin && userTicketCount > 0 && (
+              <span className="px-1.5 py-0.5 bg-white/20 text-white text-[10px] rounded-full font-bold backdrop-blur-xs">
+                {userTicketCount === 1 ? 'Esiste 1 ticket' : `Esistono ${userTicketCount} ticket`}
+              </span>
+            ))}
+          </span>
+        </button>
+      </div>
 
 <ContactModal />
 <div style={{ display: showProfileModal ? 'block' : 'none' }}>
