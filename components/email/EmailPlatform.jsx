@@ -2905,13 +2905,12 @@ useEffect(() => {
   console.log('  - Campaigns con sent_at:', campaigns?.filter(c => c.sent_at));
 }, [campaigns]);
 
-// 🔄 Auto-refresh automatico della lista campagne alla chiusura di qualsiasi form (creazione o modifica)
+// 🔄 Auto-refresh automatico della lista campagne alla chiusura del form
 const prevShowCampaignModalRef = useRef(false);
-const prevShowEditModalRef = useRef(false);
 
 useEffect(() => {
-  const wasOpen = prevShowCampaignModalRef.current || prevShowEditModalRef.current;
-  const isNowClosed = !showCampaignModal && !showEditModal;
+  const wasOpen = prevShowCampaignModalRef.current;
+  const isNowClosed = !showCampaignModal;
 
   if (wasOpen && isNowClosed) {
     console.log("🔄 Form chiuso/inviato: aggiornamento automatico lista campagne...");
@@ -2919,8 +2918,7 @@ useEffect(() => {
   }
 
   prevShowCampaignModalRef.current = showCampaignModal;
-  prevShowEditModalRef.current = showEditModal;
-}, [showCampaignModal, showEditModal]);
+}, [showCampaignModal]);
 
   // 📨 Invia una bozza
 const handleSendCampaign = (campaign) => {
