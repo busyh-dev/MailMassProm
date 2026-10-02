@@ -331,14 +331,17 @@ export default function ImportManagementModal({
 
           if (!listErr) {
             toast.success(`📁 Creata nuova lista "${finalListName}" con ${importedContactIds.length} contatti!`);
-            // Collega anche alla tabella junction list_contacts se attiva
-            const junctionRows = importedContactIds.map(cId => ({
-              id: crypto.randomUUID(),
-              listId: newListId,
-              contactId: cId,
-              addedAt: new Date().toISOString()
-            }));
-            await supabase.from('list_contacts').insert(junctionRows).catch(() => {});
+            try {
+              const junctionRows = importedContactIds.map(cId => ({
+                id: crypto.randomUUID(),
+                listId: newListId,
+                contactId: cId,
+                addedAt: new Date().toISOString()
+              }));
+              await supabase.from('list_contacts').insert(junctionRows);
+            } catch (junctionErr) {
+              console.warn("Info list_contacts junction:", junctionErr);
+            }
           } else {
             console.error("Errore creazione lista:", listErr);
             toast.error(`⚠️ Errore salvataggio lista: ${listErr.message}`);
@@ -361,16 +364,20 @@ export default function ImportManagementModal({
 
             if (!updateListErr) {
               toast.success(`📁 Aggiunti ${importedContactIds.length} contatti alla lista "${targetList.name}"!`);
-              const junctionRows = importedContactIds
-                .filter(cId => !existingIds.includes(cId))
-                .map(cId => ({
-                  id: crypto.randomUUID(),
-                  listId: targetList.id,
-                  contactId: cId,
-                  addedAt: new Date().toISOString()
-                }));
-              if (junctionRows.length > 0) {
-                await supabase.from('list_contacts').insert(junctionRows).catch(() => {});
+              try {
+                const junctionRows = importedContactIds
+                  .filter(cId => !existingIds.includes(cId))
+                  .map(cId => ({
+                    id: crypto.randomUUID(),
+                    listId: targetList.id,
+                    contactId: cId,
+                    addedAt: new Date().toISOString()
+                  }));
+                if (junctionRows.length > 0) {
+                  await supabase.from('list_contacts').insert(junctionRows);
+                }
+              } catch (junctionErr) {
+                console.warn("Info list_contacts junction:", junctionErr);
               }
             }
           }
