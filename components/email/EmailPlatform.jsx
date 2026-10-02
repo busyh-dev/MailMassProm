@@ -12412,6 +12412,8 @@ return (
               }
               return c;
             }));
+            if (typeof fetchContacts === 'function') fetchContacts();
+            if (typeof fetchContactsProp === 'function') fetchContactsProp();
           }}
         />
       )}
