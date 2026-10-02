@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, Upload, Download, FileSpreadsheet, FileText, CheckCircle2, 
   AlertCircle, ArrowLeft, Users, ShieldCheck, Sparkles, Trash2, 
-  ListPlus, FolderPlus, CheckSquare, Square
+  ListPlus, FolderPlus, CheckSquare, Square, Tag, Bookmark
 } from 'lucide-react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
@@ -20,46 +20,65 @@ export default function ImportManagementModal({
   
   // Stati per Importazione Attestati
   const [attestatiFile, setAttestatiFile] = useState(null);
-  const [courseName, setCourseName] = useState('Corso Antincendio 2026');
+  const [courseName, setCourseName] = useState('Corso Formazione 2026');
   const [parsedAttendees, setParsedAttendees] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
 
+  // Stati per Etichetta Contatto (Obbligatoria)
+  const [selectedLabelOption, setSelectedLabelOption] = useState('new'); // 'new' o label.id
+  const [newLabelName, setNewLabelName] = useState('Corso Formazione 2026');
+  const [existingLabels, setExistingLabels] = useState([]);
+
+  // Stati per Tag Contatto (Obbligatorio)
+  const [selectedTagOption, setSelectedTagOption] = useState('new'); // 'new' o tag.id
+  const [newTagName, setNewTagName] = useState('Corso Formazione 2026');
+  const [existingTags, setExistingTags] = useState([]);
+
   // Stati per Creazione / Assegnazione Lista Contatti
   const [createList, setCreateList] = useState(true);
   const [selectedListOption, setSelectedListOption] = useState('new'); // 'new' o list.id
-  const [newListName, setNewListName] = useState('Corso Antincendio 2026');
+  const [newListName, setNewListName] = useState('Corso Formazione 2026');
   const [newListDesc, setNewListDesc] = useState('Lista discenti creata da importazione attestati');
   const [existingLists, setExistingLists] = useState([]);
 
-  // Carica le liste contatti esistenti dal database Supabase
+  // Carica le liste contatti, etichette e tag dal database Supabase
   useEffect(() => {
     if (show) {
-      loadContactLists();
+      loadMetadata();
     }
   }, [show]);
 
-  const loadContactLists = async () => {
+  const loadMetadata = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase
-        .from('contact_lists')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-      if (data) setExistingLists(data);
+      const [
+        { data: listsData },
+        { data: labelsData },
+        { data: tagsData },
+      ] = await Promise.all([
+        supabase.from('contact_lists').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('contact_labels').select('*').eq('user_id', user.id).order('nome'),
+        supabase.from('tags').select('*').eq('user_id', user.id).order('label'),
+      ]);
+      if (listsData) setExistingLists(listsData);
+      if (labelsData) setExistingLabels(labelsData);
+      if (tagsData) setExistingTags(tagsData);
     } catch (err) {
-      console.warn("Errore caricamento liste:", err);
+      console.warn("Errore caricamento metadata:", err);
     }
   };
 
-  // Sincronizza il nome della nuova lista col nome del corso
+  // Sincronizza i nomi di default col nome del corso
   useEffect(() => {
-    if (courseName && selectedListOption === 'new') {
-      setNewListName(courseName.trim());
+    if (courseName) {
+      const trimmed = courseName.trim();
+      if (selectedListOption === 'new') setNewListName(trimmed);
+      if (selectedLabelOption === 'new') setNewLabelName(trimmed);
+      if (selectedTagOption === 'new') setNewTagName(trimmed);
     }
-  }, [courseName, selectedListOption]);
+  }, [courseName, selectedListOption, selectedLabelOption, selectedTagOption]);
 
   if (!show) return null;
 
@@ -227,6 +246,28 @@ export default function ImportManagementModal({
       return;
     }
 
+    // 🔒 Validazione Etichetta Obbligatoria
+    const finalLabelName = selectedLabelOption === 'new' ? newLabelName.trim() : '';
+    if (selectedLabelOption === 'new' && !finalLabelName) {
+      toast.error("⚠️ Il campo Etichetta Contatto è obbligatorio");
+      return;
+    }
+    if (selectedLabelOption !== 'new' && !selectedLabelOption) {
+      toast.error("⚠️ Il campo Etichetta Contatto è obbligatorio");
+      return;
+    }
+
+    // 🔒 Validazione Tag Obbligatorio
+    const finalTagName = selectedTagOption === 'new' ? newTagName.trim() : '';
+    if (selectedTagOption === 'new' && !finalTagName) {
+      toast.error("⚠️ Il campo Tag è obbligatorio");
+      return;
+    }
+    if (selectedTagOption !== 'new' && !selectedTagOption) {
+      toast.error("⚠️ Il campo Tag è obbligatorio");
+      return;
+    }
+
     setIsProcessing(true);
     setImportProgress(0);
 
@@ -234,10 +275,67 @@ export default function ImportManagementModal({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Utente non autenticato");
 
-      // 1. Carica tutti i contatti esistenti dell'utente per evitare conflitti e recuperare gli ID
+      // 1. Risolvi / Crea Etichetta nel Database
+      let finalLabelId = selectedLabelOption !== 'new' ? selectedLabelOption : null;
+      if (!finalLabelId && finalLabelName) {
+        const existingLbl = existingLabels.find(l => (l.nome || '').toLowerCase().trim() === finalLabelName.toLowerCase());
+        if (existingLbl) {
+          finalLabelId = existingLbl.id;
+        } else {
+          const newLblId = crypto.randomUUID();
+          const { data: createdLbl, error: lblErr } = await supabase
+            .from('contact_labels')
+            .insert({
+              id: newLblId,
+              user_id: user.id,
+              nome: finalLabelName,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .select('id, nome')
+            .single();
+          if (!lblErr && createdLbl) {
+            finalLabelId = createdLbl.id;
+          } else {
+            finalLabelId = newLblId;
+          }
+        }
+      }
+
+      // 2. Risolvi / Crea Tag nel Database
+      let finalTagId = selectedTagOption !== 'new' ? selectedTagOption : null;
+      if (!finalTagId && finalTagName) {
+        const tagVal = finalTagName.toLowerCase().replace(/\s+/g, '-');
+        const existingTg = existingTags.find(t => (t.label || '').toLowerCase().trim() === finalTagName.toLowerCase() || t.value === tagVal);
+        if (existingTg) {
+          finalTagId = existingTg.id;
+        } else {
+          const newTgId = crypto.randomUUID();
+          const { data: createdTg, error: tgErr } = await supabase
+            .from('tags')
+            .insert({
+              id: newTgId,
+              user_id: user.id,
+              label: finalTagName,
+              value: tagVal,
+              color: '#10b981',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .select('id, label, value')
+            .single();
+          if (!tgErr && createdTg) {
+            finalTagId = createdTg.id;
+          } else {
+            finalTagId = newTgId;
+          }
+        }
+      }
+
+      // 3. Carica tutti i contatti esistenti dell'utente per evitare conflitti e recuperare gli ID
       const { data: existingFromDB } = await supabase
         .from('contacts')
-        .select('id, email, name')
+        .select('id, email, name, contact_label_id')
         .eq('user_id', user.id);
 
       const existingEmailMap = new Map();
@@ -261,11 +359,28 @@ export default function ImportManagementModal({
         const fullName = (row.nominativo || `${row.firstName || ''} ${row.lastName || ''}`).trim() || rawEmail;
 
         if (existingEmailMap.has(rawEmail)) {
-          // Contatto già presente nel DB: usiamo l'ID esistente
+          // Contatto già presente nel DB: usiamo l'ID esistente e aggiorniamo l'etichetta
           const existing = existingEmailMap.get(rawEmail);
+          if (finalLabelId) {
+            await supabase.from('contacts').update({ 
+              contact_label_id: finalLabelId, 
+              updated_at: new Date().toISOString() 
+            }).eq('id', existing.id);
+          }
+          if (finalTagId) {
+            try {
+              await supabase.from('contact_tags').insert({
+                id: crypto.randomUUID(),
+                contact_id: existing.id,
+                tag_id: finalTagId,
+                created_at: new Date().toISOString(),
+              });
+            } catch (e) {}
+          }
           importedContactIds.push(String(existing.id));
           importedContacts.push({
             ...existing,
+            contact_label_id: finalLabelId || existing.contact_label_id,
             firstName: row.firstName,
             lastName: row.lastName,
             codiceFiscale: row.codiceFiscale,
@@ -273,7 +388,7 @@ export default function ImportManagementModal({
           });
           successCount++;
         } else {
-          // Nuovo contatto: inserimento pulito nel database
+          // Nuovo contatto: inserimento pulito nel database con etichetta
           const newContactId = crypto.randomUUID();
           const newContact = {
             id: newContactId,
@@ -281,6 +396,7 @@ export default function ImportManagementModal({
             name: fullName,
             email: rawEmail,
             status: 'active',
+            contact_label_id: finalLabelId || null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           };
@@ -293,6 +409,16 @@ export default function ImportManagementModal({
             console.error(`❌ Errore inserimento riga ${i + 1} (${rawEmail}):`, insertErr);
             errorCount++;
           } else {
+            if (finalTagId) {
+              try {
+                await supabase.from('contact_tags').insert({
+                  id: crypto.randomUUID(),
+                  contact_id: newContactId,
+                  tag_id: finalTagId,
+                  created_at: new Date().toISOString(),
+                });
+              } catch (e) {}
+            }
             existingEmailMap.set(rawEmail, newContact);
             importedContactIds.push(String(newContactId));
             importedContacts.push({
@@ -309,7 +435,7 @@ export default function ImportManagementModal({
         setImportProgress(Math.round(((i + 1) / selectedAttendees.length) * 100));
       }
 
-      // 2. CREAZIONE / AGGIORNAMENTO LISTA CONTATTI SE SELEZIONATO
+      // 4. CREAZIONE / AGGIORNAMENTO LISTA CONTATTI SE SELEZIONATO
       if (createList && importedContactIds.length > 0) {
         if (selectedListOption === 'new') {
           const finalListName = (newListName && newListName.trim()) || (courseName && courseName.trim()) || `Lista Discenti (${new Date().toLocaleDateString('it-IT')})`;
@@ -384,7 +510,7 @@ export default function ImportManagementModal({
         }
       }
 
-      toast.success(`🎉 Importazione completata! ${successCount} discenti importati/collegati alla lista.`);
+      toast.success(`🎉 Importazione completata! ${successCount} discenti importati/collegati con Etichetta e Tag.`);
       if (onContactsImported) onContactsImported(importedContacts);
       onClose();
 
@@ -568,24 +694,24 @@ export default function ImportManagementModal({
               </button>
             </div>
 
-            {/* Configurazione Corso & Sezione Lista Contatti */}
+            {/* 1. File e Corso */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                  Nome del Corso / Tag di Riferimento
+                  Nome del Corso / Riferimento Attestati
                 </label>
                 <input
                   type="text"
                   value={courseName}
                   onChange={(e) => setCourseName(e.target.value)}
-                  placeholder="Es. Corso Antincendio 2026"
+                  placeholder="Es. Corso Formazione Lavoratori 2026"
                   className="w-full px-3 py-2 text-xs bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                  Seleziona File (.xlsx, .xls o .csv)
+                  Seleziona File (.xlsx, .xls o .csv) <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="file"
@@ -594,6 +720,81 @@ export default function ImportManagementModal({
                   className="w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
                 />
               </div>
+            </div>
+
+            {/* 2. 🏷️ ETICHETTA CONTATTO & 🔖 TAG CONTATTO (ENTRAMBI OBBLIGATORI) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              
+              {/* ETICHETTA CONTATTO (OBBLIGATORIA) */}
+              <div className="p-3.5 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                    <Bookmark className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                    Etichetta Contatto <span className="text-red-500 font-extrabold">* Obbligatoria</span>
+                  </label>
+                </div>
+                
+                <div className="space-y-2">
+                  <select
+                    value={selectedLabelOption}
+                    onChange={(e) => setSelectedLabelOption(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-white dark:bg-slate-800 border border-blue-200 dark:border-slate-700 rounded-lg text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                  >
+                    <option value="new">➕ Crea Nuova Etichetta Contatto</option>
+                    {existingLabels.map(lbl => (
+                      <option key={lbl.id} value={lbl.id}>
+                        🏷️ {lbl.nome}
+                      </option>
+                    ))}
+                  </select>
+
+                  {selectedLabelOption === 'new' && (
+                    <input
+                      type="text"
+                      value={newLabelName}
+                      onChange={(e) => setNewLabelName(e.target.value)}
+                      placeholder="Nome della nuova etichetta (es. Corsisti 2026)"
+                      className="w-full px-3 py-1.5 text-xs bg-white dark:bg-slate-800 border border-blue-300 dark:border-slate-600 rounded-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* TAG CONTATTO (OBBLIGATORIO) */}
+              <div className="p-3.5 bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/60 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    Tag Contatto <span className="text-red-500 font-extrabold">* Obbligatorio</span>
+                  </label>
+                </div>
+
+                <div className="space-y-2">
+                  <select
+                    value={selectedTagOption}
+                    onChange={(e) => setSelectedTagOption(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-700 rounded-lg text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+                  >
+                    <option value="new">➕ Crea Nuovo Tag</option>
+                    {existingTags.map(tg => (
+                      <option key={tg.id} value={tg.id}>
+                        🔖 {tg.label || tg.value}
+                      </option>
+                    ))}
+                  </select>
+
+                  {selectedTagOption === 'new' && (
+                    <input
+                      type="text"
+                      value={newTagName}
+                      onChange={(e) => setNewTagName(e.target.value)}
+                      placeholder="Nome del nuovo tag (es. Attestati Formazione)"
+                      className="w-full px-3 py-1.5 text-xs bg-white dark:bg-slate-800 border border-emerald-300 dark:border-slate-600 rounded-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  )}
+                </div>
+              </div>
+
             </div>
 
             {/* 📁 SEZIONE CREAZIONE / ASSEGNAZIONE A LISTA CONTATTI */}
