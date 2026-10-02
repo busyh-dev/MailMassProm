@@ -12515,6 +12515,9 @@ return (
             if (newContacts && newContacts.length > 0) {
               setContacts((prev) => [...newContacts, ...prev]);
             }
+            if (typeof fetchContacts === 'function') {
+              fetchContacts();
+            }
           }}
           existingContacts={contacts}
         />

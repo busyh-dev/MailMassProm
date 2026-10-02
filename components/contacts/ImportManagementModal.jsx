@@ -234,6 +234,17 @@ export default function ImportManagementModal({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Utente non autenticato");
 
+      // 1. Carica tutti i contatti esistenti dell'utente per evitare conflitti e recuperare gli ID
+      const { data: existingFromDB } = await supabase
+        .from('contacts')
+        .select('id, email, name')
+        .eq('user_id', user.id);
+
+      const existingEmailMap = new Map();
+      (existingFromDB || []).forEach(c => {
+        if (c.email) existingEmailMap.set(c.email.toLowerCase().trim(), c);
+      });
+
       let successCount = 0;
       let errorCount = 0;
       const importedContacts = [];
@@ -241,68 +252,73 @@ export default function ImportManagementModal({
 
       for (let i = 0; i < selectedAttendees.length; i++) {
         const row = selectedAttendees[i];
-        if (!row.email) {
+        const rawEmail = (row.email || '').toLowerCase().trim();
+        if (!rawEmail) {
           errorCount++;
           continue;
         }
 
-        const tagList = ["Attestati"];
-        if (courseName && courseName.trim()) {
-          tagList.push(courseName.trim());
-        }
+        const fullName = (row.nominativo || `${row.firstName || ''} ${row.lastName || ''}`).trim() || rawEmail;
 
-        const contactId = crypto.randomUUID();
-
-        const contactPayload = {
-          id: contactId,
-          user_id: user.id,
-          name: row.nominativo || `${row.firstName} ${row.lastName}`.trim(),
-          email: row.email,
-          status: 'active',
-          source: 'import_attestati',
-          tags: JSON.stringify(tagList),
-          custom_fields: JSON.stringify({
-            codiceFiscale: row.codiceFiscale,
-            cf: row.codiceFiscale,
-            corso: courseName,
-          }),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-
-        const { data, error } = await supabase
-          .from('contacts')
-          .upsert(contactPayload, { onConflict: 'email,user_id' })
-          .select();
-
-        if (error) {
-          console.error(`Errore riga ${i + 1}:`, error);
-          errorCount++;
-        } else {
-          successCount++;
-          const savedContact = data && data[0] ? data[0] : contactPayload;
+        if (existingEmailMap.has(rawEmail)) {
+          // Contatto già presente nel DB: usiamo l'ID esistente
+          const existing = existingEmailMap.get(rawEmail);
+          importedContactIds.push(String(existing.id));
           importedContacts.push({
-            ...savedContact,
+            ...existing,
             firstName: row.firstName,
             lastName: row.lastName,
             codiceFiscale: row.codiceFiscale,
             customFields: { codiceFiscale: row.codiceFiscale },
           });
-          importedContactIds.push(String(savedContact.id));
+          successCount++;
+        } else {
+          // Nuovo contatto: inserimento pulito nel database
+          const newContactId = crypto.randomUUID();
+          const newContact = {
+            id: newContactId,
+            user_id: user.id,
+            name: fullName,
+            email: rawEmail,
+            status: 'active',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+
+          const { error: insertErr } = await supabase
+            .from('contacts')
+            .insert(newContact);
+
+          if (insertErr) {
+            console.error(`❌ Errore inserimento riga ${i + 1} (${rawEmail}):`, insertErr);
+            errorCount++;
+          } else {
+            existingEmailMap.set(rawEmail, newContact);
+            importedContactIds.push(String(newContactId));
+            importedContacts.push({
+              ...newContact,
+              firstName: row.firstName,
+              lastName: row.lastName,
+              codiceFiscale: row.codiceFiscale,
+              customFields: { codiceFiscale: row.codiceFiscale },
+            });
+            successCount++;
+          }
         }
 
         setImportProgress(Math.round(((i + 1) / selectedAttendees.length) * 100));
       }
 
-      // ✅ CREAZIONE / AGGIORNAMENTO LISTA CONTATTI SE SELEZIONATO
+      // 2. CREAZIONE / AGGIORNAMENTO LISTA CONTATTI SE SELEZIONATO
       if (createList && importedContactIds.length > 0) {
         if (selectedListOption === 'new') {
-          const finalListName = newListName.trim() || courseName.trim() || `Lista Importazione (${new Date().toLocaleDateString()})`;
+          const finalListName = (newListName && newListName.trim()) || (courseName && courseName.trim()) || `Lista Discenti (${new Date().toLocaleDateString('it-IT')})`;
+          const newListId = crypto.randomUUID();
           const newListPayload = {
-            id: crypto.randomUUID(),
+            id: newListId,
             user_id: user.id,
             name: finalListName,
-            description: newListDesc || `Creata da importazione attestati (${importedContactIds.length} contatti)`,
+            description: newListDesc || `Creata da importazione attestati (${importedContactIds.length} discenti)`,
             contact_count: importedContactIds.length,
             contact_ids: importedContactIds,
             created_at: new Date().toISOString(),
@@ -315,8 +331,17 @@ export default function ImportManagementModal({
 
           if (!listErr) {
             toast.success(`📁 Creata nuova lista "${finalListName}" con ${importedContactIds.length} contatti!`);
+            // Collega anche alla tabella junction list_contacts se attiva
+            const junctionRows = importedContactIds.map(cId => ({
+              id: crypto.randomUUID(),
+              listId: newListId,
+              contactId: cId,
+              addedAt: new Date().toISOString()
+            }));
+            await supabase.from('list_contacts').insert(junctionRows).catch(() => {});
           } else {
             console.error("Errore creazione lista:", listErr);
+            toast.error(`⚠️ Errore salvataggio lista: ${listErr.message}`);
           }
         } else {
           // Aggiunta a lista esistente
@@ -336,12 +361,23 @@ export default function ImportManagementModal({
 
             if (!updateListErr) {
               toast.success(`📁 Aggiunti ${importedContactIds.length} contatti alla lista "${targetList.name}"!`);
+              const junctionRows = importedContactIds
+                .filter(cId => !existingIds.includes(cId))
+                .map(cId => ({
+                  id: crypto.randomUUID(),
+                  listId: targetList.id,
+                  contactId: cId,
+                  addedAt: new Date().toISOString()
+                }));
+              if (junctionRows.length > 0) {
+                await supabase.from('list_contacts').insert(junctionRows).catch(() => {});
+              }
             }
           }
         }
       }
 
-      toast.success(`🎉 Importazione completata! ${successCount} discenti importati/aggiornati.`);
+      toast.success(`🎉 Importazione completata! ${successCount} discenti importati/collegati alla lista.`);
       if (onContactsImported) onContactsImported(importedContacts);
       onClose();
 
