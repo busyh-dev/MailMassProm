@@ -147,6 +147,7 @@ import {
   RefreshCw,
   Send,
   Tag,
+  Bookmark,
   Plus,
   Edit3,
   Trash2,
@@ -10599,6 +10600,7 @@ const Contacts = ({
   coperturaCanaleProp,
   testateProp,
   contactLabelsProp,
+  fetchContactLabelsProp,
   loadNotifications,
   showListsModalProp,
   setShowListsModalProp,
@@ -10807,6 +10809,24 @@ const handleLoadList = (list) => {
   useEffect(() => { if (testateProp?.length) setTestate(testateProp); }, [testateProp]);
   useEffect(() => { if (contactLabelsProp?.length) setContactLabels(contactLabelsProp); }, [contactLabelsProp]);
   const fetchContacts = fetchContactsProp || (() => {});
+
+  const refreshContactLabels = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('contact_labels')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('nome');
+      if (data) setContactLabels(data);
+      if (typeof fetchContactLabelsProp === 'function') {
+        fetchContactLabelsProp();
+      }
+    } catch (err) {
+      console.error('Errore ricarica etichette:', err);
+    }
+  };
 
   // Aggiungi la funzione di eliminazione
   const handleDeleteSelected = async () => {
@@ -11656,6 +11676,15 @@ return (
             Stampa/PDF
           </button>
 
+          {/* 🏷️ Gestione Etichette */}
+          <button
+            onClick={() => setShowContactLabelsModal(true)}
+            className="w-full sm:w-auto justify-center bg-violet-600 hover:bg-violet-700 text-white px-3 sm:px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-2 transition-all active:scale-95 shadow-sm"
+          >
+            <Bookmark className="w-4 h-4" />
+            Gestisci Etichette
+          </button>
+
           {/* 🖨️ Gestione Tag */}
           <button
             onClick={() => setShowTagsModal(true)}
@@ -12362,6 +12391,15 @@ return (
           show={showTagsModal}
           onClose={() => setShowTagsModal(false)}
           user={user}
+        />
+      )}
+
+    {showContactLabelsModal && (
+        <ContactLabelsManagementModal
+          show={showContactLabelsModal}
+          contactLabels={contactLabels}
+          onRefresh={refreshContactLabels}
+          onClose={() => setShowContactLabelsModal(false)}
         />
       )}
 
@@ -31564,6 +31602,7 @@ if (loadingProfile && !user && !authUser) {
     coperturaCanaleProp={coperturaCanale}
     testateProp={testate}
     contactLabelsProp={contactLabels}
+    fetchContactLabelsProp={fetchContactLabels}
     loadNotifications={loadNotifications}
     showListsModalProp={showContactListsModal}
     setShowListsModalProp={setShowContactListsModal}
