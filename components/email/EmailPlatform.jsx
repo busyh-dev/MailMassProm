@@ -5977,111 +5977,122 @@ const [recipients, setRecipients] = useState([]);
       const isPayloadTooLarge = (attachments || []).length > 5 || (attachments || []).reduce((acc, a) => acc + (a.content?.length || 0), 0) > 1000000;
       const attachmentsForPayload = (selectedCampaign?.id && isPayloadTooLarge) ? [] : attachments;
   
-      // ✅ SMTP / Brevo
-      if (accountObj.provider === "brevo" || (accountObj.smtp && accountObj.provider !== "resend")) {
-        console.log('🚀 Invio via SMTP a:', recipients.length, 'destinatari');
-  
-        const payload = {
-          user_id: currentUserId,
-          from: accountObj.email,
-          to: recipients,
-          cc: emailCc,
-          bcc: emailBcc,
-          subject: emailSubject,
-          html: htmlContent,
-          attachments: attachmentsForPayload,
-          smtp: accountObj.smtp,
-          campaign_id: selectedCampaign.id,
-          contacts: contactsForSend,
-          dynamicAttachments: selectedCampaign.isDynamicAttachments || selectedCampaign.is_dynamic_attachments || selectedCampaign.dynamicAttachments || false,
-          matchMode: selectedCampaign.matchMode || selectedCampaign.match_mode || 'auto',
-        };
-  
-        const response = await fetch("/api/send-campaign", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+      // ✅ Timer per incremento progressivo del contatore a schermo
+      let progressTimer = setInterval(() => {
+        setSendingProgress(prev => {
+          if (prev.status !== 'sending') return prev;
+          const nextVal = Math.min((prev.current || 0) + 1, Math.max(1, (prev.total || recipients.length) - 1));
+          return {
+            ...prev,
+            current: nextVal,
+            message: `Invio in corso: ${nextVal} di ${prev.total || recipients.length} email...`
+          };
         });
-  
-        let result;
-        const responseText = await response.text();
-        try {
-          result = JSON.parse(responseText);
-        } catch (err) {
-          throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+      }, Math.max(60, Math.floor(3500 / Math.max(1, recipients.length))));
+
+      try {
+        // ✅ SMTP / Brevo
+        if (accountObj.provider === "brevo" || (accountObj.smtp && accountObj.provider !== "resend")) {
+          console.log('🚀 Invio via SMTP a:', recipients.length, 'destinatari');
+    
+          const payload = {
+            user_id: currentUserId,
+            from: accountObj.email,
+            to: recipients,
+            cc: emailCc,
+            bcc: emailBcc,
+            subject: emailSubject,
+            html: htmlContent,
+            attachments: attachmentsForPayload,
+            smtp: accountObj.smtp,
+            campaign_id: selectedCampaign.id,
+            contacts: contactsForSend,
+            dynamicAttachments: selectedCampaign.isDynamicAttachments || selectedCampaign.is_dynamic_attachments || selectedCampaign.dynamicAttachments || false,
+            matchMode: selectedCampaign.matchMode || selectedCampaign.match_mode || 'auto',
+          };
+    
+          const response = await fetch("/api/send-campaign", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+    
+          let result;
+          const responseText = await response.text();
+          try {
+            result = JSON.parse(responseText);
+          } catch (err) {
+            throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+          }
+          if (!result.success) throw new Error(result.message || "Errore invio SMTP");
+    
+          successCount = result.sent || recipients.length;
+          failedCount = result.failed || 0;
+    
+        // ✅ RESEND
+        } else if (accountObj.provider === "resend") {
+          console.log('🚀 Invio via Resend a:', recipients.length, 'destinatari');
+          setSendingProgress(prev => ({ ...prev, message: `Invio via Resend a ${recipients.length} destinatari...` }));
+         
+          const resendApiKey = accountObj.api_key || localStorage.getItem("resend_api_key");
+          if (!resendApiKey) throw new Error("API key Resend mancante per l'account selezionato");
+    
+          const payload = {
+            apiKey: resendApiKey,
+            user_id: currentUserId,
+            from: accountObj.email,
+            to: recipients,
+            cc: emailCc,
+            bcc: emailBcc,
+            subject: emailSubject,
+            html: htmlContent,
+            attachments: attachmentsForPayload,
+            campaign_id: selectedCampaign.id,
+            contacts: contactsForSend,
+            dynamicAttachments: selectedCampaign.isDynamicAttachments || selectedCampaign.is_dynamic_attachments || selectedCampaign.dynamicAttachments || false,
+            matchMode: selectedCampaign.matchMode || selectedCampaign.match_mode || 'auto',
+          };
+    
+          const response = await fetch("/api/resend/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+    
+          let result;
+          const responseText = await response.text();
+          try {
+            result = JSON.parse(responseText);
+          } catch (err) {
+            throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+          }
+          if (!result.success) throw new Error(result.message || "Errore invio Resend");
+    
+          successCount = result.sent || recipients.length;
+          failedCount = (result.errors?.length) || 0;
+        } else {
+          throw new Error(`Provider email non supportato: ${accountObj.provider}`);
         }
-        if (!result.success) throw new Error(result.message || "Errore invio SMTP");
-  
-        successCount = result.sent || recipients.length;
-        failedCount = result.failed || 0;
-  
-        setSendingProgress({
-          current: successCount,
-          total: recipients.length,
-          status: 'sending',
-          message: `Inviate ${successCount}/${recipients.length} email...`
-        });
-  
-      // ✅ RESEND
-      } else if (accountObj.provider === "resend") {
-        console.log('🚀 Invio via Resend a:', recipients.length, 'destinatari');
-        setSendingProgress(prev => ({ ...prev, message: 'Invio via Resend in corso...' }));
-       
-        const resendApiKey = accountObj.api_key || localStorage.getItem("resend_api_key");
-        if (!resendApiKey) throw new Error("API key Resend mancante per l'account selezionato");
-  
-        const payload = {
-          apiKey: resendApiKey,
-          user_id: currentUserId,
-          from: accountObj.email,
-          to: recipients,
-          cc: emailCc,
-          bcc: emailBcc,
-          subject: emailSubject,
-          html: htmlContent,
-          attachments: attachmentsForPayload,
-          campaign_id: selectedCampaign.id,
-          contacts: contactsForSend,
-          dynamicAttachments: selectedCampaign.isDynamicAttachments || selectedCampaign.is_dynamic_attachments || selectedCampaign.dynamicAttachments || false,
-          matchMode: selectedCampaign.matchMode || selectedCampaign.match_mode || 'auto',
-        };
-  
-        const response = await fetch("/api/resend/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-  
-        let result;
-        const responseText = await response.text();
-        try {
-          result = JSON.parse(responseText);
-        } catch (err) {
-          throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
-        }
-        if (!result.success) throw new Error(result.message || "Errore invio Resend");
-  
-        successCount = result.sent || recipients.length;
-        failedCount = (result.errors?.length) || 0;
-  
-        setSendingProgress({
-          current: successCount,
-          total: recipients.length,
-          status: 'sending',
-          message: `Inviate ${successCount}/${recipients.length} email...`
-        });
-      } else {
-        throw new Error(`Provider email non supportato: ${accountObj.provider}`);
+      } finally {
+        if (progressTimer) clearInterval(progressTimer);
       }
   
       console.log(`✅ Email inviate: ${successCount}, fallite: ${failedCount}`);
   
-      // ✅ COMPLETATO
+      // ✅ COMPLETATO: Dati per il Popup Riassunto Invio Campagna
       setSendingProgress({
         current: successCount,
         total: recipients.length,
         status: 'completed',
-        message: `✅ ${successCount} email inviate con successo!`
+        campaignName: selectedCampaign.campaign_name || selectedCampaign.name || selectedCampaign.subject,
+        campaignSubject: selectedCampaign.subject,
+        senderEmail: accountObj.email,
+        failedCount: failedCount,
+        isCorrelated: isCorrelatedCampaign(selectedCampaign),
+        attachmentsCount: getAttachmentCount(selectedCampaign),
+        completedAt: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        message: `Tutte le ${successCount} email sono state inviate con successo!`,
+        campaignObj: selectedCampaign,
       });
   
       // ✅ Aggiorna status campagna
@@ -6111,13 +6122,7 @@ const [recipients, setRecipients] = useState([]);
       }
   
       await loadCampaigns();
-  
-      setTimeout(() => {
-        setShowSendingProgress(false);
-        toast.success(`✅ Campagna inviata a ${successCount} destinatari!`, { duration: 6000 });
-        setSelectedCampaign(null);
-        setSendingId(null);
-      }, 10000);
+      setSendingId(null);
   
     } catch (err) {
       console.error("❌ Errore invio:", err);
@@ -6310,126 +6315,135 @@ const [recipients, setRecipients] = useState([]);
       const isPayloadTooLarge = (attachments || []).length > 5 || (attachments || []).reduce((acc, a) => acc + (a.content?.length || 0), 0) > 1000000;
       const attachmentsForPayload = (campaignToResend?.id && isPayloadTooLarge) ? [] : attachments;
 
-      // ✅ 3) SMTP/Brevo
-      if (accountObj.provider === "brevo" || (accountObj.smtp && accountObj.provider !== "resend")) {
-        console.log('🚀 Invio via SMTP a:', recipients.length, 'destinatari');
-        
-        const payload = {
-          user_id: currentUserId,
-          from: accountObj.email,
-          to: recipients,
-          cc: emailCc,
-          bcc: emailBcc,
-          subject: emailSubject,
-          html: htmlContent,
-          attachments: attachmentsForPayload,
-          smtp: accountObj.smtp,
-          campaign_id: campaignToResend.id,
-          contacts: contactsForSend,
-          dynamicAttachments: campaignToResend.isDynamicAttachments || campaignToResend.is_dynamic_attachments || campaignToResend.dynamicAttachments || false,
-          matchMode: campaignToResend.matchMode || campaignToResend.match_mode || 'auto',
-        };
-  
-        const response = await fetch("/api/send-campaign", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+      // ✅ Timer per incremento progressivo del contatore a schermo nel reinvio
+      let progressTimer = setInterval(() => {
+        setSendingProgress(prev => {
+          if (prev.status !== 'sending') return prev;
+          const nextVal = Math.min((prev.current || 0) + 1, Math.max(1, (prev.total || recipients.length) - 1));
+          return {
+            ...prev,
+            current: nextVal,
+            message: `Re-invio in corso: ${nextVal} di ${prev.total || recipients.length} email...`
+          };
         });
-  
-        let result;
-        const responseText = await response.text();
-        try {
-          result = JSON.parse(responseText);
-        } catch (err) {
-          throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
-        }
-        
-        if (!result.success) {
-          throw new Error(result.message || "Errore invio SMTP");
-        }
-  
-        successCount = result.sent || recipients.length;
-        failedCount = result.failed || 0;
+      }, Math.max(60, Math.floor(3500 / Math.max(1, recipients.length))));
 
-        // ✅ AGGIORNA PROGRESSO
-        setSendingProgress({
-          current: successCount,
-          total: recipients.length,
-          status: 'sending',
-          message: `Inviate ${successCount}/${recipients.length} email...`
-        });
-
-      // ✅ 4) Resend
-      } else if (accountObj.provider === "resend") {
-        console.log('🚀 Invio via Resend a:', recipients.length, 'destinatari');
-        setSendingProgress(prev => ({
-          ...prev,
-          message: 'Invio via Resend in corso...'
-        }));
-        
-        const resendApiKey = accountObj.api_key || localStorage.getItem("resend_api_key");
-        if (!resendApiKey) {
-          throw new Error("API key Resend mancante per l'account mittente");
-        }
-       
-        const payload = {
-          apiKey: resendApiKey,
-          user_id: currentUserId,
-          from: accountObj.email,
-          to: recipients,
-          cc: emailCc,
-          bcc: emailBcc,
-          subject: emailSubject,
-          html: htmlContent,
-          attachments: attachmentsForPayload,
-          campaign_id: campaignToResend.id,
-          contacts: contactsForSend,
-          dynamicAttachments: campaignToResend.isDynamicAttachments || campaignToResend.is_dynamic_attachments || campaignToResend.dynamicAttachments || false,
-          matchMode: campaignToResend.matchMode || campaignToResend.match_mode || 'auto',
-        };
+      try {
+        // ✅ 3) SMTP/Brevo
+        if (accountObj.provider === "brevo" || (accountObj.smtp && accountObj.provider !== "resend")) {
+          console.log('🚀 Invio via SMTP a:', recipients.length, 'destinatari');
+          
+          const payload = {
+            user_id: currentUserId,
+            from: accountObj.email,
+            to: recipients,
+            cc: emailCc,
+            bcc: emailBcc,
+            subject: emailSubject,
+            html: htmlContent,
+            attachments: attachmentsForPayload,
+            smtp: accountObj.smtp,
+            campaign_id: campaignToResend.id,
+            contacts: contactsForSend,
+            dynamicAttachments: campaignToResend.isDynamicAttachments || campaignToResend.is_dynamic_attachments || campaignToResend.dynamicAttachments || false,
+            matchMode: campaignToResend.matchMode || campaignToResend.match_mode || 'auto',
+          };
+    
+          const response = await fetch("/api/send-campaign", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+    
+          let result;
+          const responseText = await response.text();
+          try {
+            result = JSON.parse(responseText);
+          } catch (err) {
+            throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+          }
+          
+          if (!result.success) {
+            throw new Error(result.message || "Errore invio SMTP");
+          }
+    
+          successCount = result.sent || recipients.length;
+          failedCount = result.failed || 0;
   
-        const response = await fetch("/api/resend/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-  
-        let result;
-        const responseText = await response.text();
-        try {
-          result = JSON.parse(responseText);
-        } catch (err) {
-          throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+        // ✅ 4) Resend
+        } else if (accountObj.provider === "resend") {
+          console.log('🚀 Invio via Resend a:', recipients.length, 'destinatari');
+          setSendingProgress(prev => ({
+            ...prev,
+            message: `Invio via Resend a ${recipients.length} destinatari...`
+          }));
+          
+          const resendApiKey = accountObj.api_key || localStorage.getItem("resend_api_key");
+          if (!resendApiKey) {
+            throw new Error("API key Resend mancante per l'account mittente");
+          }
+         
+          const payload = {
+            apiKey: resendApiKey,
+            user_id: currentUserId,
+            from: accountObj.email,
+            to: recipients,
+            cc: emailCc,
+            bcc: emailBcc,
+            subject: emailSubject,
+            html: htmlContent,
+            attachments: attachmentsForPayload,
+            campaign_id: campaignToResend.id,
+            contacts: contactsForSend,
+            dynamicAttachments: campaignToResend.isDynamicAttachments || campaignToResend.is_dynamic_attachments || campaignToResend.dynamicAttachments || false,
+            matchMode: campaignToResend.matchMode || campaignToResend.match_mode || 'auto',
+          };
+    
+          const response = await fetch("/api/resend/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+    
+          let result;
+          const responseText = await response.text();
+          try {
+            result = JSON.parse(responseText);
+          } catch (err) {
+            throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+          }
+          
+          console.log('📤 Risposta Resend:', result);
+          
+          if (!result.success) {
+            throw new Error(result.message || "Errore invio Resend");
+          }
+    
+          successCount = result.sent || recipients.length;
+          failedCount = (result.errors?.length) || 0;
+        } else {
+          throw new Error(`Provider email non supportato: ${accountObj.provider}`);
         }
-        
-        console.log('📤 Risposta Resend:', result);
-        
-        if (!result.success) {
-          throw new Error(result.message || "Errore invio Resend");
-        }
-  
-        successCount = result.sent || recipients.length;
-        failedCount = (result.errors?.length) || 0;
-
-        // ✅ AGGIORNA PROGRESSO
-        setSendingProgress({
-          current: successCount,
-          total: recipients.length,
-          status: 'sending',
-          message: `Inviate ${successCount}/${recipients.length} email...`
-        });
-      } else {
-        throw new Error(`Provider email non supportato: ${accountObj.provider}`);
+      } finally {
+        if (progressTimer) clearInterval(progressTimer);
       }
   
       console.log(`✅ Email inviate: ${successCount}, fallite: ${failedCount}`);
       
-      // ✅ COMPLETATO
+      // ✅ COMPLETATO: Dati per il Popup Riassunto Re-invio Campagna
       setSendingProgress({
         current: successCount,
         total: recipients.length,
         status: 'completed',
-        message: `✅ ${successCount} email inviate con successo!`
+        campaignName: campaignToResend.campaign_name || campaignToResend.name || campaignToResend.subject,
+        campaignSubject: campaignToResend.subject,
+        senderEmail: accountObj.email || campaignToResend.sender_email,
+        failedCount: failedCount,
+        completedAt: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        message: failedCount === 0
+          ? `Tutte le ${successCount} email sono state reinviate con successo a tutti i contatti!`
+          : `Re-invio completato: ${successCount} inviate con successo, ${failedCount} fallite.`,
+        campaignObj: campaignToResend,
       });
 
       // ✅ 5) Aggiorna campagna originale
@@ -6465,12 +6479,8 @@ const [recipients, setRecipients] = useState([]);
       }
 
       await loadCampaigns();
-
-      setTimeout(() => {
-        setShowSendingProgress(false);
-        setCampaignToResend(null);
-        toast.success(`✅ Campagna reinviata (${newResendCount}° invio) a ${successCount} destinatari!`, { duration: 6000 });
-      }, 10000);
+      setSendingId(null);
+      toast.success(`✅ Campagna reinviata (${newResendCount}° invio) a ${successCount} destinatari!`, { duration: 4000 });
   
     } catch (err) {
       console.error("❌ Errore re-invio:", err);
@@ -7409,17 +7419,17 @@ const [recipients, setRecipients] = useState([]);
       className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4"
     >
       {sendingProgress.status === 'completed' ? (
-        // ✅ POPUP SUCCESSO PROFESSIONALE
+        // ✅ POPUP RIEPILOGO INVIO / SUCCESSO COMPLETO
         <div className="text-center py-2 relative overflow-hidden">
           {/* Icona animata con gradiente verde/smeraldo */}
-          <div className="relative w-20 h-20 mx-auto mb-5">
+          <div className="relative w-16 h-16 mx-auto mb-4">
             <motion.div
               initial={{ scale: 0, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ type: "spring", stiffness: 260, damping: 20 }}
-              className="w-20 h-20 bg-gradient-to-tr from-emerald-500 to-teal-400 rounded-2xl shadow-lg shadow-emerald-500/30 flex items-center justify-center text-white"
+              className="w-16 h-16 bg-gradient-to-tr from-emerald-500 to-teal-500 rounded-2xl shadow-lg shadow-emerald-500/30 flex items-center justify-center text-white"
             >
-              <CheckCircle className="w-10 h-10 stroke-[2.5]" />
+              <CheckCircle className="w-9 h-9 stroke-[2.5]" />
             </motion.div>
           </div>
 
@@ -7429,43 +7439,104 @@ const [recipients, setRecipients] = useState([]);
             transition={{ delay: 0.1 }}
             className="text-2xl font-extrabold text-gray-900 dark:text-white tracking-tight mb-1"
           >
-            Invio Completato con Successo!
+            Riepilogo Invio Campagna
           </motion.h3>
 
           <motion.p
             initial={{ y: 10, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.15 }}
-            className="text-sm text-gray-500 dark:text-gray-400 mb-6"
+            className="text-xs text-gray-500 dark:text-gray-400 mb-5"
           >
-            {sendingProgress.message || "La campagna è stata elaborata e consegnata alla coda di invio."}
+            {sendingProgress.message || "Tutte le email sono state elaborate e inviate con successo."}
           </motion.p>
 
-          {/* Riquadro Dettagli Invio */}
+          {/* Riquadro Dettagli Invio Completo */}
           <motion.div
             initial={{ y: 15, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.2 }}
-            className="bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 rounded-xl p-4 mb-6 text-left"
+            className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60 rounded-xl p-4 mb-5 text-left text-xs space-y-2.5 shadow-sm"
           >
-            <div className="flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wider">
-              <span>Stato Operazione</span>
-              <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-bold">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                Concluso
+            <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-700">
+              <span className="font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-[11px]">Esito Invio</span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                {(sendingProgress.failedCount || 0) > 0 ? "Completato con errori" : "Completato con successo"}
               </span>
             </div>
-            
-            <div className="flex items-center justify-between py-1.5 border-b border-slate-200/50 dark:border-slate-700/40 text-sm">
-              <span className="text-gray-600 dark:text-gray-300">Email inviate:</span>
-              <span className="font-bold text-gray-900 dark:text-white text-base">
-                {sendingProgress.current} / {sendingProgress.total || sendingProgress.current}
-              </span>
+
+            {/* Campagna */}
+            {(sendingProgress.campaignName || selectedCampaign?.campaign_name || campaignToResend?.campaign_name) && (
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-gray-500 dark:text-gray-400 shrink-0">Campagna:</span>
+                <span className="font-semibold text-gray-800 dark:text-gray-200 text-right truncate max-w-[220px]" title={sendingProgress.campaignName || selectedCampaign?.campaign_name || campaignToResend?.campaign_name}>
+                  {sendingProgress.campaignName || selectedCampaign?.campaign_name || campaignToResend?.campaign_name}
+                </span>
+              </div>
+            )}
+
+            {/* Oggetto */}
+            {(sendingProgress.campaignSubject || selectedCampaign?.subject || campaignToResend?.subject) && (
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-gray-500 dark:text-gray-400 shrink-0">Oggetto:</span>
+                <span className="font-medium text-gray-700 dark:text-gray-300 text-right truncate max-w-[220px]" title={sendingProgress.campaignSubject || selectedCampaign?.subject || campaignToResend?.subject}>
+                  {sendingProgress.campaignSubject || selectedCampaign?.subject || campaignToResend?.subject}
+                </span>
+              </div>
+            )}
+
+            {/* Mittente */}
+            {(sendingProgress.senderEmail || selectedCampaign?.sender_email || campaignToResend?.sender_email) && (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-gray-500 dark:text-gray-400 shrink-0">Mittente:</span>
+                <span className="font-medium text-gray-700 dark:text-gray-300 text-right truncate max-w-[220px]">
+                  {sendingProgress.senderEmail || selectedCampaign?.sender_email || campaignToResend?.sender_email}
+                </span>
+              </div>
+            )}
+
+            {/* Statistiche Invio */}
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+              <div className="bg-white dark:bg-slate-900/60 p-2.5 rounded-lg border border-slate-100 dark:border-slate-700/60">
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-medium">Inviate con successo</p>
+                <p className="text-base font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                  {sendingProgress.current} <span className="text-xs font-normal text-gray-400">/ {sendingProgress.total || sendingProgress.current}</span>
+                </p>
+              </div>
+              <div className="bg-white dark:bg-slate-900/60 p-2.5 rounded-lg border border-slate-100 dark:border-slate-700/60">
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-medium">Errori / Fallite</p>
+                <p className={`text-base font-extrabold mt-0.5 ${(sendingProgress.failedCount || 0) > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                  {sendingProgress.failedCount || 0}
+                </p>
+              </div>
             </div>
-            
-            <div className="flex items-center justify-between pt-2.5 text-xs text-gray-400">
-              <span>Chiusura automatica:</span>
-              <span className="font-medium text-emerald-600 dark:text-emerald-400">tra 10 secondi...</span>
+
+            {/* Orario completamento */}
+            {sendingProgress.completedAt && (
+              <div className="flex items-center justify-between pt-1 text-[11px] text-gray-400 dark:text-gray-500">
+                <span>Orario completamento:</span>
+                <span className="font-medium text-gray-600 dark:text-gray-300">{sendingProgress.completedAt}</span>
+              </div>
+            )}
+
+            {/* Banner di conferma stato contatti */}
+            <div className={`mt-2 p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+              (sendingProgress.failedCount || 0) === 0
+                ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40'
+                : 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40'
+            }`}>
+              {(sendingProgress.failedCount || 0) === 0 ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span><strong>Perfetto!</strong> Tutti i contatti selezionati hanno ricevuto l'email con successo.</span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span>{sendingProgress.failedCount} contatti non hanno ricevuto l'email. Verifica i Log o il Tracciamento.</span>
+                </>
+              )}
             </div>
           </motion.div>
 
@@ -7476,9 +7547,10 @@ const [recipients, setRecipients] = useState([]);
               setSelectedCampaign(null);
               setSendingId(null);
             }}
-            className="w-full py-2.5 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-sm font-semibold shadow-md transition-colors cursor-pointer"
+            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
-            Chiudi subito
+            <Check className="w-4 h-4 stroke-[3]" />
+            OK
           </button>
         </div>
       ) : sendingProgress.status === 'error' ? (
@@ -17643,14 +17715,17 @@ const resolveRecipientEmailsModal = (recipientList, contacts, tagLabels = [], sa
           current: successCount,
           total: recipients.length,
           status: 'completed',
-          message: `Campagna "${emailSubject}" inviata con successo a ${successCount} destinatari!`
+          campaignName: campaignName || emailSubject || 'Campagna Email',
+          campaignSubject: emailSubject,
+          senderEmail: selectedAccount || accountObj?.email || user?.email || '',
+          failedCount: failedRecipients.length,
+          completedAt: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          message: failedRecipients.length === 0
+            ? `Campagna "${emailSubject}" inviata con successo a tutti i ${successCount} destinatari!`
+            : `Campagna "${emailSubject}" inviata a ${successCount} destinatari (${failedRecipients.length} errori).`
         });
-
-        setTimeout(() => {
-          setShowSendingProgress(false);
-        }, 10000);
       } else {
-        toast.success(`✅ Campagna inviata a ${successCount} destinatari con successo!`, { duration: 10000 });
+        toast.success(`✅ Campagna inviata a ${successCount} destinatari con successo!`, { duration: 5000 });
       }
 
       if (typeof loadCampaigns === 'function') {
