@@ -10,10 +10,9 @@ import Select from 'react-select';
 import { useAuth } from '../../contexts/AuthContext';
 import ContactListsModal from '../../components/contacts/ContactListsModal';
 import { useRouter } from 'next/router'; // ✅ Cambiato qui
-import { ToolbarPlugin } from "./EditorToolbar";
 import toast, { Toaster } from "react-hot-toast";
 import CampaignHeader from "./CampaignHeader";
-import { Loader2 } from "lucide-react";
+import { Loader2, Award, GraduationCap } from "lucide-react";
 import EmailLogs from "./EmailLogs";
 import EmailSettings from "../settings/EmailSettings";
 import SuperAdminPanel from "../admin/SuperAdminPanel";
@@ -6628,6 +6627,32 @@ const [recipients, setRecipients] = useState([]);
 
     return 0;
   };
+
+  const isCorrelatedCampaign = (c) => {
+    if (!c) return false;
+    if (c.is_dynamic_attachments || c.isDynamicAttachments || c.dynamicAttachments) return true;
+    
+    let atts = c.attachments || [];
+    if (typeof atts === 'string') {
+      try { atts = JSON.parse(atts); } catch { atts = []; }
+    }
+    const count = Array.isArray(atts) ? atts.length : (c.attachments_count || 0);
+    
+    if (count > 0 && Array.isArray(atts)) {
+      const hasCfFiles = atts.some(a => {
+        const fn = a?.filename || a?.name || (typeof a === 'string' ? a : '');
+        return /^[A-Z]{6}[0-9]{2}[A-Z][0-9]{2}[A-Z][0-9]{3}[A-Z]/i.test(fn);
+      });
+      if (hasCfFiles) return true;
+    }
+
+    const name = (c.campaign_name || c.name || c.subject || '').toLowerCase();
+    if (count > 0 && (name.includes('attestat') || name.includes('ecm') || name.includes('corso') || name.includes('certificat') || name.includes('diplom') || name.includes('discent'))) {
+      return true;
+    }
+    
+    return false;
+  };
  
   // ✨rdinamento
   filtered = filtered.sort((a, b) => {
@@ -6863,7 +6888,19 @@ const [recipients, setRecipients] = useState([]);
                   </svg>
                   {formatDate(campaign.sent_at || campaign.created_at)}
                 </p>
-                {getAttachmentCount(campaign) > 0 ? (
+                {isCorrelatedCampaign(campaign) ? (
+                  <div className="mt-2 flex flex-col gap-1">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-xs w-fit" title="Campagna con invio attestati correlati 1:1 per ciascun discente">
+                      <Award className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span>🎓 Attestati Correlati (1:1)</span>
+                    </span>
+                    {getAttachmentCount(campaign) > 0 && (
+                      <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                        📎 {getAttachmentCount(campaign)} attestati abbinati ai contatti
+                      </span>
+                    )}
+                  </div>
+                ) : getAttachmentCount(campaign) > 0 ? (
                   <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 mt-1.5 flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 px-2 py-0.5 rounded-md w-fit">
                     <Paperclip className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                     <span>📎 {getAttachmentCount(campaign)} {getAttachmentCount(campaign) === 1 ? 'allegato' : 'allegati'}</span>
@@ -7181,7 +7218,19 @@ const [recipients, setRecipients] = useState([]);
                 />
               </td>
 
-              <td className="px-6 py-4 font-medium">{campaigns.campaign_name}</td>
+              <td className="px-6 py-4 font-medium">
+                <div className="flex flex-col gap-1">
+                  <span className="text-gray-900 font-semibold">{campaigns.campaign_name}</span>
+                  {isCorrelatedCampaign(campaigns) ? (
+                    <span className="inline-flex items-center gap-1 w-fit px-2 py-0.5 text-[11px] font-semibold rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200/80 shadow-2xs" title="Campagna con Invio Attestati Correlati 1:1">
+                      <Award className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                      <span>🎓 Attestati Correlati (1:1)</span>
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-400 truncate max-w-xs">{campaigns.subject}</span>
+                  )}
+                </div>
+              </td>
 
               <td className="px-6 py-4">
                 {(() => {
