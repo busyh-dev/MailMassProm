@@ -3285,10 +3285,8 @@ const exportResendLog = (format = "csv", autoDownload = false) => {
       setLastContactsLength(contacts.length);
     }
   }, [contacts.length]); // ← Usa solo la length, non l'intero array
-  const CampaignsList = ({ setActiveTab }) => {
-    const [campaigns, setCampaigns] = useState([]);
-    const [loading, setLoading] = useState(true);
-  
+  const CampaignsList = ({ setActiveTab, campaigns: campaignsProp, contacts: contactsProp, loadCampaigns: loadCampaignsProp }) => {
+    const listCampaigns = campaignsProp || campaigns || [];
     const [page, setPage] = useState(1);
     const perPage = 10;
   
@@ -3296,27 +3294,11 @@ const exportResendLog = (format = "csv", autoDownload = false) => {
     const [filterStatus, setFilterStatus] = useState("all"); 
     const [searchQuery, setSearchQuery] = useState("");
   
-    
-    if (loading) {
-      return (
-        <div className="flex flex-col items-center justify-center min-h-[500px] gap-4">
-          <div className="relative">
-            <div className="w-14 h-14 border-4 border-blue-100 rounded-full"></div>
-            <div className="w-14 h-14 border-4 border-blue-600 border-t-transparent rounded-full animate-spin absolute inset-0"></div>
-          </div>
-          <div className="text-center">
-            <p className="text-gray-700 font-semibold text-base">Caricamento campagne</p>
-            <p className="text-gray-400 text-sm mt-1">Recupero dati in corso...</p>
-          </div>
-        </div>
-      );
-    }
-  
     // ---------------------------
     // FILTRI
     // ---------------------------
     const applyFilters = () => {
-      let filtered = [...campaigns];
+      let filtered = [...listCampaigns];
   
       // Filter by status
       if (filterStatus === "sent") {
@@ -3465,7 +3447,7 @@ const exportResendLog = (format = "csv", autoDownload = false) => {
                 <th className="px-6 py-3 text-left">Destinatari</th>
                 <th className="px-6 py-3 text-center">Stato</th>
                 <th className="px-6 py-3 text-left">Data</th>
-                <th className="px-6 py-3 text-center">Tracciamento Lettura</th>
+                <th className="px-6 py-3 text-right">Azioni</th>
               </tr>
             </thead>
   
@@ -3487,34 +3469,85 @@ const exportResendLog = (format = "csv", autoDownload = false) => {
                 else if (Array.isArray(c.recipients)) recipCount = c.recipients.length;
                 else if (typeof c.recipients === 'number') recipCount = c.recipients;
                 else if (c.sent_count) recipCount = c.sent_count;
+
+                const isSent = c.status === "sent";
+                const isScheduled = c.status === "scheduled";
+                const isDraft = !isSent;
   
                 return (
                   <tr key={c.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4 font-semibold text-gray-900">{c.name || c.campaign_name || c.subject}</td>
+                    <td className="px-6 py-4 font-semibold text-gray-900">
+                      <div>{c.name || c.campaign_name || c.subject}</div>
+                      {c.subject && <div className="text-xs text-gray-400 font-normal truncate max-w-xs">{c.subject}</div>}
+                    </td>
                     <td className="px-6 py-4 text-gray-600">{recipCount} destinatari</td>
                     <td className="px-6 py-4 text-center">
                       <span
-                        className={`px-2 py-1 text-xs rounded-full font-semibold ${
-                          c.status === "sent"
+                        className={`px-2.5 py-1 text-xs rounded-full font-semibold ${
+                          isSent
                             ? "bg-green-100 text-green-700"
+                            : isScheduled
+                            ? "bg-indigo-100 text-indigo-700"
                             : "bg-yellow-100 text-yellow-700"
                         }`}
                       >
-                        {c.status === "sent" ? "Inviata" : "Bozza"}
+                        {isSent ? "Inviata" : isScheduled ? "Programmata" : "Bozza"}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-gray-500">{formatted}</td>
-                    <td className="px-6 py-4 text-center">
-                      <button
-                        onClick={() => {
-                          setSelectedTrackingCampaign(c);
-                          setShowTrackingModal(true);
-                        }}
-                        className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-xs inline-flex items-center gap-1.5 transition-all border border-indigo-200 shadow-2xs active:scale-95"
-                      >
-                        <Eye className="w-4 h-4 text-indigo-600" />
-                        Controllo Lettura
-                      </button>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {isDraft ? (
+                          <button
+                            onClick={() => {
+                              setSelectedCampaign(c);
+                              handleSendCampaign(c);
+                            }}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs inline-flex items-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-95"
+                            title="Invia bozza"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            Invia
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              handleResendCampaign(c);
+                            }}
+                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs inline-flex items-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-95"
+                            title="Re-invia campagna"
+                          >
+                            <Send className="w-3.5 h-3.5 rotate-180" />
+                            Re-invia
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => {
+                            setSelectedCampaign(c);
+                            setShowEditModal(true);
+                          }}
+                          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-xs inline-flex items-center gap-1.5 transition-all border border-gray-200 shadow-2xs active:scale-95 cursor-pointer"
+                          title="Modifica campagna"
+                        >
+                          <Edit3 className="w-3.5 h-3.5 text-gray-600" />
+                          Modifica
+                        </button>
+
+                        {isSent && (
+                          <button
+                            onClick={() => {
+                              setSelectedTrackingCampaign(c);
+                              setShowTrackingModal(true);
+                            }}
+                            className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-xs inline-flex items-center gap-1.5 transition-all border border-indigo-200 shadow-2xs active:scale-95 cursor-pointer"
+                            title="Controllo lettura"
+                          >
+                            <Eye className="w-4 h-4 text-indigo-600" />
+                            Lettura
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -4029,6 +4062,69 @@ const [showMatchPreview, setShowMatchPreview] = useState(false);
     }
   };
 
+  /* 🚀 Salva e invia subito la campagna */
+  const handleSaveAndSendClick = async () => {
+    if (!selectedAccount) return toast.error("⚠️ Seleziona un account di invio prima di inviare.");
+    if (ccError || bccError) return toast.error("⚠️ Correggi gli indirizzi email non validi prima di inviare.");
+    
+    const effectiveRecipients = (Array.isArray(recipientList) && recipientList.length > 0)
+      ? recipientList
+      : (campaign?.recipient_list || campaign?.recipients || []);
+    
+    if (!effectiveRecipients || effectiveRecipients.length === 0) {
+      return toast.error("⚠️ Inserisci almeno un destinatario per inviare la campagna.");
+    }
+
+    try {
+      const selectedAccountData = (accounts || []).find(acc => acc.email === selectedAccount) || {};
+      const computedTotal = effectiveRecipients.length;
+
+      const updatedCampaign = {
+        id: campaign.id,
+        campaignName: campaignName || campaign?.campaign_name || campaign?.name,
+        campaign_name: campaignName || campaign?.campaign_name || campaign?.name,
+        name: campaignName || campaign?.campaign_name || campaign?.name,
+        subject: subject || campaign?.subject,
+        emailContent: emailContent || campaign?.email_content || campaign?.content,
+        email_content: emailContent || campaign?.email_content || campaign?.content,
+        recipientList: effectiveRecipients,
+        recipient_list: effectiveRecipients,
+        recipients: effectiveRecipients,
+        totalRecipients: computedTotal,
+        total_recipients: computedTotal,
+        senderEmail: selectedAccount || campaign?.sender_email || (accounts && accounts[0]?.email) || "",
+        sender_email: selectedAccount || campaign?.sender_email || (accounts && accounts[0]?.email) || "",
+        senderEmailId: selectedAccountData.id || null,
+        status: campaign?.status || 'draft',
+        cc: cc,
+        bcc: bcc,
+        attachments: attachments,
+        isDynamicAttachments: isDynamicAttachments,
+        matchMode: matchMode,
+        totalAttachmentSize: attachments.reduce(
+          (sum, a) => sum + (a.file?.size || a.size || 0),
+          0
+        ),
+      };
+
+      const { success, data, error } = await saveCampaignFn(updatedCampaign, true);
+      if (!success) {
+        throw new Error(error || "Errore nel salvataggio preliminare della campagna");
+      }
+
+      const campaignReadyToSend = data || updatedCampaign;
+      if (onSave) onSave(campaignReadyToSend);
+      onClose();
+
+      if (typeof handleSendCampaign === 'function') {
+        handleSendCampaign(campaignReadyToSend);
+      }
+    } catch (error) {
+      console.error('❌ Errore durante Salva e Invia:', error);
+      toast.error('❌ Errore: ' + error.message);
+    }
+  };
+
 const confirmExit = () => {
   setShowConfirmExit(false);
   setCampaignMode(null);
@@ -4464,21 +4560,31 @@ const confirmExit = () => {
           </div>
           </div>
           {/* Pulsanti */}
-          <div className="flex gap-3 px-6 py-4 border-t border-gray-200 bg-white sticky bottom-0">
+          <div className="flex flex-col sm:flex-row gap-3 px-6 py-4 border-t border-gray-200 bg-white sticky bottom-0">
             <button
               onClick={handleCancel}
-              className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 px-6 rounded-lg transition font-medium"
+              className="sm:w-auto px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-lg transition font-medium"
             >
               Annulla
             </button>
             <button
               onClick={handleSaveClick}
-              className={`flex-1 py-3 px-6 rounded-lg text-white transition font-medium flex items-center justify-center gap-2 ${
+              className={`flex-1 py-3 px-4 rounded-lg text-white transition font-medium flex items-center justify-center gap-2 ${
                 ccError || bccError ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
               }`}
               disabled={!!ccError || !!bccError}
             >
               Salva Modifiche
+            </button>
+            <button
+              onClick={handleSaveAndSendClick}
+              className={`flex-1 py-3 px-4 rounded-lg text-white transition font-medium flex items-center justify-center gap-2 shadow-sm cursor-pointer ${
+                ccError || bccError ? "bg-gray-400 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-700"
+              }`}
+              disabled={!!ccError || !!bccError}
+            >
+              <Send className="w-4 h-4" />
+              Salva e Invia Ora
             </button>
           </div>
         </div>
@@ -6528,14 +6634,19 @@ const [recipients, setRecipients] = useState([]);
         </div>
         <p className="text-gray-400 text-sm">Caricamento campagne...</p>
       </div>
-    ) : (campaigns || []).length > 0 ? (
-      (campaigns || []).map((campaign) => (
+    ) : filtered.length > 0 ? (
+      filtered.map((campaign) => {
+        const isSent = campaign.status === "sent";
+        const isScheduled = campaign.status === "scheduled";
+        const isDraft = !isSent;
+
+        return (
         <div key={campaign.id} className="bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-lg transition-all duration-200 overflow-hidden group flex flex-col">
 
           {/* Barra colore status */}
           <div className={`h-1 w-full ${
-            campaign.status === "sent" ? "bg-green-500" :
-            campaign.status === "scheduled" ? "bg-indigo-500" :
+            isSent ? "bg-green-500" :
+            isScheduled ? "bg-indigo-500" :
             "bg-yellow-400"
           }`} />
 
@@ -6564,19 +6675,19 @@ const [recipients, setRecipients] = useState([]);
                 )}
               </div>
               <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full flex-shrink-0 ${
-                campaign.status === "sent"
+                isSent
                   ? "bg-green-50 text-green-700 ring-1 ring-green-200"
-                  : campaign.status === "scheduled"
+                  : isScheduled
                   ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200"
                   : "bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200"
               }`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${
-                  campaign.status === "sent" ? "bg-green-500" :
-                  campaign.status === "scheduled" ? "bg-indigo-500" :
+                  isSent ? "bg-green-500" :
+                  isScheduled ? "bg-indigo-500" :
                   "bg-yellow-500"
                 }`} />
-                {campaign.status === "sent" ? "Inviata" :
-                 campaign.status === "scheduled" ? "Programmata" : "Bozza"}
+                {isSent ? "Inviata" :
+                 isScheduled ? "Programmata" : "Bozza"}
               </span>
             </div>
 
@@ -6618,7 +6729,8 @@ const [recipients, setRecipients] = useState([]);
                   setSelectedCampaign(campaign);
                   setShowViewModal(true);
                 }}
-                className="btn-action btn-blue flex-1"
+                className="btn-action btn-blue flex-1 cursor-pointer"
+                title="Visualizza campagna"
               >
                 <Eye className="w-3.5 h-3.5" />
                 Vedi
@@ -6630,19 +6742,21 @@ const [recipients, setRecipients] = useState([]);
                   setSelectedCampaign(campaign);
                   setShowEditModal(true);
                 }}
-                className="btn-action btn-gray flex-1"
+                className="btn-action btn-gray flex-1 cursor-pointer"
+                title="Modifica campagna"
               >
                 <Edit3 className="w-3.5 h-3.5" />
                 Modifica
               </button>
 
-              {campaign.status === "draft" && (
+              {isDraft ? (
                 <button
                   disabled={sendingId === campaign.id}
                   onClick={() => {
                     handleSendCampaign(campaign);
                   }}
-                  className="btn-action btn-green flex-1"
+                  className="btn-action btn-green flex-1 cursor-pointer"
+                  title="Invia campagna"
                 >
                   {sendingId === campaign.id ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -6653,26 +6767,7 @@ const [recipients, setRecipients] = useState([]);
                     </>
                   )}
                 </button>
-              )}
-
-              {/* ✅ AGGIUNGI questo per scheduled */}
-              {campaign.status === "scheduled" && (
-                <button
-                  disabled={sendingId === campaign.id}
-                  onClick={() => {
-                    handleSendCampaign(campaign);
-                  }}
-                  className="btn-action btn-indigo flex-1"
-                >
-                  {sendingId === campaign.id ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <><Send className="w-3.5 h-3.5" />Invia</>
-                  )}
-                </button>
-              )}
-
-              {campaign.status === "sent" && (
+              ) : (
                 <button
                   disabled={sendingId === campaign.id}
                   onClick={async () => {
@@ -6680,7 +6775,8 @@ const [recipients, setRecipients] = useState([]);
                     await handleResendCampaign(campaign);
                     setSendingId(null);
                   }}
-                  className="btn-action btn-indigo flex-1"
+                  className="btn-action btn-indigo flex-1 cursor-pointer"
+                  title="Re-invia campagna"
                 >
                   {sendingId === campaign.id ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -6700,7 +6796,7 @@ const [recipients, setRecipients] = useState([]);
                     e.stopPropagation();
                     setOpenMenuId(openMenuId === campaign.id ? null : campaign.id);
                   }}
-                  className="btn-action btn-light px-2"
+                  className="btn-action btn-light px-2 cursor-pointer"
                 >
                   <MoreVertical className="w-4 h-4" />
                 </button>
@@ -6709,26 +6805,41 @@ const [recipients, setRecipients] = useState([]);
                   <div className="absolute right-0 bottom-full mb-2 z-50 w-44 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden text-left">
                     <button
                       onClick={() => { setSelectedCampaign(campaign); setShowViewModal(true); setOpenMenuId(null); }}
-                      className="w-full text-left px-4 py-2.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors flex items-center gap-2"
+                      className="w-full text-left px-4 py-2.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors flex items-center gap-2 cursor-pointer"
                     >
                       👁️ Vedi
                     </button>
                     <button
                       onClick={() => { setSelectedCampaign(campaign); setShowEditModal(true); setOpenMenuId(null); }}
-                      className="w-full text-left px-4 py-2.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors flex items-center gap-2"
+                      className="w-full text-left px-4 py-2.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors flex items-center gap-2 cursor-pointer"
                     >
                       ✏️ Modifica
                     </button>
+                    {isDraft ? (
+                      <button
+                        onClick={() => { handleSendCampaign(campaign); setOpenMenuId(null); }}
+                        className="w-full text-left px-4 py-2.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors flex items-center gap-2 font-semibold cursor-pointer"
+                      >
+                        🚀 Invia
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => { handleResendCampaign(campaign); setOpenMenuId(null); }}
+                        className="w-full text-left px-4 py-2.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors flex items-center gap-2 font-semibold cursor-pointer"
+                      >
+                        🔄 Re-invia
+                      </button>
+                    )}
                     <button
-                      onClick={() => { handleResendCampaign(campaign); setOpenMenuId(null); }}
-                      className="w-full text-left px-4 py-2.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors flex items-center gap-2"
+                      onClick={() => { handleDuplicateCampaign(campaign); setOpenMenuId(null); }}
+                      className="w-full text-left px-4 py-2.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/60 transition-colors flex items-center gap-2 cursor-pointer"
                     >
-                      🔄 Duplica
+                      📋 Duplica
                     </button>
                     <div className="border-t border-gray-100 dark:border-slate-700" />
                     <button
                       onClick={() => { setSelectedCampaign(campaign); setShowDeleteConfirm(true); setOpenMenuId(null); }}
-                      className="w-full text-left px-4 py-2.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors flex items-center gap-2"
+                      className="w-full text-left px-4 py-2.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors flex items-center gap-2 cursor-pointer"
                     >
                       🗑️ Elimina
                     </button>
@@ -6738,7 +6849,8 @@ const [recipients, setRecipients] = useState([]);
             </div>
           </div>
         </div>
-      ))
+        );
+      })
     ) : (
       <div className="col-span-3 flex flex-col items-center justify-center py-20 gap-3">
         <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
@@ -6874,19 +6986,25 @@ const [recipients, setRecipients] = useState([]);
               <td className="px-6 py-4 font-medium">{campaigns.campaign_name}</td>
 
               <td className="px-6 py-4">
-                <span className={`px-2 py-1 text-xs rounded-full ${
-                    campaigns.status === "sent"
-                      ? "bg-green-100 text-green-800"
-                      : campaigns.status === "draft"
-                      ? "bg-yellow-100 text-yellow-800"
-                      : "bg-indigo-100 text-indigo-800"
-                  }`}
-                >
-                  {campaigns.status === "sent" ? "Inviata" : campaigns.status === "draft" ? "Bozza" : campaigns.status}
-                </span>
+                {(() => {
+                  const isSent = campaigns.status === "sent";
+                  const isScheduled = campaigns.status === "scheduled";
+                  return (
+                    <span className={`px-2.5 py-1 text-xs rounded-full font-semibold ${
+                        isSent
+                          ? "bg-green-100 text-green-800"
+                          : isScheduled
+                          ? "bg-indigo-100 text-indigo-800"
+                          : "bg-yellow-100 text-yellow-800"
+                      }`}
+                    >
+                      {isSent ? "Inviata" : isScheduled ? "Programmata" : "Bozza"}
+                    </span>
+                  );
+                })()}
               </td>
 
-              <td className="px-6 py-4">{campaigns.total_recipients}</td>
+              <td className="px-6 py-4">{campaigns.total_recipients || 0}</td>
 
               <td className="px-6 py-4">{campaigns.opened_count || 0}</td>
 
@@ -6922,7 +7040,7 @@ const [recipients, setRecipients] = useState([]);
                       setSelectedCampaign(campaigns);
                       setShowViewModal(true);
                     }}
-                    className="px-2.5 py-1.5 text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 rounded-lg transition-colors inline-flex items-center gap-1 shadow-sm"
+                    className="px-2.5 py-1.5 text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 rounded-lg transition-colors inline-flex items-center gap-1 shadow-sm cursor-pointer"
                     title="Vedi dettagli campagna"
                   >
                     <Eye className="w-3.5 h-3.5" />
@@ -6934,39 +7052,26 @@ const [recipients, setRecipients] = useState([]);
                       setSelectedCampaign(campaigns);
                       setShowEditModal(true);
                     }}
-                    className="px-2.5 py-1.5 text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-700 dark:text-gray-200 rounded-lg transition-colors inline-flex items-center gap-1 shadow-sm"
+                    className="px-2.5 py-1.5 text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-700 dark:text-gray-200 rounded-lg transition-colors inline-flex items-center gap-1 shadow-sm cursor-pointer"
                     title="Modifica campagna"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
                     <span>Modifica</span>
                   </button>
 
-                  {campaigns.status === "draft" && (
+                  {campaigns.status !== "sent" ? (
                     <button
                       onClick={() => handleSendCampaign(campaigns)}
-                      className="px-2.5 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300 rounded-lg transition-colors inline-flex items-center gap-1 shadow-sm"
+                      className="px-2.5 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300 rounded-lg transition-colors inline-flex items-center gap-1 shadow-sm cursor-pointer"
                       title="Invia campagna"
                     >
                       <Send className="w-3.5 h-3.5" />
                       <span>Invia</span>
                     </button>
-                  )}
-
-                  {campaigns.status === "scheduled" && (
-                    <button
-                      onClick={() => handleSendCampaign(campaigns)}
-                      className="px-2.5 py-1.5 text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg transition-colors inline-flex items-center gap-1 shadow-sm"
-                      title="Invia ora"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>Invia</span>
-                    </button>
-                  )}
-
-                  {campaigns.status === "sent" && (
+                  ) : (
                     <button
                       onClick={() => handleResendCampaign(campaigns)}
-                      className="px-2.5 py-1.5 text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg transition-colors inline-flex items-center gap-1 shadow-sm"
+                      className="px-2.5 py-1.5 text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg transition-colors inline-flex items-center gap-1 shadow-sm cursor-pointer"
                       title="Re-invia campagna"
                     >
                       <Send className="w-3.5 h-3.5 rotate-180" />
@@ -31583,7 +31688,13 @@ if (loadingProfile && !user && !authUser) {
   )}
 
 {activeTab === "campaigns-list" && (
-  <CampaignsList key="campaigns-list" setActiveTab={setActiveTab} />
+  <CampaignsList 
+    key="campaigns-list" 
+    setActiveTab={setActiveTab}
+    campaigns={campaigns}
+    contacts={contacts}
+    loadCampaigns={loadCampaigns}
+  />
 )}
 
 {activeTab === "contacts" && (
