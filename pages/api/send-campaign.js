@@ -2,6 +2,15 @@ import { createClient } from "@supabase/supabase-js";
 import nodemailer from "nodemailer";
 import { matchAttachmentsForContact } from "../../lib/matchAttachments";
 
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '50mb',
+    },
+    responseLimit: false,
+  },
+};
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -49,7 +58,21 @@ export default async function handler(req, res) {
     });
   }
 
-  const { from, to, cc, bcc, subject, html, attachments, smtp, user_id, contacts, dynamicAttachments, matchMode } = req.body;
+  const {
+    from,
+    to,
+    cc,
+    bcc,
+    subject,
+    html,
+    attachments,
+    smtp,
+    user_id,
+    contacts,
+    dynamicAttachments,
+    matchMode,
+    campaign_id
+  } = req.body;
 
   console.log('📥 Payload ricevuto:', {
     from,
@@ -61,6 +84,7 @@ export default async function handler(req, res) {
     attachments: attachments?.length || 0,
     dynamicAttachments: !!dynamicAttachments,
     matchMode: matchMode || 'auto',
+    campaign_id: campaign_id || 'mancante',
     user_id: user_id || 'mancante'
   });
 
@@ -102,8 +126,39 @@ export default async function handler(req, res) {
 
     console.log('✅ Transporter creato');
 
+    // Recupera allegati: dal payload o direttamente dal DB se campaign_id è specificato
+    let rawAttachments = Array.isArray(attachments) ? attachments : [];
+    let isDynamic = dynamicAttachments;
+    let effectiveMatchMode = matchMode || 'auto';
+
+    if (rawAttachments.length === 0 && campaign_id) {
+      try {
+        console.log(`🔍 Recupero allegati per campagna ${campaign_id} da database...`);
+        const { data: dbCamp, error: campErr } = await supabase
+          .from('campaigns')
+          .select('attachments, is_dynamic_attachments, match_mode')
+          .eq('id', campaign_id)
+          .maybeSingle();
+        
+        if (!campErr && dbCamp?.attachments) {
+          rawAttachments = Array.isArray(dbCamp.attachments)
+            ? dbCamp.attachments
+            : JSON.parse(dbCamp.attachments || '[]');
+          console.log(`📎 Recuperati ${rawAttachments.length} allegati dal database.`);
+          if (isDynamic === undefined && dbCamp.is_dynamic_attachments !== undefined) {
+            isDynamic = dbCamp.is_dynamic_attachments;
+          }
+          if (dbCamp.match_mode) {
+            effectiveMatchMode = dbCamp.match_mode;
+          }
+        }
+      } catch (dbAttErr) {
+        console.warn('⚠️ Impossibile recuperare allegati dal DB:', dbAttErr.message);
+      }
+    }
+
     // Prepara gli allegati validi (esclude oggetti senza content o path)
-    const emailAttachments = (attachments || [])
+    const emailAttachments = (rawAttachments || [])
       .filter((att) => att && ((att.content && typeof att.content === 'string' && att.content.length > 0) || att.path || att.url))
       .map((att) => {
         const item = { filename: att.filename || att.name || 'allegato' };
@@ -116,42 +171,55 @@ export default async function handler(req, res) {
         return item;
       });
 
-    console.log('📎 Allegati preparati:', emailAttachments.length);
+    console.log('📎 Allegati totali preparati:', emailAttachments.length);
 
-    // ✅ 1. Crea il record della campagna nel DB per generare l'ID di tracciamento
-    let campaignId = null;
-    try {
-      const { data: campaignData, error: dbError } = await supabase
-        .from("campaigns")
-        .insert([
-          {
-            user_id: user_id,
-            name: subject,
-            subject,
-            html_content: html,
-            sender_email: from,
-            recipients: to,
-            cc: cc || [],
-            bcc: bcc || [],
-            status: "sending",
-            sent_at: new Date().toISOString(),
-            sent_count: 0,
-            failed_count: 0,
-            opened_count: 0,
-            clicked_count: 0,
-            bounced_count: 0,
-          },
-        ])
-        .select();
+    // Gestione ID Campagna (usa esistente o crea)
+    let campaignId = campaign_id || null;
+    if (!campaignId) {
+      try {
+        const { data: campaignData, error: dbError } = await supabase
+          .from("campaigns")
+          .insert([
+            {
+              user_id: user_id,
+              name: subject,
+              subject,
+              html_content: html,
+              sender_email: from,
+              recipients: to,
+              cc: cc || [],
+              bcc: bcc || [],
+              status: "sending",
+              sent_at: new Date().toISOString(),
+              sent_count: 0,
+              failed_count: 0,
+              opened_count: 0,
+              clicked_count: 0,
+              bounced_count: 0,
+            },
+          ])
+          .select();
 
-      if (dbError) {
-        console.error("⚠️ Errore creazione iniziale campagna nel DB:", dbError);
-      } else if (campaignData && campaignData.length > 0) {
-        campaignId = campaignData[0].id;
-        console.log("✅ Campagna creata nel DB con ID:", campaignId);
+        if (dbError) {
+          console.error("⚠️ Errore creazione iniziale campagna nel DB:", dbError);
+        } else if (campaignData && campaignData.length > 0) {
+          campaignId = campaignData[0].id;
+          console.log("✅ Campagna creata nel DB con ID:", campaignId);
+        }
+      } catch (createErr) {
+        console.error("⚠️ Eccezione creazione campagna:", createErr);
       }
-    } catch (createErr) {
-      console.error("⚠️ Eccezione creazione campagna:", createErr);
+    } else {
+      // Aggiorna stato in sending
+      try {
+        await supabase
+          .from("campaigns")
+          .update({
+            status: "sending",
+            sent_at: new Date().toISOString()
+          })
+          .eq("id", campaignId);
+      } catch (_) {}
     }
 
     // Calcola il Base URL per il tracciamento
@@ -180,7 +248,7 @@ export default async function handler(req, res) {
           return /[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]/i.test(fname) || fname.length >= 11;
         });
 
-        const shouldMatchDynamically = dynamicAttachments || (emailAttachments.length > 1 && hasCfNamedAttachments);
+        const shouldMatchDynamically = isDynamic || (emailAttachments.length > 1 && hasCfNamedAttachments);
 
         if (shouldMatchDynamically && emailAttachments.length > 0) {
           let contactObj = contacts?.find(c => (c.email || '').toLowerCase() === recipient.toLowerCase());
@@ -199,7 +267,7 @@ export default async function handler(req, res) {
           }
           if (!contactObj) contactObj = { email: recipient };
 
-          recipientAttachments = matchAttachmentsForContact(contactObj, emailAttachments, { matchMode: matchMode || 'auto' });
+          recipientAttachments = matchAttachmentsForContact(contactObj, emailAttachments, { matchMode: effectiveMatchMode });
           console.log(`📎 [Dynamic Match] per ${recipient}: ${recipientAttachments.length} allegati trovati (${recipientAttachments.map(a => a.filename).join(', ') || 'Nessuno'})`);
         }
 
@@ -249,39 +317,20 @@ export default async function handler(req, res) {
       }
     }
 
-    console.log('📊 Risultato finale:', { sent, failed });
-
-    // ✅ 2. Aggiorna lo stato e i conteggi finali della campagna nel DB
+    // ✅ Aggiorna il record della campagna con i risultati finali
     if (campaignId) {
       try {
         await supabase
           .from("campaigns")
           .update({
-            status: "sent",
+            status: failed === to.length ? "failed" : "sent",
             sent_count: sent,
             failed_count: failed,
-            bounced_count: failed,
+            updated_at: new Date().toISOString(),
           })
           .eq("id", campaignId);
 
-        // ✅ Salva ANCHE in email_logs
-        await supabase
-          .from("email_logs")
-          .insert([
-            {
-              user_id: user_id,
-              campaign_id: campaignId,
-              subject: subject,
-              sent_at: new Date().toISOString(),
-              status: "sent",
-              opened_count: 0,
-              total_recipients: to.length,
-              recipients: to,
-              cc: cc || [],
-              bcc: bcc || [],
-              failed_recipients: errors.length > 0 ? errors : null,
-            },
-          ]);
+        console.log(`📊 Campagna ${campaignId} aggiornata: ${sent} inviate, ${failed} fallite`);
       } catch (updateErr) {
         console.error("⚠️ Errore aggiornamento finale campagna:", updateErr);
       }
@@ -289,17 +338,18 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
-      message: `Email inviate: ${sent}/${to.length}`,
+      message: `Invio completato: ${sent} inviate, ${failed} fallite`,
       sent,
       failed,
       errors: errors.length > 0 ? errors : undefined,
+      campaign_id: campaignId,
     });
-
-  } catch (err) {
-    console.error("💥 Errore generale:", err);
+  } catch (error) {
+    console.error("❌ Errore generale durante l'invio:", error);
     return res.status(500).json({
       success: false,
-      message: err.message || "Errore durante l'invio delle email",
+      message: `Errore durante l'invio: ${error.message}`,
+      error: error.message,
     });
   }
 }

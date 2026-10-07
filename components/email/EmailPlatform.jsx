@@ -2777,6 +2777,11 @@ if (!accountData) {
       att && ((att.content && typeof att.content === 'string' && att.content.length > 0) || att.path || att.url)
     );
 
+    // Se la campagna ha già un ID e gli allegati sono molti/pesanti, evitiamo di inviare 20MB di base64 nel body:
+    // il backend caricherà gli allegati direttamente dal DB tramite campaign_id.
+    const isPayloadTooLarge = validCampaignAttachments.length > 5 || validCampaignAttachments.reduce((acc, a) => acc + (a.content?.length || 0), 0) > 1000000;
+    const attachmentsForPayload = (campaignToSend.id && isPayloadTooLarge) ? [] : validCampaignAttachments;
+
     // ✅ INVIO SMTP
     if (accountData.provider === "brevo" || accountData.smtp) {
       const payload = {
@@ -2787,7 +2792,7 @@ if (!accountData) {
         bcc: campaignToSend.bcc ? campaignToSend.bcc.split(',').map(e => e.trim()).filter(Boolean) : [],
         subject: campaignToSend.subject,
         html: campaignToSend.email_content,
-        attachments: validCampaignAttachments,
+        attachments: attachmentsForPayload,
         smtp: accountData.smtp,
         campaign_id: campaignToSend.id,
         contacts: contacts
@@ -2811,8 +2816,14 @@ if (!accountData) {
         body: JSON.stringify(payload),
       });
 
-      const result = await response.json();
-      if (!result.success) throw new Error(result.message);
+      let result;
+      const responseText = await response.text();
+      try {
+        result = JSON.parse(responseText);
+      } catch (err) {
+        throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+      }
+      if (!result.success) throw new Error(result.message || "Errore invio SMTP");
 
       successCount = result.sent;
       failedCount = result.failed || 0;
@@ -2831,7 +2842,7 @@ if (!accountData) {
         bcc: campaignToSend.bcc ? campaignToSend.bcc.split(',').map(e => e.trim()).filter(Boolean) : [],
         subject: campaignToSend.subject,
         html: campaignToSend.email_content,
-        attachments: validCampaignAttachments,
+        attachments: attachmentsForPayload,
         campaign_id: campaignToSend.id,
         contacts: contacts
           .filter(c => recipients.includes(c.email))
@@ -2854,8 +2865,14 @@ if (!accountData) {
         body: JSON.stringify(payload),
       });
 
-      const result = await response.json();
-      if (!result.success) throw new Error(result.message);
+      let result;
+      const responseText = await response.text();
+      try {
+        result = JSON.parse(responseText);
+      } catch (err) {
+        throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+      }
+      if (!result.success) throw new Error(result.message || "Errore invio Resend");
 
       successCount = result.sent || recipients.length;
     }
@@ -5954,6 +5971,11 @@ const [recipients, setRecipients] = useState([]);
 
       let successCount = 0;
       let failedCount = 0;
+
+      // Se la campagna ha già un ID e gli allegati sono molti/pesanti, evitiamo di inviare 20MB di base64 nel body:
+      // il backend caricherà gli allegati direttamente dal DB tramite campaign_id.
+      const isPayloadTooLarge = (attachments || []).length > 5 || (attachments || []).reduce((acc, a) => acc + (a.content?.length || 0), 0) > 1000000;
+      const attachmentsForPayload = (selectedCampaign?.id && isPayloadTooLarge) ? [] : attachments;
   
       // ✅ SMTP / Brevo
       if (accountObj.provider === "brevo" || (accountObj.smtp && accountObj.provider !== "resend")) {
@@ -5967,7 +5989,7 @@ const [recipients, setRecipients] = useState([]);
           bcc: emailBcc,
           subject: emailSubject,
           html: htmlContent,
-          attachments,
+          attachments: attachmentsForPayload,
           smtp: accountObj.smtp,
           campaign_id: selectedCampaign.id,
           contacts: contactsForSend,
@@ -5981,7 +6003,13 @@ const [recipients, setRecipients] = useState([]);
           body: JSON.stringify(payload),
         });
   
-        const result = await response.json();
+        let result;
+        const responseText = await response.text();
+        try {
+          result = JSON.parse(responseText);
+        } catch (err) {
+          throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+        }
         if (!result.success) throw new Error(result.message || "Errore invio SMTP");
   
         successCount = result.sent || recipients.length;
@@ -6011,7 +6039,7 @@ const [recipients, setRecipients] = useState([]);
           bcc: emailBcc,
           subject: emailSubject,
           html: htmlContent,
-          attachments,
+          attachments: attachmentsForPayload,
           campaign_id: selectedCampaign.id,
           contacts: contactsForSend,
           dynamicAttachments: selectedCampaign.isDynamicAttachments || selectedCampaign.is_dynamic_attachments || selectedCampaign.dynamicAttachments || false,
@@ -6024,7 +6052,13 @@ const [recipients, setRecipients] = useState([]);
           body: JSON.stringify(payload),
         });
   
-        const result = await response.json();
+        let result;
+        const responseText = await response.text();
+        try {
+          result = JSON.parse(responseText);
+        } catch (err) {
+          throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+        }
         if (!result.success) throw new Error(result.message || "Errore invio Resend");
   
         successCount = result.sent || recipients.length;
@@ -6271,6 +6305,11 @@ const [recipients, setRecipients] = useState([]);
       let successCount = 0;
       let failedCount = 0;
 
+      // Se la campagna ha già un ID e gli allegati sono molti/pesanti, evitiamo di inviare 20MB di base64 nel body:
+      // il backend caricherà gli allegati direttamente dal DB tramite campaign_id.
+      const isPayloadTooLarge = (attachments || []).length > 5 || (attachments || []).reduce((acc, a) => acc + (a.content?.length || 0), 0) > 1000000;
+      const attachmentsForPayload = (campaignToResend?.id && isPayloadTooLarge) ? [] : attachments;
+
       // ✅ 3) SMTP/Brevo
       if (accountObj.provider === "brevo" || (accountObj.smtp && accountObj.provider !== "resend")) {
         console.log('🚀 Invio via SMTP a:', recipients.length, 'destinatari');
@@ -6283,7 +6322,7 @@ const [recipients, setRecipients] = useState([]);
           bcc: emailBcc,
           subject: emailSubject,
           html: htmlContent,
-          attachments: attachments,
+          attachments: attachmentsForPayload,
           smtp: accountObj.smtp,
           campaign_id: campaignToResend.id,
           contacts: contactsForSend,
@@ -6297,7 +6336,13 @@ const [recipients, setRecipients] = useState([]);
           body: JSON.stringify(payload),
         });
   
-        const result = await response.json();
+        let result;
+        const responseText = await response.text();
+        try {
+          result = JSON.parse(responseText);
+        } catch (err) {
+          throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+        }
         
         if (!result.success) {
           throw new Error(result.message || "Errore invio SMTP");
@@ -6336,7 +6381,7 @@ const [recipients, setRecipients] = useState([]);
           bcc: emailBcc,
           subject: emailSubject,
           html: htmlContent,
-          attachments: attachments,
+          attachments: attachmentsForPayload,
           campaign_id: campaignToResend.id,
           contacts: contactsForSend,
           dynamicAttachments: campaignToResend.isDynamicAttachments || campaignToResend.is_dynamic_attachments || campaignToResend.dynamicAttachments || false,
@@ -6349,7 +6394,13 @@ const [recipients, setRecipients] = useState([]);
           body: JSON.stringify(payload),
         });
   
-        const result = await response.json();
+        let result;
+        const responseText = await response.text();
+        try {
+          result = JSON.parse(responseText);
+        } catch (err) {
+          throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+        }
         
         console.log('📤 Risposta Resend:', result);
         

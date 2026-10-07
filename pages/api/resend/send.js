@@ -1,6 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
 import { matchAttachmentsForContact } from "../../../lib/matchAttachments";
 
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '50mb',
+    },
+    responseLimit: false,
+  },
+};
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -117,6 +126,35 @@ export default async function handler(req, res) {
   try {
     const recipients = Array.isArray(to) ? to : [to];
 
+    // Recupera allegati dal database se non inviati nel payload per evitare superamento limiti Vercel
+    let rawAttachments = Array.isArray(attachments) ? attachments : [];
+    let isDynamic = dynamicAttachments;
+    let effectiveMatchMode = matchMode || 'auto';
+
+    if (rawAttachments.length === 0 && campaign_id) {
+      try {
+        const { data: dbCamp } = await supabase
+          .from('campaigns')
+          .select('attachments, is_dynamic_attachments, match_mode')
+          .eq('id', campaign_id)
+          .maybeSingle();
+        
+        if (dbCamp?.attachments) {
+          rawAttachments = Array.isArray(dbCamp.attachments)
+            ? dbCamp.attachments
+            : JSON.parse(dbCamp.attachments || '[]');
+          if (isDynamic === undefined && dbCamp.is_dynamic_attachments !== undefined) {
+            isDynamic = dbCamp.is_dynamic_attachments;
+          }
+          if (dbCamp.match_mode) {
+            effectiveMatchMode = dbCamp.match_mode;
+          }
+        }
+      } catch (dbAttErr) {
+        console.warn('⚠️ Impossibile recuperare allegati dal DB:', dbAttErr.message);
+      }
+    }
+
     // ✅ Se abbiamo la lista contatti con ID, invia email personalizzate per ognuno
     if (contacts && Array.isArray(contacts) && contacts.length > 0) {
       let sentCount = 0;
@@ -136,15 +174,15 @@ export default async function handler(req, res) {
           personalizedHtml = injectTracking(personalizedHtml, campaign_id, contact.email);
 
           // 3. Smistamento Allegati Dinamici (Attestati Nominativi)
-          let recipientAttachments = attachments || [];
-          const hasCfNamedAttachments = (attachments || []).some(att => {
+          let recipientAttachments = rawAttachments;
+          const hasCfNamedAttachments = rawAttachments.some(att => {
             const fname = (att.filename || att.name || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
             return /[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]/i.test(fname) || fname.length >= 11;
           });
-          const shouldMatchDynamically = dynamicAttachments || ((attachments || []).length > 1 && hasCfNamedAttachments);
+          const shouldMatchDynamically = isDynamic || (rawAttachments.length > 1 && hasCfNamedAttachments);
 
-          if (shouldMatchDynamically && attachments && attachments.length > 0) {
-            recipientAttachments = matchAttachmentsForContact(contact, attachments, { matchMode: matchMode || 'auto' });
+          if (shouldMatchDynamically && rawAttachments.length > 0) {
+            recipientAttachments = matchAttachmentsForContact(contact, rawAttachments, { matchMode: effectiveMatchMode });
           }
 
           const validRecipientAttachments = filterValidAttachments(recipientAttachments);
@@ -230,7 +268,7 @@ export default async function handler(req, res) {
 
     const trackedHtml = injectTracking(finalHtml, campaign_id, recipientForTracking);
 
-    const validBulkAttachments = filterValidAttachments(attachments);
+    const validBulkAttachments = filterValidAttachments(rawAttachments);
 
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
