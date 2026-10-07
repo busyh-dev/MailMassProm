@@ -134,6 +134,9 @@ const RecipientSelect = ({
 
         const combinedLists = [];
         const seenIds = new Set();
+        const seenNames = new Map(); // normalizedName -> index in combinedLists
+
+        const normalizeName = (str) => String(str || '').toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
         (listsData || []).forEach(l => {
           let ids = parseContactIds(l.contact_ids);
@@ -142,26 +145,51 @@ const RecipientSelect = ({
             const jIds = matches.map(m => String(m.contact_id || m.contactId));
             ids = Array.from(new Set([...ids, ...jIds]));
           }
-          combinedLists.push({
+          const listName = l.name || l.title || l.label || l.nome || 'Lista';
+          const normName = normalizeName(listName);
+
+          const listObj = {
             id: l.id,
-            nome: l.name || l.title || l.label || l.nome || 'Lista',
+            nome: listName,
             contact_ids: ids,
             contact_count: l.contact_count || (ids ? ids.length : 0),
             color: l.color || '#3b82f6'
-          });
-          seenIds.add(String(l.id));
+          };
+
+          if (normName && seenNames.has(normName)) {
+            const existingIdx = seenNames.get(normName);
+            const existing = combinedLists[existingIdx];
+            const mergedIds = Array.from(new Set([...(existing.contact_ids || []), ...ids]));
+            existing.contact_ids = mergedIds;
+            existing.contact_count = Math.max(existing.contact_count || 0, listObj.contact_count || 0, mergedIds.length);
+          } else {
+            if (normName) seenNames.set(normName, combinedLists.length);
+            combinedLists.push(listObj);
+            seenIds.add(String(l.id));
+          }
         });
 
         (labelsData || []).forEach(l => {
-          if (!seenIds.has(String(l.id))) {
-            let ids = parseContactIds(l.contact_ids);
+          const labelName = l.nome || l.name || l.title || 'Etichetta';
+          const normName = normalizeName(labelName);
+          let ids = parseContactIds(l.contact_ids);
+
+          if (normName && seenNames.has(normName)) {
+            const existingIdx = seenNames.get(normName);
+            const existing = combinedLists[existingIdx];
+            const mergedIds = Array.from(new Set([...(existing.contact_ids || []), ...ids]));
+            existing.contact_ids = mergedIds;
+            existing.contact_count = Math.max(existing.contact_count || 0, l.contact_count || 0, mergedIds.length);
+          } else if (!seenIds.has(String(l.id))) {
+            if (normName) seenNames.set(normName, combinedLists.length);
             combinedLists.push({
               id: l.id,
-              nome: l.nome || l.name || l.title || 'Etichetta',
+              nome: labelName,
               contact_ids: ids,
               contact_count: l.contact_count || (ids ? ids.length : 0),
               color: l.color || '#10b981'
             });
+            seenIds.add(String(l.id));
           }
         });
 
@@ -300,16 +328,25 @@ const RecipientSelect = ({
       };
     };
 
+    const seenOptionKeys = new Set();
+    const addOptionUnique = (opt) => {
+      if (!opt || !opt.value) return;
+      const key = `${opt.type || ''}:${String(opt.value).toLowerCase().trim()}`;
+      if (seenOptionKeys.has(key)) return;
+      seenOptionKeys.add(key);
+      options.push(opt);
+    };
+
     if (filterMode === 'all') {
-      (contactLabels || []).forEach(l => options.push(buildLabelOption(l)));
-      (tags || []).forEach(t => options.push(buildTagOption(t)));
-      (tagLabels || []).forEach(tl => options.push(buildTagLabelOption(tl)));
+      (contactLabels || []).forEach(l => addOptionUnique(buildLabelOption(l)));
+      (tags || []).forEach(t => addOptionUnique(buildTagOption(t)));
+      (tagLabels || []).forEach(tl => addOptionUnique(buildTagLabelOption(tl)));
     } else if (filterMode === 'label') {
-      (contactLabels || []).forEach(l => options.push(buildLabelOption(l)));
+      (contactLabels || []).forEach(l => addOptionUnique(buildLabelOption(l)));
     } else if (filterMode === 'tag') {
-      (tags || []).forEach(t => options.push(buildTagOption(t)));
+      (tags || []).forEach(t => addOptionUnique(buildTagOption(t)));
     } else if (filterMode === 'tag_label') {
-      (tagLabels || []).forEach(tl => options.push(buildTagLabelOption(tl)));
+      (tagLabels || []).forEach(tl => addOptionUnique(buildTagLabelOption(tl)));
     }
 
     return options;
