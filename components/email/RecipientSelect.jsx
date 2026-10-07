@@ -103,7 +103,7 @@ const RecipientSelect = ({
   const [modalSearch, setModalSearch] = useState('');
 
   // Stato per modalità filtro
-  const [filterMode, setFilterMode] = useState('tag'); // 'tag' | 'label' | 'tag_label'
+  const [filterMode, setFilterMode] = useState('all'); // 'all' | 'label' | 'tag' | 'tag_label'
   
   // Ref per scroll automatico alla selezione
   const containerRef = React.useRef(null);
@@ -146,6 +146,7 @@ const RecipientSelect = ({
             id: l.id,
             nome: l.name || l.title || l.label || l.nome || 'Lista',
             contact_ids: ids,
+            contact_count: l.contact_count || (ids ? ids.length : 0),
             color: l.color || '#3b82f6'
           });
           seenIds.add(String(l.id));
@@ -158,6 +159,7 @@ const RecipientSelect = ({
               id: l.id,
               nome: l.nome || l.name || l.title || 'Etichetta',
               contact_ids: ids,
+              contact_count: l.contact_count || (ids ? ids.length : 0),
               color: l.color || '#10b981'
             });
           }
@@ -194,87 +196,120 @@ const RecipientSelect = ({
       },
     ];
 
-    if (filterMode === 'tag') {
-      // Filtro per TAG
-      if (tags && tags.length > 0) {
-        tags.forEach(tag => {
-          const targetValues = [
-            String(tag.id || '').toLowerCase().trim(),
-            String(tag.value || '').toLowerCase().trim(),
-            String(tag.label || '').toLowerCase().trim()
-          ].filter(Boolean);
+    // Funzione helper per calcolare i contatti per una lista/etichetta
+    const buildLabelOption = (label) => {
+      const listIds = new Set((label.contact_ids || []).map(id => String(id).toLowerCase().trim()));
+      
+      let matchedCount = activeContacts.filter(c => {
+        const cId = String(c.id || '').toLowerCase().trim();
+        const altId = String(c.contact_id || '').toLowerCase().trim();
+        const cEmail = String(c.email || '').toLowerCase().trim();
+        if (cId && listIds.has(cId)) return true;
+        if (altId && listIds.has(altId)) return true;
+        if (cEmail && listIds.has(cEmail)) return true;
+        if (label.id && (String(c.contact_label_id) === String(label.id) || String(c.list_id) === String(label.id))) return true;
+        return false;
+      }).length;
 
-          const count = activeContacts.filter(c => {
-            const cTagStrings = getContactTagStrings(c.tags);
-            return targetValues.some(tv => cTagStrings.includes(tv));
+      if (matchedCount === 0 && label.nome) {
+        const cleanName = label.nome
+          .toLowerCase()
+          .replace(/^(dipendenti|lista|gruppo|contatti|clienti)\s+/gi, '')
+          .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const keywords = cleanName.split(/\s+/).filter(k => k.length >= 2);
+        if (cleanName.startsWith('prom') && !keywords.includes('prom')) keywords.push('prom');
+        if (keywords.length > 0) {
+          matchedCount = activeContacts.filter(c => {
+            const rawStr = [
+              c.name, c.email, c.email_2,
+              ...(Array.isArray(c.tags) ? c.tags : []), ...(Array.isArray(c.tag_labels) ? c.tag_labels : []),
+              c.settore, c.canale, c.ruolo, c.area, c.testata
+            ].filter(Boolean).join(' ').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            return keywords.some(kw => rawStr.includes(kw));
           }).length;
-
-          options.push({
-            value: `tag:${tag.value || tag.label || tag.id}`,
-            label: `🏷️ ${tag.label} (${count})`,
-            color: tag.color,
-            isCustomTag: true,
-            type: 'tag',
-          });
-        });
-      }
-    } else if (filterMode === 'label') {
-      // Filtro per ETICHETTA / LISTA CONTATTO
-      contactLabels.forEach(label => {
-        const listIds = new Set((label.contact_ids || []).map(id => String(id).toLowerCase().trim()));
-        let matchedCount = activeContacts.filter(c => {
-          const cId = String(c.id || '').toLowerCase().trim();
-          const altId = String(c.contact_id || '').toLowerCase().trim();
-          const cEmail = String(c.email || '').toLowerCase().trim();
-          if (cId && listIds.has(cId)) return true;
-          if (altId && listIds.has(altId)) return true;
-          if (cEmail && listIds.has(cEmail)) return true;
-          if (label.id && (String(c.contact_label_id) === String(label.id) || String(c.list_id) === String(label.id))) return true;
-          return false;
-        }).length;
-
-        if (matchedCount === 0 && label.nome) {
-          const cleanName = label.nome
-            .toLowerCase()
-            .replace(/^(dipendenti|lista|gruppo|contatti|clienti)\s+/gi, '')
-            .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-          const keywords = cleanName.split(/\s+/).filter(k => k.length >= 2);
-          if (cleanName.startsWith('prom') && !keywords.includes('prom')) keywords.push('prom');
-          if (keywords.length > 0) {
-            matchedCount = activeContacts.filter(c => {
-              const rawStr = [
-                c.name, c.email, c.email_2,
-                ...(c.tags || []), ...(c.tag_labels || []),
-                c.settore, c.canale, c.ruolo, c.area, c.testata
-              ].filter(Boolean).join(' ').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-              return keywords.some(kw => rawStr.includes(kw));
-            }).length;
-          }
         }
+      }
 
-        options.push({
-          value: `label:${label.id}`,
-          label: `📌 ${label.nome} (${matchedCount})`,
-          color: label.color,
-          isCustomTag: true,
-          type: 'label',
-        });
-      });
+      // Se ancora 0, prendi i contatti registrati nella lista
+      if (matchedCount === 0) {
+        if (listIds.size > 0) {
+          matchedCount = listIds.size;
+        } else if (typeof label.contact_count === 'number' && label.contact_count > 0) {
+          matchedCount = label.contact_count;
+        }
+      }
+
+      return {
+        value: `label:${label.id}`,
+        label: `📌 ${label.nome} (${matchedCount})`,
+        color: label.color,
+        isCustomTag: true,
+        type: 'label',
+        count: matchedCount,
+      };
+    };
+
+    // Funzione helper per calcolare i contatti per un Tag
+    const buildTagOption = (tag) => {
+      const targetValues = [
+        String(tag.id || '').toLowerCase().trim(),
+        String(tag.value || '').toLowerCase().trim(),
+        String(tag.label || '').toLowerCase().trim()
+      ].filter(Boolean);
+
+      let count = activeContacts.filter(c => {
+        const cTagStrings = getContactTagStrings(c.tags);
+        return targetValues.some(tv => cTagStrings.includes(tv));
+      }).length;
+
+      if (count === 0 && tag.label) {
+        const cleanTag = tag.label.toLowerCase().trim();
+        count = activeContacts.filter(c => {
+          const rawStr = [
+            c.name, c.email, c.email_2,
+            ...(Array.isArray(c.tags) ? c.tags : []),
+            ...(Array.isArray(c.tag_labels) ? c.tag_labels : [])
+          ].filter(Boolean).join(' ').toLowerCase();
+          return rawStr.includes(cleanTag);
+        }).length;
+      }
+
+      return {
+        value: `tag:${tag.value || tag.label || tag.id}`,
+        label: `🏷️ ${tag.label} (${count})`,
+        color: tag.color,
+        isCustomTag: true,
+        type: 'tag',
+        count,
+      };
+    };
+
+    // Funzione helper per sotto-etichette
+    const buildTagLabelOption = (tl) => {
+      const count = activeContacts.filter(
+        c => c.tag_labels && c.tag_labels.includes(tl.label)
+      ).length;
+      return {
+        value: `tag_label:${tl.id}`,
+        label: `→ ${tl.label} (${count})`,
+        color: tl.tags?.color || '#f59e0b',
+        isCustomTag: true,
+        type: 'tag_label',
+        tagName: tl.tags?.label,
+        count,
+      };
+    };
+
+    if (filterMode === 'all') {
+      (contactLabels || []).forEach(l => options.push(buildLabelOption(l)));
+      (tags || []).forEach(t => options.push(buildTagOption(t)));
+      (tagLabels || []).forEach(tl => options.push(buildTagLabelOption(tl)));
+    } else if (filterMode === 'label') {
+      (contactLabels || []).forEach(l => options.push(buildLabelOption(l)));
+    } else if (filterMode === 'tag') {
+      (tags || []).forEach(t => options.push(buildTagOption(t)));
     } else if (filterMode === 'tag_label') {
-      // Filtro per SOTTO-ETICHETTA TAG
-      tagLabels.forEach(tl => {
-        const count = activeContacts.filter(
-          c => c.tag_labels && c.tag_labels.includes(tl.label)
-        ).length;
-        options.push({
-          value: `tag_label:${tl.id}`,
-          label: `→ ${tl.label} (${count})`,
-          color: tl.tags?.color || '#f59e0b',
-          isCustomTag: true,
-          type: 'tag_label',
-          tagName: tl.tags?.label,
-        });
-      });
+      (tagLabels || []).forEach(tl => options.push(buildTagLabelOption(tl)));
     }
 
     return options;
@@ -491,10 +526,33 @@ const RecipientSelect = ({
       <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
         <button
           type="button"
-          onClick={() => { setFilterMode('tag'); onChange([]); }}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition ${
+          onClick={() => setFilterMode('all')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition cursor-pointer ${
+            filterMode === 'all' 
+              ? 'bg-white text-indigo-700 shadow-sm font-bold' 
+              : 'text-gray-600 hover:text-gray-800'
+          }`}
+        >
+          🌟 Tutte
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilterMode('label')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition cursor-pointer ${
+            filterMode === 'label' 
+              ? 'bg-white text-blue-700 shadow-sm font-bold' 
+              : 'text-gray-600 hover:text-gray-800'
+          }`}
+        >
+          <Filter className="w-3 h-3" />
+          Liste & Etichette
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilterMode('tag')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition cursor-pointer ${
             filterMode === 'tag' 
-              ? 'bg-white text-blue-700 shadow-sm' 
+              ? 'bg-white text-emerald-700 shadow-sm font-bold' 
               : 'text-gray-600 hover:text-gray-800'
           }`}
         >
@@ -503,22 +561,10 @@ const RecipientSelect = ({
         </button>
         <button
           type="button"
-          onClick={() => { setFilterMode('label'); onChange([]); }}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition ${
-            filterMode === 'label' 
-              ? 'bg-white text-indigo-700 shadow-sm' 
-              : 'text-gray-600 hover:text-gray-800'
-          }`}
-        >
-          <Filter className="w-3 h-3" />
-          Per Etichetta
-        </button>
-        <button
-          type="button"
-          onClick={() => { setFilterMode('tag_label'); onChange([]); }}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition ${
+          onClick={() => setFilterMode('tag_label')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition cursor-pointer ${
             filterMode === 'tag_label' 
-              ? 'bg-white text-amber-700 shadow-sm' 
+              ? 'bg-white text-amber-700 shadow-sm font-bold' 
               : 'text-gray-600 hover:text-gray-800'
           }`}
         >
@@ -528,8 +574,9 @@ const RecipientSelect = ({
 
       {/* ✅ Descrizione modalità */}
       <p className="text-xs text-gray-500">
-        {filterMode === 'tag' && '🏷️ Seleziona i destinatari in base ai tag assegnati'}
-        {filterMode === 'label' && '📌 Seleziona i destinatari in base all\'etichetta contatto'}
+        {filterMode === 'all' && '🌟 Tutte le liste, etichette e tag disponibili con contatori contatti aggiornati'}
+        {filterMode === 'label' && '📌 Seleziona i destinatari in base alle liste o etichette contatti'}
+        {filterMode === 'tag' && '🏷️ Seleziona i destinatari in base ai tag standard'}
         {filterMode === 'tag_label' && '→ Seleziona i destinatari in base alle sotto-etichette dei tag'}
       </p>
 
@@ -537,13 +584,26 @@ const RecipientSelect = ({
       <CreatableSelect
         isMulti
         options={recipientOptions}
-        value={recipientOptions.filter(opt => value.includes(opt.value))}
+        value={(() => {
+          if (!Array.isArray(value)) return [];
+          const valSet = new Set(value.map(v => String(v).toLowerCase().trim()));
+          return recipientOptions.filter(opt => {
+            const optVal = String(opt.value).toLowerCase().trim();
+            if (valSet.has(optVal)) return true;
+            const strippedOpt = optVal.replace(/^(label|list|tag|tag_label):/, '');
+            return Array.from(valSet).some(v => {
+              const strippedV = v.replace(/^(label|list|tag|tag_label):/, '');
+              return strippedV === strippedOpt;
+            });
+          });
+        })()}
         onChange={handleChange}
         onCreateOption={filterMode === 'tag' ? handleCreateTag : undefined}
         styles={customStyles}
         placeholder={
+          filterMode === 'all' ? 'Cerca o seleziona una lista, etichetta o tag...' :
+          filterMode === 'label' ? 'Seleziona liste o etichette destinatari...' :
           filterMode === 'tag' ? 'Seleziona tag destinatari...' :
-          filterMode === 'label' ? 'Seleziona etichette destinatari...' :
           'Seleziona sotto-etichette...'
         }
         noOptionsMessage={() => 'Nessuna opzione disponibile'}
