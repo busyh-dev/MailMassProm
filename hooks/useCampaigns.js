@@ -150,6 +150,8 @@ export const useCampaigns = () => {
         builder_blocks: campaignData.builderBlocks || campaignData.builder_blocks || null,
         is_builder_template: campaignData.isBuilderTemplate || campaignData.is_builder_template || false,
         campaign_mode: campaignData.campaignMode || campaignData.campaign_mode || 'standard',
+        is_dynamic_attachments: Boolean(campaignData.isDynamicAttachments ?? campaignData.is_dynamic_attachments ?? campaignData.dynamicAttachments ?? false),
+        match_mode: campaignData.matchMode || campaignData.match_mode || 'auto',
       };
   
       console.log('💾 Campaign object da salvare:', campaign); // ✅ DEBUG

@@ -3157,14 +3157,13 @@ const handleDuplicateCampaign = async (campaign) => {
       attachments: campaign.attachments || [],
       totalAttachmentSize: campaign.total_attachment_size || 0,
       trackingEnabled: campaign.tracking_enabled !== false,
-      openTracking: campaign.open_tracking !== false,
-      clickTracking: campaign.click_tracking !== false,
-      
-      campaign_id: campaignToSend.id, // ✅ AGGIUNGI
+      isDynamicAttachments: campaign.is_dynamic_attachments || campaign.isDynamicAttachments || false,
+      matchMode: campaign.match_mode || campaign.matchMode || 'auto',
+      campaign_id: campaignToSend?.id, // ✅ AGGIUNGI
       // ✅ AGGIUNGI
-  contacts: contacts
-  .filter(c => recipients.includes(c.email))
-  .map(c => ({ id: c.id, email: c.email })),
+      contacts: contacts
+        .filter(c => recipients.includes(c.email))
+        .map(c => ({ id: c.id, email: c.email })),
     };
 
     const res = await saveCampaign(payload, true); // true = BOZZA
@@ -5161,11 +5160,13 @@ useEffect(() => {
         trackingEnabled: campaign.tracking_enabled !== false,
         openTracking: campaign.open_tracking !== false,
         clickTracking: campaign.click_tracking !== false,
+        isDynamicAttachments: campaign.is_dynamic_attachments || campaign.isDynamicAttachments || false,
+        matchMode: campaign.match_mode || campaign.matchMode || 'auto',
         // ✅ AGGIUNGI
-  contacts: contacts
-  .filter(c => recipients.includes(c.email))
-  .map(c => ({ id: c.id, email: c.email })),
-        campaign_id: campaignToSend.id, // ✅ AGGIUNGI
+        contacts: contacts
+          .filter(c => recipients.includes(c.email))
+          .map(c => ({ id: c.id, email: c.email })),
+        campaign_id: campaignToSend?.id, // ✅ AGGIUNGI
       };
   
       const res = await saveCampaign(payload, true); // true = BOZZA
