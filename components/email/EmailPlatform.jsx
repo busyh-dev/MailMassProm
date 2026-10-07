@@ -523,7 +523,7 @@ const CampaignsGrid = ({
                   onClick={() => handleResendCampaign(campaign)}
                   className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-sm"
                 >
-                  Re-invia
+                  Re-invia {(campaign.resend_count || 0) > 0 ? `(${campaign.resend_count})` : ''}
                 </button>
 
                 <button
@@ -3534,7 +3534,7 @@ const exportResendLog = (format = "csv", autoDownload = false) => {
                             title="Re-invia campagna"
                           >
                             <Send className="w-3.5 h-3.5 rotate-180" />
-                            Re-invia
+                            Re-invia {(c.resend_count || 0) > 0 ? `(${c.resend_count})` : ''}
                           </button>
                         )}
 
@@ -5615,7 +5615,7 @@ useEffect(() => {
         className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white py-2 px-5 rounded-lg font-medium transition"
       >
         <Send className="w-4 h-4" />
-        {loading ? "Invio..." : "Reinvia Email"}
+        {loading ? "Invio..." : `Reinvia Email ${(campaign.resend_count || 0) > 0 ? `(${campaign.resend_count})` : ''}`}
       </button>
       
       {/* Pulsante DUPLICA (crea bozza) */}
@@ -7079,7 +7079,7 @@ const [recipients, setRecipients] = useState([]);
                   ) : (
                     <>
                       <Send className="w-3.5 h-3.5 rotate-180" />
-                      Re-invia
+                      Re-invia {(campaign.resend_count || 0) > 0 ? `(${campaign.resend_count})` : ''}
                     </>
                   )}
                 </button>
@@ -7123,7 +7123,7 @@ const [recipients, setRecipients] = useState([]);
                         onClick={() => { handleResendCampaign(campaign); setOpenMenuId(null); }}
                         className="w-full text-left px-4 py-2.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors flex items-center gap-2 font-semibold cursor-pointer"
                       >
-                        🔄 Re-invia
+                        🔄 Re-invia {(campaign.resend_count || 0) > 0 ? `(${campaign.resend_count})` : ''}
                       </button>
                     )}
                     <button
@@ -7383,7 +7383,7 @@ const [recipients, setRecipients] = useState([]);
                       title="Re-invia campagna"
                     >
                       <Send className="w-3.5 h-3.5 rotate-180" />
-                      <span>Re-invia</span>
+                      <span>Re-invia {(campaigns.resend_count || 0) > 0 ? `(${campaigns.resend_count})` : ''}</span>
                     </button>
                   )}
 
