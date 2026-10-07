@@ -3766,6 +3766,8 @@ useEffect(() => {
   const EditCampaignModal = ({ 
     campaign, 
     contacts, 
+    contactLabels = [],
+    tagLabels = [],
     onClose, 
     onSave, 
     setActiveTab,
@@ -3837,15 +3839,53 @@ useEffect(() => {
   setSelectedAccount(campaign.sender_email || "");
   setCc(campaign.cc || "");
   setBcc(campaign.bcc || "");
-  setAttachments(
-    (campaign.attachments || []).map((a) => ({
-      ...a,
-      preview: a.type?.startsWith("image/") ? a.url : null,
-      isPdf: a.type === "application/pdf",
-    }))
-  );
+  // Helper per normalizzare allegati
+  const normalizeAttachmentsList = (raw) => {
+    if (!raw) return [];
+    let list = raw;
+    if (typeof raw === 'string') {
+      try {
+        list = JSON.parse(raw);
+      } catch {
+        list = [];
+      }
+    }
+    if (!Array.isArray(list)) return [];
+    return list.map((a) => {
+      if (typeof a === 'string') {
+        const fn = a.split('/').pop().split('\\').pop() || 'allegato.pdf';
+        return {
+          filename: fn,
+          name: fn,
+          url: a,
+          size: 0,
+          type: fn.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream',
+          isPdf: fn.toLowerCase().endsWith('.pdf'),
+          preview: null,
+        };
+      }
+      let s = a.size || a.file_size || a.fileSize || a.bytes || a.file?.size || 0;
+      if (!s && a.content && typeof a.content === 'string') {
+        const cleanB64 = a.content.includes(',') ? a.content.split(',')[1] : a.content;
+        s = Math.round((cleanB64.length * 3) / 4);
+      }
+      const fn = a.filename || a.name || a.file?.name || 'allegato.pdf';
+      const mime = a.type || a.file?.type || (fn.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream');
+      return {
+        ...a,
+        filename: fn,
+        name: fn,
+        type: mime,
+        size: Number(s) || 0,
+        preview: (mime.startsWith("image/") || a.preview) ? (a.preview || a.url) : null,
+        isPdf: mime === "application/pdf" || fn.toLowerCase().endsWith('.pdf'),
+      };
+    });
+  };
 
-  // ✅ RILEVA AUTOMATICAMENTE SE ├ê UN TEMPLATE DEL BUILDER
+  setAttachments(normalizeAttachmentsList(campaign.attachments));
+
+  // ✅ RILEVA AUTOMATICAMENTE SE È UN TEMPLATE DEL BUILDER
   const content = campaign.email_content || "";
   const hasBuilderMarkers = 
     content.includes('data-block-id') || 
@@ -3894,7 +3934,30 @@ console.log('✏️ Rendering TiptapEditor with content:', emailContent.substrin
 
 // 📎 Allegati
 const fileInputRef = useRef(null);
-const [attachments, setAttachments] = useState(campaign.attachments || []);
+const [attachments, setAttachments] = useState(() => {
+  if (!campaign?.attachments) return [];
+  let list = campaign.attachments;
+  if (typeof list === 'string') {
+    try { list = JSON.parse(list); } catch { list = []; }
+  }
+  if (!Array.isArray(list)) return [];
+  return list.map(a => {
+    let s = a.size || a.file_size || a.fileSize || a.bytes || a.file?.size || 0;
+    if (!s && a.content && typeof a.content === 'string') {
+      const cleanB64 = a.content.includes(',') ? a.content.split(',')[1] : a.content;
+      s = Math.round((cleanB64.length * 3) / 4);
+    }
+    const fn = a.filename || a.name || a.file?.name || 'allegato.pdf';
+    return {
+      ...a,
+      filename: fn,
+      name: fn,
+      size: Number(s) || 0,
+      preview: a.type?.startsWith("image/") ? a.url : null,
+      isPdf: a.type === "application/pdf" || fn.toLowerCase().endsWith('.pdf'),
+    };
+  });
+});
 const [isDynamicAttachments, setIsDynamicAttachments] = useState(campaign.isDynamicAttachments || campaign.is_dynamic_attachments || false);
 const [matchMode, setMatchMode] = useState(campaign.matchMode || campaign.match_mode || 'auto');
 const [showMatchPreview, setShowMatchPreview] = useState(false);
@@ -3905,23 +3968,40 @@ const [showMatchPreview, setShowMatchPreview] = useState(false);
     const [previewImage, setPreviewImage] = useState(null);
     const [previewPdf, setPreviewPdf] = useState(null);
   
-    // ✨Å Hook per le animazioni di lightbox e PDF
+    // ✨ Hook per le animazioni di lightbox e PDF
     const { shouldRender: showImage, animationClass: imageAnim } = useAnimatedUnmount(!!previewImage);
     const { shouldRender: showPdf, animationClass: pdfAnim } = useAnimatedUnmount(!!previewPdf);
   
-       /* ➕ Aggiunge allegati */
-    const handleAddAttachments = (e) => {
+    /* ➕ Aggiunge allegati */
+    const handleAddAttachments = async (e) => {
       const files = Array.from(e.target.files);
       if (files.length > 0) {
-        const newFiles = files.map((file) => ({
-          file,
-          preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
-          isPdf: file.type === "application/pdf",
-          filename: file.name,
-          type: file.type,
-          size: file.size,
-          url: URL.createObjectURL(file),
-        }));
+        const newFiles = await Promise.all(
+          files.map(async (file) => {
+            let content = '';
+            try {
+              content = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => resolve('');
+                reader.readAsDataURL(file);
+              });
+            } catch {
+              content = '';
+            }
+            return {
+              file,
+              preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+              isPdf: file.type === "application/pdf" || file.name.toLowerCase().endsWith('.pdf'),
+              filename: file.name,
+              name: file.name,
+              type: file.type || 'application/octet-stream',
+              size: file.size || 0,
+              url: URL.createObjectURL(file),
+              content,
+            };
+          })
+        );
         setAttachments((prev) => [...prev, ...newFiles]);
       }
     };
@@ -3933,19 +4013,41 @@ const [showMatchPreview, setShowMatchPreview] = useState(false);
       if (removed.url) URL.revokeObjectURL(removed.url);
       setAttachments((prev) => prev.filter((_, i) => i !== index));
     };
+
+    /* 📏 Formattazione bytes */
+    const formatFileSize = (bytes) => {
+      const b = Number(bytes) || 0;
+      if (b <= 0) return "0 B";
+      if (b < 1024) return `${b} B`;
+      if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+      return `${(b / (1024 * 1024)).toFixed(2)} MB`;
+    };
   
     /* 📏 Dimensione totale allegati */
     const totalSize = useMemo(() => {
-      const bytes = attachments.reduce((sum, a) => sum + (a.file?.size || a.size || 0), 0);
-      if (bytes < 1024) return `${bytes} B`;
-      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-      return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-    }, [attachments]);
+      let bytes = attachments.reduce((sum, a) => {
+        let s = a.size || a.file?.size || a.file_size || a.fileSize || a.bytes || 0;
+        if (!s && a.content && typeof a.content === 'string') {
+          const cleanB64 = a.content.includes(',') ? a.content.split(',')[1] : a.content;
+          s = Math.round((cleanB64.length * 3) / 4);
+        }
+        return sum + (Number(s) || 0);
+      }, 0);
+
+      if (bytes === 0 && campaign?.total_attachment_size) {
+        bytes = Number(campaign.total_attachment_size) || 0;
+      }
+      if (bytes === 0 && campaign?.totalAttachmentSize) {
+        bytes = Number(campaign.totalAttachmentSize) || 0;
+      }
+
+      return formatFileSize(bytes);
+    }, [attachments, campaign]);
   
-    /* ✨cone file */
+    /* ✨ Icone file */
     const getFileIcon = (type, filename) => {
-      if (type?.includes("pdf")) return "📄";
-      if (type?.includes("zip") || filename?.endsWith(".zip")) return "✨Å";
+      if (type?.includes("pdf") || filename?.toLowerCase().endsWith('.pdf')) return "📄";
+      if (type?.includes("zip") || filename?.endsWith(".zip")) return "📦";
       if (type?.includes("word") || filename?.endsWith(".docx")) return "📝";
       if (type?.includes("excel") || filename?.endsWith(".xls")) return "📊";
       if (type?.includes("text") || filename?.endsWith(".txt")) return "📄";
@@ -4015,21 +4117,56 @@ const [showMatchPreview, setShowMatchPreview] = useState(false);
         ? recipientList
         : (campaign?.recipient_list || campaign?.recipients || []);
 
-      const computedTotal = (Array.isArray(effectiveRecipients) && effectiveRecipients.length > 0)
-        ? effectiveRecipients.length
-        : (campaign?.total_recipients || campaign?.totalRecipients || 0);
+      let resolvedTotal = 0;
+      try {
+        const resolvedList = resolveRecipientEmails(
+          effectiveRecipients,
+          (contacts && contacts.length > 0 ? contacts : localContacts),
+          tagLabels,
+          contactLabels
+        );
+        if (resolvedList && resolvedList.length > 0) {
+          resolvedTotal = resolvedList.length;
+        }
+      } catch (e) {
+        console.warn("Errore calcolo resolvedTotal in confirmSave:", e);
+      }
+
+      if (resolvedTotal === 0 && Array.isArray(effectiveRecipients)) {
+        for (const r of effectiveRecipients) {
+          if (typeof r === 'string' && (r.startsWith('label:') || r.startsWith('list:'))) {
+            const lid = r.replace(/^(label|list):/, '');
+            const foundLbl = (contactLabels || []).find(l => String(l.id) === String(lid));
+            if (foundLbl) {
+              resolvedTotal += (foundLbl.contact_count || (foundLbl.contact_ids ? foundLbl.contact_ids.length : 0));
+            }
+          } else if (typeof r === 'string' && r.includes('@')) {
+            resolvedTotal += 1;
+          }
+        }
+      }
+
+      const computedTotal = resolvedTotal > 0 
+        ? resolvedTotal 
+        : ((Array.isArray(effectiveRecipients) && effectiveRecipients.length > 0) 
+            ? (campaign?.total_recipients || campaign?.totalRecipients || effectiveRecipients.length) 
+            : (campaign?.total_recipients || campaign?.totalRecipients || 0));
 
       const updatedCampaign = {
         id: campaign.id,
         campaignName: campaignName || campaign?.campaign_name || campaign?.name,
+        campaign_name: campaignName || campaign?.campaign_name || campaign?.name,
+        name: campaignName || campaign?.campaign_name || campaign?.name,
         subject: subject || campaign?.subject,
         emailContent: emailContent || campaign?.email_content || campaign?.content,
+        email_content: emailContent || campaign?.email_content || campaign?.content,
         recipientList: effectiveRecipients,
         recipient_list: effectiveRecipients,
         recipients: effectiveRecipients,
         totalRecipients: computedTotal,
         total_recipients: computedTotal,
         senderEmail: selectedAccount || campaign?.sender_email || (accounts && accounts[0]?.email) || "",
+        sender_email: selectedAccount || campaign?.sender_email || (accounts && accounts[0]?.email) || "",
         senderEmailId: selectedAccountData.id || null,
         status: campaign?.status || 'draft',
         cc: cc,
@@ -4077,7 +4214,41 @@ const [showMatchPreview, setShowMatchPreview] = useState(false);
 
     try {
       const selectedAccountData = (accounts || []).find(acc => acc.email === selectedAccount) || {};
-      const computedTotal = effectiveRecipients.length;
+      
+      let resolvedTotal = 0;
+      try {
+        const resolvedList = resolveRecipientEmails(
+          effectiveRecipients,
+          (contacts && contacts.length > 0 ? contacts : localContacts),
+          tagLabels,
+          contactLabels
+        );
+        if (resolvedList && resolvedList.length > 0) {
+          resolvedTotal = resolvedList.length;
+        }
+      } catch (e) {
+        console.warn("Errore calcolo resolvedTotal in handleSaveAndSendClick:", e);
+      }
+
+      if (resolvedTotal === 0 && Array.isArray(effectiveRecipients)) {
+        for (const r of effectiveRecipients) {
+          if (typeof r === 'string' && (r.startsWith('label:') || r.startsWith('list:'))) {
+            const lid = r.replace(/^(label|list):/, '');
+            const foundLbl = (contactLabels || []).find(l => String(l.id) === String(lid));
+            if (foundLbl) {
+              resolvedTotal += (foundLbl.contact_count || (foundLbl.contact_ids ? foundLbl.contact_ids.length : 0));
+            }
+          } else if (typeof r === 'string' && r.includes('@')) {
+            resolvedTotal += 1;
+          }
+        }
+      }
+
+      const computedTotal = resolvedTotal > 0 
+        ? resolvedTotal 
+        : ((Array.isArray(effectiveRecipients) && effectiveRecipients.length > 0) 
+            ? (campaign?.total_recipients || campaign?.totalRecipients || effectiveRecipients.length) 
+            : (campaign?.total_recipients || campaign?.totalRecipients || 0));
 
       const updatedCampaign = {
         id: campaign.id,
@@ -4452,21 +4623,26 @@ const confirmExit = () => {
                           ) : item.isPdf ? (
                             <button
                               onClick={() => setPreviewPdf(item.url)}
-                              className="text-red-500 hover:text-red-700 flex items-center gap-1"
+                              className="text-red-500 hover:text-red-700 flex items-center gap-1 cursor-pointer"
                             >
                               <FileText className="w-5 h-5" />
-                              <span className="underline">PDF</span>
+                              <span className="underline font-semibold">PDF</span>
                             </button>
                           ) : (
-                            <span className="text-lg">{getFileIcon(item.type, item.filename)}</span>
+                            <span className="text-lg">{getFileIcon(item.type, item.filename || item.name)}</span>
                           )}
-                          <span className="truncate">{item.file?.name || item.filename}</span>
+                          <span className="truncate font-medium text-gray-800">{item.filename || item.name || item.file?.name}</span>
+                          {item.size > 0 && (
+                            <span className="text-[11px] font-mono text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded shrink-0 border border-gray-200">
+                              {formatFileSize(item.size)}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-3">
                           {item.url && (
                             <a
                               href={item.url}
-                              download={item.filename}
+                              download={item.filename || item.name}
                               className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm font-medium"
                             >
                               <Download className="w-4 h-4" />
@@ -4475,7 +4651,7 @@ const confirmExit = () => {
                           )}
                           <button
                             onClick={() => handleRemoveAttachment(index)}
-                            className="text-gray-400 hover:text-red-500"
+                            className="text-gray-400 hover:text-red-500 cursor-pointer"
                           >
                             <X className="w-4 h-4" />
                           </button>
@@ -4484,7 +4660,7 @@ const confirmExit = () => {
                     ))}
                   </ul>
                   <p className="mt-2 text-xs text-gray-500 text-right">
-                    Totale allegati: <strong>{totalSize}</strong>
+                    Totale allegati: <strong className="text-gray-800 font-semibold">{totalSize}</strong>
                   </p>
                 </>
               ) : (
@@ -6406,28 +6582,50 @@ const [recipients, setRecipients] = useState([]);
     return data;
   };
   
-  const getRecipientsCount = (campaign, contacts) => {
-    // ✅ Aggiungi controllo null
-  if (!campaign) return 0;
+  const getRecipientsCount = (campaign, contactsList = contacts) => {
+    if (!campaign) return 0;
+    const recList = campaign.recipient_list || campaign.recipients;
+    
     // 📱 Caso ALL
     if (
-      campaign.recipient_list === "all" ||
-      (Array.isArray(campaign.recipient_list) &&
-        campaign.recipient_list.includes("all"))
+      recList === "all" ||
+      (Array.isArray(recList) && recList.includes("all"))
     ) {
-      return contacts.length;
+      return (contactsList && contactsList.length > 0) ? contactsList.length : 0;
     }
-  
-    // 📱 Caso numero già salvato correttamente
-    if (typeof campaign.total_recipients === "number") {
+
+    // 📱 Risolvi destinatari se ci sono liste/etichette/tag
+    if (Array.isArray(recList) && recList.length > 0) {
+      try {
+        const resolved = resolveRecipientEmails(recList, contactsList || [], tagLabels, contactLabels);
+        if (resolved && resolved.length > 0) return resolved.length;
+      } catch (e) {}
+
+      let listTotal = 0;
+      for (const r of recList) {
+        if (typeof r === 'string' && (r.startsWith('label:') || r.startsWith('list:'))) {
+          const lid = r.replace(/^(label|list):/, '');
+          const found = (contactLabels || []).find(l => String(l.id) === String(lid));
+          if (found && (found.contact_count > 0 || (found.contact_ids && found.contact_ids.length > 0))) {
+            listTotal += (found.contact_count || found.contact_ids.length);
+          }
+        } else if (typeof r === 'string' && r.includes('@')) {
+          listTotal += 1;
+        }
+      }
+      if (listTotal > 0) return listTotal;
+    }
+
+    // 📱 Caso numero già salvato correttamente nel database
+    if (typeof campaign.total_recipients === "number" && campaign.total_recipients > 0) {
       return campaign.total_recipients;
     }
-  
-    // ✨allback: lista esplicita
-    if (Array.isArray(campaign.recipient_list)) {
-      return campaign.recipient_list.filter(Boolean).length;
+
+    // Fallback: lista esplicita
+    if (Array.isArray(recList)) {
+      return recList.filter(Boolean).length;
     }
-  
+
     return 0;
   };
  
@@ -6707,7 +6905,7 @@ const [recipients, setRecipients] = useState([]);
                   }}
                   className="text-lg font-bold text-blue-600 hover:text-blue-800 transition-colors"
                 >
-                  {campaign.total_recipients || 0}
+                  {getRecipientsCount(campaign, contacts)}
                 </button>
                 <p className="text-xs text-gray-400">Destinatari</p>
               </div>
@@ -7004,7 +7202,7 @@ const [recipients, setRecipients] = useState([]);
                 })()}
               </td>
 
-              <td className="px-6 py-4">{campaigns.total_recipients || 0}</td>
+              <td className="px-6 py-4 font-semibold text-blue-600">{getRecipientsCount(campaigns, contacts)}</td>
 
               <td className="px-6 py-4">{campaigns.opened_count || 0}</td>
 
@@ -7489,6 +7687,8 @@ const [recipients, setRecipients] = useState([]);
     campaign={selectedCampaign}
     loadNotifications={loadNotifications}
     contacts={contacts}
+    contactLabels={contactLabels}
+    tagLabels={tagLabels}
     saveCampaignProp={saveCampaign}
     onClose={() => {
       console.log('❌ Closing EditCampaignModal');

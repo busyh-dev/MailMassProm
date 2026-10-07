@@ -25,7 +25,7 @@ const useAnimatedUnmount = (isMounted, delay = 250) => {
 };
 
 /* ----------------------- MODALE MODIFICA CAMPAGNA ----------------------- */
-export const EditCampaignModal = ({ campaign, onClose, onSave, loadNotifications, contacts = [] }) => {
+export const EditCampaignModal = ({ campaign, onClose, onSave, loadNotifications, contacts = [], contactLabels = [], tagLabels = [] }) => {
   const [campaignName, setCampaignName] = useState(campaign.name || "");
   const [showLoadMessage, setShowLoadMessage] = useState(false);
   const [subject, setSubject] = useState(campaign.subject || "");
@@ -48,13 +48,47 @@ export const EditCampaignModal = ({ campaign, onClose, onSave, loadNotifications
     setSelectedAccount(campaign.sender_email || "");
     setCc(campaign.cc || "");
     setBcc(campaign.bcc || "");
-    setAttachments(
-      (campaign.attachments || []).map((a) => ({
-        ...a,
-        preview: a.type?.startsWith("image/") ? a.url : null,
-        isPdf: a.type === "application/pdf",
-      }))
-    );
+
+    const normalizeAttachmentsList = (raw) => {
+      if (!raw) return [];
+      let list = raw;
+      if (typeof raw === 'string') {
+        try { list = JSON.parse(raw); } catch { list = []; }
+      }
+      if (!Array.isArray(list)) return [];
+      return list.map((a) => {
+        if (typeof a === 'string') {
+          const fn = a.split('/').pop().split('\\').pop() || 'allegato.pdf';
+          return {
+            filename: fn,
+            name: fn,
+            url: a,
+            size: 0,
+            type: fn.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream',
+            isPdf: fn.toLowerCase().endsWith('.pdf'),
+            preview: null,
+          };
+        }
+        let s = a.size || a.file_size || a.fileSize || a.bytes || a.file?.size || 0;
+        if (!s && a.content && typeof a.content === 'string') {
+          const cleanB64 = a.content.includes(',') ? a.content.split(',')[1] : a.content;
+          s = Math.round((cleanB64.length * 3) / 4);
+        }
+        const fn = a.filename || a.name || a.file?.name || 'allegato.pdf';
+        const mime = a.type || a.file?.type || (fn.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream');
+        return {
+          ...a,
+          filename: fn,
+          name: fn,
+          type: mime,
+          size: Number(s) || 0,
+          preview: (mime.startsWith("image/") || a.preview) ? (a.preview || a.url) : null,
+          isPdf: mime === "application/pdf" || fn.toLowerCase().endsWith('.pdf'),
+        };
+      });
+    };
+
+    setAttachments(normalizeAttachmentsList(campaign.attachments));
   
     setShowLoadMessage(true);
     const timer = setTimeout(() => setShowLoadMessage(false), 2000);
@@ -63,7 +97,7 @@ export const EditCampaignModal = ({ campaign, onClose, onSave, loadNotifications
   
   // 📎 Allegati
   const fileInputRef = useRef(null);
-  const [attachments, setAttachments] = useState(campaign.attachments || []);
+  const [attachments, setAttachments] = useState([]);
   const [previewImage, setPreviewImage] = useState(null);
   const [previewPdf, setPreviewPdf] = useState(null);
 
@@ -71,20 +105,36 @@ export const EditCampaignModal = ({ campaign, onClose, onSave, loadNotifications
   const { shouldRender: showImage, animationClass: imageAnim } = useAnimatedUnmount(!!previewImage);
   const { shouldRender: showPdf, animationClass: pdfAnim } = useAnimatedUnmount(!!previewPdf);
 
-  /* 🧠 Inizializzazione al cambio campagna */
-    /* 📂 Aggiunge allegati */
-  const handleAddAttachments = (e) => {
+  /* 📂 Aggiunge allegati */
+  const handleAddAttachments = async (e) => {
     const files = Array.from(e.target.files);
     if (files.length > 0) {
-      const newFiles = files.map((file) => ({
-        file,
-        preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
-        isPdf: file.type === "application/pdf",
-        filename: file.name,
-        type: file.type,
-        size: file.size,
-        url: URL.createObjectURL(file),
-      }));
+      const newFiles = await Promise.all(
+        files.map(async (file) => {
+          let content = '';
+          try {
+            content = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result);
+              reader.onerror = () => resolve('');
+              reader.readAsDataURL(file);
+            });
+          } catch {
+            content = '';
+          }
+          return {
+            file,
+            preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+            isPdf: file.type === "application/pdf" || file.name.toLowerCase().endsWith('.pdf'),
+            filename: file.name,
+            name: file.name,
+            type: file.type || 'application/octet-stream',
+            size: file.size || 0,
+            url: URL.createObjectURL(file),
+            content,
+          };
+        })
+      );
       setAttachments((prev) => [...prev, ...newFiles]);
     }
   };
@@ -97,13 +147,35 @@ export const EditCampaignModal = ({ campaign, onClose, onSave, loadNotifications
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
+  /* 📏 Formattazione bytes */
+  const formatFileSize = (bytes) => {
+    const b = Number(bytes) || 0;
+    if (b <= 0) return "0 B";
+    if (b < 1024) return `${b} B`;
+    if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+    return `${(b / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
   /* 📏 Dimensione totale allegati */
   const totalSize = useMemo(() => {
-    const bytes = attachments.reduce((sum, a) => sum + (a.file?.size || a.size || 0), 0);
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  }, [attachments]);
+    let bytes = attachments.reduce((sum, a) => {
+      let s = a.size || a.file?.size || a.file_size || a.fileSize || a.bytes || 0;
+      if (!s && a.content && typeof a.content === 'string') {
+        const cleanB64 = a.content.includes(',') ? a.content.split(',')[1] : a.content;
+        s = Math.round((cleanB64.length * 3) / 4);
+      }
+      return sum + (Number(s) || 0);
+    }, 0);
+
+    if (bytes === 0 && campaign?.total_attachment_size) {
+      bytes = Number(campaign.total_attachment_size) || 0;
+    }
+    if (bytes === 0 && campaign?.totalAttachmentSize) {
+      bytes = Number(campaign.totalAttachmentSize) || 0;
+    }
+
+    return formatFileSize(bytes);
+  }, [attachments, campaign]);
 
   /* 🧠 Icone file */
   const getFileIcon = (type, filename) => {
@@ -165,6 +237,32 @@ export const EditCampaignModal = ({ campaign, onClose, onSave, loadNotifications
       ? recipientList
       : (campaign.recipient_list || campaign.recipients || []);
 
+    let resolvedTotal = 0;
+    if (Array.isArray(finalRecipients) && finalRecipients.length > 0) {
+      if (finalRecipients.includes('all')) {
+        resolvedTotal = contacts.length;
+      } else {
+        for (const r of finalRecipients) {
+          if (typeof r === 'string' && (r.startsWith('label:') || r.startsWith('list:'))) {
+            const lid = r.replace(/^(label|list):/, '');
+            const foundLbl = (contactLabels || []).find(l => String(l.id) === String(lid));
+            if (foundLbl) {
+              resolvedTotal += (foundLbl.contact_count || (foundLbl.contact_ids ? foundLbl.contact_ids.length : 0));
+            } else {
+              // fallback filtering contacts
+              resolvedTotal += contacts.filter(c => String(c.contact_label_id) === String(lid)).length;
+            }
+          } else if (typeof r === 'string' && r.includes('@')) {
+            resolvedTotal += 1;
+          }
+        }
+      }
+    }
+
+    const computedTotal = resolvedTotal > 0
+      ? resolvedTotal
+      : (campaign.total_recipients || campaign.totalRecipients || (Array.isArray(finalRecipients) ? finalRecipients.length : 0));
+
     const updatedCampaign = {
       ...campaign,
       campaignName: campaignName,
@@ -175,8 +273,8 @@ export const EditCampaignModal = ({ campaign, onClose, onSave, loadNotifications
       recipientList: finalRecipients,
       recipient_list: finalRecipients,
       recipients: finalRecipients,
-      total_recipients: campaign.total_recipients || campaign.totalRecipients || (Array.isArray(finalRecipients) ? finalRecipients.length : 0),
-      totalRecipients: campaign.total_recipients || campaign.totalRecipients || (Array.isArray(finalRecipients) ? finalRecipients.length : 0),
+      total_recipients: computedTotal,
+      totalRecipients: computedTotal,
       account: selectedAccount,
       senderEmail: selectedAccount,
       cc,
