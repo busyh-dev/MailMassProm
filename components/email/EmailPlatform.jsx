@@ -1072,10 +1072,7 @@ const loadEmailLogs = useCallback(async () => {
       .from("campaign_logs")
       .select(`
         id, campaign_id, user_id, recipient_email, status, sent_at,
-        campaigns (
-          campaign_name, subject, total_recipients,
-          opened_count, sent_count, campaign_mode
-        )
+        campaigns ( * )
       `)
       .eq("user_id", session.user.id)
       .not('campaigns', 'is', null)
@@ -17717,7 +17714,7 @@ const resolveRecipientEmailsModal = (recipientList, contacts, tagLabels = [], sa
           status: 'completed',
           campaignName: campaignName || emailSubject || 'Campagna Email',
           campaignSubject: emailSubject,
-          senderEmail: selectedAccount || accountObj?.email || user?.email || '',
+          senderEmail: accountObj?.email || '',
           failedCount: failedRecipients.length,
           completedAt: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
           message: failedRecipients.length === 0
@@ -32107,6 +32104,8 @@ if (loadingProfile && !user && !authUser) {
     key="logs"
     logsProp={emailLogs}
     logsLoadingProp={emailLogsLoading}
+    contactLabels={contactLabels}
+    tagLabels={tagLabels}
   />
 )}
 {activeTab === "settings" && <EmailSettings key="settings" readOnly={isSuperUser} />}

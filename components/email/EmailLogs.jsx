@@ -5,10 +5,70 @@ import * as XLSX from 'xlsx';
 import {
   Search, MailCheck, Clock, FileText, Download,
   Trash2, AlertTriangle, ChevronLeft, ChevronRight,
-  Users, Send, Percent, CalendarClock, Eye, X,
+  Users, Send, Percent, CalendarClock, Eye, X, ListChecks, Link2,
 } from "lucide-react";
 
-const EmailLogs = ({ logsProp, logsLoadingProp }) => {
+// 🔗 Rileva se la campagna è un invio in correlazione (allegati personalizzati 1:1 per contatto)
+const isCorrelatedCampaign = (c) => {
+  if (!c) return false;
+  if (c.is_dynamic_attachments || c.isDynamicAttachments || c.dynamic_attachments) return true;
+  let atts = c.attachments || [];
+  if (typeof atts === 'string') {
+    try { atts = JSON.parse(atts); } catch { atts = []; }
+  }
+  if (!Array.isArray(atts) || atts.length === 0) return false;
+  const hasCfFiles = atts.some(a => {
+    const fn = a?.filename || a?.name || (typeof a === 'string' ? a : '');
+    return /^[A-Z]{6}[0-9]{2}[A-Z][0-9]{2}[A-Z][0-9]{3}[A-Z]/i.test(fn);
+  });
+  if (hasCfFiles) return true;
+  const name = (c.campaign_name || c.subject || '').toLowerCase();
+  return ['attestat', 'ecm', 'corso', 'certificat', 'diplom', 'discent'].some(k => name.includes(k));
+};
+
+// 📋 Ricava le liste / tag / etichette da cui è partito l'invio
+const getSourceLabels = (c, contactLabels = [], tagLabels = []) => {
+  if (!c) return [];
+  let list = c.recipient_list;
+  if (typeof list === 'string') {
+    try { list = JSON.parse(list); } catch { list = list.split(','); }
+  }
+  if (!Array.isArray(list)) return [];
+
+  const out = [];
+  let directEmails = 0;
+  list.forEach(raw => {
+    if (!raw) return;
+    if (typeof raw === 'object') { if (raw.email) directEmails++; return; }
+    const val = String(raw).replace(/^['"]|['"]$/g, '').trim();
+    if (!val) return;
+    if (val.toLowerCase() === 'all') { out.push('👥 Tutti i contatti'); return; }
+    if (!val.includes(':')) { if (val.includes('@')) directEmails++; return; }
+
+    const [prefixRaw, ...rest] = val.split(':');
+    const prefix = prefixRaw.toLowerCase();
+    const target = rest.join(':').trim();
+
+    if (prefix === 'list' || prefix === 'label') {
+      const l = (contactLabels || []).find(x =>
+        String(x.id) === target ||
+        String(x.nome || x.name || x.label || '').toLowerCase() === target.toLowerCase()
+      );
+      out.push(`📋 Lista: ${l?.nome || l?.name || l?.label || target}`);
+    } else if (prefix === 'tag') {
+      out.push(`🏷️ Tag: ${target}`);
+    } else if (prefix === 'tag_label') {
+      const t = (tagLabels || []).find(x => String(x.id) === target);
+      out.push(`🏷️ Etichetta: ${t?.name || t?.label || t?.nome || target}`);
+    } else {
+      out.push(val);
+    }
+  });
+  if (directEmails > 0) out.push(`✉️ ${directEmails} email singole`);
+  return [...new Set(out)];
+};
+
+const EmailLogs = ({ logsProp, logsLoadingProp, contactLabels = [], tagLabels = [] }) => {
   const { user } = useAuth();
 
   const [logs, setLogs] = useState(logsProp || []);
@@ -96,6 +156,8 @@ const EmailLogs = ({ logsProp, logsLoadingProp }) => {
       'Oggetto': log.campaigns?.subject || '—',
       'Destinatario': log.recipient_email || '—',
       'Stato': log.status === 'sent' ? 'Inviato' : 'Fallito',
+      'Lista / Origine': getSourceLabels(log.campaigns, contactLabels, tagLabels).join(' | ') || '—',
+      'Invio in correlazione': isCorrelatedCampaign(log.campaigns) ? 'Sì' : 'No',
       'Tipo': log.campaigns?.campaign_mode === 'builder' ? 'Builder' :
               log.campaigns?.campaign_mode === 'template' ? 'Template' : 'Standard',
       'Destinatari Totali': log.campaigns?.total_recipients || 0,
@@ -115,6 +177,8 @@ const EmailLogs = ({ logsProp, logsLoadingProp }) => {
       { wch: 30 },  // Oggetto
       { wch: 35 },  // Destinatario
       { wch: 12 },  // Stato
+      { wch: 40 },  // Lista / Origine
+      { wch: 20 },  // Correlazione
       { wch: 12 },  // Tipo
       { wch: 18 },  // Destinatari Totali
       { wch: 12 },  // Aperture
@@ -325,7 +389,19 @@ const EmailLogs = ({ logsProp, logsLoadingProp }) => {
                            log.campaigns.campaign_mode === 'template' ? '📄 Template' : '✏️ Standard'}
                         </span>
                       )}
+                      {isCorrelatedCampaign(log.campaigns) && (
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 bg-amber-100 text-amber-800 inline-flex items-center gap-1">
+                          <Link2 className="w-3 h-3" /> Correlato 1:1
+                        </span>
+                      )}
                     </div>
+                    {getSourceLabels(log.campaigns, contactLabels, tagLabels).length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {getSourceLabels(log.campaigns, contactLabels, tagLabels).map(s => (
+                          <span key={s} className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{s}</span>
+                        ))}
+                      </div>
+                    )}
                     <p className="text-xs text-gray-500 mt-0.5 truncate">
                       📧 {log.recipient_email} • {new Date(log.sent_at).toLocaleString("it-IT", {
                         day: "2-digit", month: "2-digit", year: "numeric",
@@ -419,6 +495,26 @@ const EmailLogs = ({ logsProp, logsLoadingProp }) => {
               <div className="bg-gray-50 rounded-lg p-4">
                 <p className="text-xs text-gray-500 mb-1">Destinatario</p>
                 <p className="text-sm font-medium text-gray-900">{selectedLog.recipient_email}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-4">
+                <p className="text-xs text-gray-500 mb-1.5 flex items-center gap-1"><ListChecks className="w-3.5 h-3.5" /> Inviata da</p>
+                {getSourceLabels(selectedLog.campaigns, contactLabels, tagLabels).length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {getSourceLabels(selectedLog.campaigns, contactLabels, tagLabels).map(s => (
+                      <span key={s} className="text-xs px-2 py-1 rounded-md bg-white border border-gray-200 text-gray-800">{s}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400">Origine non disponibile</p>
+                )}
+              </div>
+              <div className={`rounded-lg p-4 ${isCorrelatedCampaign(selectedLog.campaigns) ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50'}`}>
+                <p className="text-xs text-gray-500 mb-1 flex items-center gap-1"><Link2 className="w-3.5 h-3.5" /> Invio in correlazione</p>
+                <p className={`text-sm font-semibold ${isCorrelatedCampaign(selectedLog.campaigns) ? 'text-amber-800' : 'text-gray-700'}`}>
+                  {isCorrelatedCampaign(selectedLog.campaigns)
+                    ? 'Sì — allegato personalizzato abbinato a ciascun contatto'
+                    : 'No — stesso contenuto per tutti'}
+                </p>
               </div>
               {selectedLog.campaigns?.subject && (
                 <div className="bg-gray-50 rounded-lg p-4">
