@@ -1834,6 +1834,41 @@ const resolveRecipientEmails = (recipientList, contacts = [], tagLabels = [], sa
   return Array.from(emailSet).filter(Boolean);
 };
 
+// 🎯 Risolve esclusivamente gli oggetti contatto appartenenti alle liste/destinatari selezionati
+const resolveSelectedContacts = (recipientList, contacts = [], tagLabels = [], savedLists = []) => {
+  if (!recipientList || (Array.isArray(recipientList) && recipientList.length === 0)) {
+    return [];
+  }
+  const safeContacts = Array.isArray(contacts) ? contacts : [];
+  const activeContacts = safeContacts.filter(isContactActive);
+
+  let listToProcess = recipientList;
+  if (typeof listToProcess === 'string') {
+    try {
+      const parsed = JSON.parse(listToProcess);
+      if (Array.isArray(parsed)) listToProcess = parsed;
+      else listToProcess = [listToProcess];
+    } catch {
+      listToProcess = listToProcess.split(',');
+    }
+  }
+  if (!Array.isArray(listToProcess)) listToProcess = [listToProcess];
+
+  if (listToProcess.length === 0) return [];
+
+  // Se è selezionato 'all', ritorna tutti i contatti attivi
+  if (listToProcess.some(v => String(v).trim().toLowerCase() === 'all')) {
+    return activeContacts;
+  }
+
+  // Risolve SOLO le email appartenenti alle liste selezionate
+  const targetEmails = resolveRecipientEmails(listToProcess, activeContacts, tagLabels, savedLists);
+  if (!targetEmails || targetEmails.length === 0) return [];
+
+  const emailSet = new Set(targetEmails.map(e => String(e).toLowerCase().trim()));
+  return activeContacts.filter(c => c.email && emailSet.has(String(c.email).toLowerCase().trim()));
+};
+
 useEffect(() => {
   const fetchLabels = async () => {
     try {
@@ -4732,15 +4767,12 @@ const confirmExit = () => {
               <MatchPreviewModal
                 isOpen={showMatchPreview}
                 onClose={() => setShowMatchPreview(false)}
-                contacts={(() => {
-                  const activePool = contacts && contacts.length > 0 ? contacts : localContacts;
-                  if (!recipientList || (Array.isArray(recipientList) && recipientList.length === 0)) return activePool;
-                  if (Array.isArray(recipientList) && recipientList.includes('all')) return activePool;
-                  const targetEmails = resolveRecipientEmails(recipientList, activePool, tagLabels, contactLabels);
-                  if (!targetEmails || targetEmails.length === 0) return activePool;
-                  const eSet = new Set(targetEmails.map(e => String(e).toLowerCase().trim()));
-                  return activePool.filter(c => c.email && eSet.has(String(c.email).toLowerCase().trim()));
-                })()}
+                contacts={resolveSelectedContacts(
+                  recipientList,
+                  (contacts && contacts.length > 0 ? contacts : localContacts),
+                  tagLabels,
+                  contactLabels
+                )}
                 attachments={attachments}
                 matchMode={matchMode}
               />
@@ -26613,15 +26645,12 @@ onClick={() => {
             isOpen={showMatchPreview}
             onClose={() => setShowMatchPreview(false)}
             onVerified={(ok) => setMatchVerified(ok)}
-            contacts={(() => {
-              const activePool = localContacts && localContacts.length > 0 ? localContacts : contacts;
-              if (!recipientList || (Array.isArray(recipientList) && recipientList.length === 0)) return activePool;
-              if (Array.isArray(recipientList) && recipientList.includes('all')) return activePool;
-              const targetEmails = resolveRecipientEmails(recipientList, activePool, tagLabels, contactLabels);
-              if (!targetEmails || targetEmails.length === 0) return activePool;
-              const eSet = new Set(targetEmails.map(e => String(e).toLowerCase().trim()));
-              return activePool.filter(c => c.email && eSet.has(String(c.email).toLowerCase().trim()));
-            })()}
+            contacts={resolveSelectedContacts(
+              recipientList,
+              (localContacts && localContacts.length > 0 ? localContacts : contacts),
+              tagLabels,
+              contactLabels
+            )}
             attachments={attachments}
             matchMode={matchMode}
           />
