@@ -3954,9 +3954,18 @@ useEffect(() => {
     contentLength: content.length
   });
 
-  const recipients = Array.isArray(campaign.recipient_list) 
-    ? campaign.recipient_list 
-    : (campaign.recipients || []);
+  let recipients = campaign.recipient_list || campaign.recipients || [];
+  if (typeof recipients === 'string') {
+    try {
+      const parsed = JSON.parse(recipients);
+      if (Array.isArray(parsed)) recipients = parsed;
+      else recipients = recipients.includes(',') ? recipients.split(',') : [recipients];
+    } catch {
+      recipients = recipients.includes(',') ? recipients.split(',') : [recipients];
+    }
+  }
+  if (!Array.isArray(recipients)) recipients = [recipients];
+  recipients = recipients.map(r => typeof r === 'string' ? r.trim() : r).filter(Boolean);
   setRecipientList(recipients);
 
   setTimeout(() => {
@@ -5856,7 +5865,20 @@ const [recipients, setRecipients] = useState([]);
  
   // ↔️ Helpers di mapping (DB → UI fallback ai vecchi campi locali se esistessero)
   const getName = (c) => c.campaign_name ?? c.name ?? "Senza nome";
-  const getRecipientsArray = (c) => Array.isArray(c.recipient_list) ? c.recipient_list : (c.recipients || []);
+  const getRecipientsArray = (c) => {
+    if (!c) return [];
+    let list = c.recipient_list ?? c.recipients ?? [];
+    if (typeof list === 'string') {
+      try {
+        const p = JSON.parse(list);
+        if (Array.isArray(p)) list = p;
+        else list = list.includes(',') ? list.split(',') : [list];
+      } catch {
+        list = list.includes(',') ? list.split(',') : [list];
+      }
+    }
+    return Array.isArray(list) ? list : [list];
+  };
   const getOpened = (c) => c.opened_count ?? c.opened ?? 0;
   const getClicked = (c) => c.clicked_count ?? c.clicked ?? 0;
   const menuRef = useRef(null);
@@ -7342,7 +7364,24 @@ const [recipients, setRecipients] = useState([]);
                 })()}
               </td>
 
-              <td className="px-6 py-4 font-semibold text-blue-600">{getRecipientsCount(campaigns, contacts)}</td>
+              <td className="px-6 py-4 font-semibold text-blue-600">
+                <button
+                  onClick={async () => {
+                    setRecipientsCampaign(campaigns);
+                    setShowRecipientsModal(true);
+                    const { data } = await supabase
+                      .from("campaign_recipients")
+                      .select("email, name, status, sent_at, opened_at")
+                      .eq("campaign_id", campaigns.id)
+                      .order("sent_at", { ascending: false });
+                    setRecipients(data || []);
+                  }}
+                  className="hover:underline cursor-pointer font-bold"
+                  title="Visualizza elenco destinatari"
+                >
+                  {getRecipientsCount(campaigns, contacts)}
+                </button>
+              </td>
 
               <td className="px-6 py-4">{campaigns.opened_count || 0}</td>
 
@@ -7789,74 +7828,77 @@ const [recipients, setRecipients] = useState([]);
 
           <tbody className="divide-y divide-gray-200 bg-white">
             {(() => {
-            const recipientList = getRecipientsArray(recipientsCampaign);
+              const recipientList = getRecipientsArray(recipientsCampaign);
+              const pool = (contacts && contacts.length > 0 ? contacts : localContacts);
 
-            // ===============================
-            // ✨OSTRUZIONE LISTA BASE
-            // ===============================
-            let list = [];
-            
-            // ✨ASO: inviato a TUTTI ("all")
-            if (
-              Array.isArray(recipientList) &&
-              recipientList.length === 1 &&
-              recipientList[0] === "all"
-            ) {
-              list = contacts;
-            } 
-            // ✨ASO: lista email specifiche
-            else if (Array.isArray(recipientList) && recipientList.length > 0) {
-              list = contacts.filter(c =>
-                recipientList.includes(c.email)
-              );
-            }
-            
-            // ===============================
-            // 🔍 RICERCA LIVE
-            // ===============================
-            if (recipientSearch) {
-              const q = recipientSearch.toLowerCase();
-              list = list.filter(c =>
-                (c.name || "").toLowerCase().includes(q) ||
-                (c.email || "").toLowerCase().includes(q)
-              );
-            }
-            
-            // ===============================
-            // 🏷️ FILTRO CATEGORIA
-            // ===============================
-            if (recipientCategory !== "all") {
-              list = list.filter(c => c.category === recipientCategory);
-            }
-            
-            // ===============================
-            // ⚠️ EMPTY STATE
-            // ===============================
-            if (list.length === 0) {
-              return (
-                <tr>
-                  <td
-                    colSpan={3}
-                    className="px-4 py-6 text-center text-gray-500 italic"
-                  >
-                    Nessun destinatario trovato
+              // 1. Risolvi i contatti tramite helper
+              let list = resolveSelectedContacts(recipientList, pool, tagLabels, contactLabels);
+
+              // 2. Fallback su contatti registrati in DB o match email
+              if (list.length === 0 && Array.isArray(recipientList) && recipientList.length > 0) {
+                list = pool.filter(c => recipientList.some(r => {
+                  const s = String(r).toLowerCase().trim();
+                  return s === String(c.email).toLowerCase().trim() || s === String(c.id).toLowerCase().trim();
+                }));
+              }
+
+              // 3. Fallback sullo stato recipients (da tabella campaign_recipients o logs)
+              if (list.length === 0 && Array.isArray(recipients) && recipients.length > 0) {
+                list = recipients.map(r => ({
+                  id: r.id || r.email,
+                  name: r.name || r.nominativo || '—',
+                  email: r.email,
+                  category: r.status === 'sent' ? 'Inviato' : (r.category || '—'),
+                  status: r.status
+                }));
+              }
+
+              // 🔍 Ricerca Live
+              if (recipientSearch) {
+                const q = recipientSearch.toLowerCase().trim();
+                list = list.filter(c =>
+                  (c.name || c.full_name || "").toLowerCase().includes(q) ||
+                  (c.email || "").toLowerCase().includes(q) ||
+                  (c.codiceFiscale || c.codice_fiscale || "").toLowerCase().includes(q)
+                );
+              }
+
+              // 🏷️ Filtro Categoria
+              if (recipientCategory !== "all") {
+                list = list.filter(c => c.category === recipientCategory || c.settore === recipientCategory);
+              }
+
+              // ⚠️ Empty State
+              if (list.length === 0) {
+                return (
+                  <tr>
+                    <td
+                      colSpan={3}
+                      className="px-4 py-8 text-center text-gray-500 italic"
+                    >
+                      Nessun destinatario trovato
+                    </td>
+                  </tr>
+                );
+              }
+
+              return list.map((c, idx) => (
+                <tr key={c.id || c.email || idx} className="hover:bg-gray-50/80 transition-colors">
+                  <td className="px-4 py-2.5 font-medium text-gray-900">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-xs shrink-0">
+                        {(c.name || c.full_name || c.email || 'D').charAt(0).toUpperCase()}
+                      </div>
+                      <span className="truncate max-w-[200px]">{c.name || c.full_name || c.nominativo || "—"}</span>
+                    </div>
                   </td>
-                </tr>
-              );
-            }
-            
-              return list.map((c) => (
-                <tr key={c.id}>
-                  <td className="px-4 py-2 font-medium text-gray-900">
-                    {c.name || "—"}
-                  </td>
-                  <td className="px-4 py-2 text-gray-700">
+                  <td className="px-4 py-2.5 text-gray-700 font-mono text-xs">
                     {c.email}
                   </td>
-                  <td className="px-4 py-2">
-                    {c.category ? (
-                      <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-700">
-                        {c.category}
+                  <td className="px-4 py-2.5">
+                    {c.category || c.settore ? (
+                      <span className="px-2 py-0.5 text-xs rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                        {c.category || c.settore}
                       </span>
                     ) : (
                       <span className="text-gray-400 text-xs">—</span>
