@@ -84,11 +84,11 @@ export const useCampaigns = () => {
       if (error) throw error;
   
       setCampaigns(prev => {
-        const newData = data || [];
+        const newData = (data || []).map(normalizeCampaignData);
         if (JSON.stringify(prev) === JSON.stringify(newData)) return prev;
         return newData;
       });
-      return { success: true, data };
+      return { success: true, data: (data || []).map(normalizeCampaignData) };
     } catch (error) {
       console.error('❌ Errore nel caricamento campagne:', error);
       return { success: false, error: error.message };
@@ -96,6 +96,29 @@ export const useCampaigns = () => {
       clearTimeout(loadingTimeout.current);
       if (!silent) setLoading(false);
     }
+  };
+
+  // Helper per normalizzare i dati della campagna e ricavare correlazione da tags
+  const normalizeCampaignData = (c) => {
+    if (!c) return c;
+    let isDyn = false;
+    let mMode = 'auto';
+    let tList = c.tags;
+    if (typeof tList === 'string') {
+      try { tList = JSON.parse(tList); } catch { tList = tList ? [tList] : []; }
+    }
+    if (Array.isArray(tList)) {
+      if (tList.includes('dyn_att:true') || tList.includes('dynamic_attachments')) isDyn = true;
+      const mmTag = tList.find(t => String(t).startsWith('match_mode:'));
+      if (mmTag) mMode = mmTag.replace('match_mode:', '');
+    }
+    return {
+      ...c,
+      is_dynamic_attachments: isDyn || Boolean(c.is_dynamic_attachments),
+      isDynamicAttachments: isDyn || Boolean(c.is_dynamic_attachments),
+      match_mode: mMode || c.match_mode || 'auto',
+      matchMode: mMode || c.match_mode || 'auto',
+    };
   };
 
   // 💾 Salva campagna (crea o aggiorna)
@@ -112,8 +135,22 @@ export const useCampaigns = () => {
       console.log('💾 campaignData ricevuto:', campaignData);
       console.log('📧 senderEmail:', campaignData.senderEmail);
       console.log('📧 fallback localStorage:', localStorage.getItem('resend_sender_email'));
+
+      const isDynamic = Boolean(campaignData.isDynamicAttachments ?? campaignData.is_dynamic_attachments ?? campaignData.dynamicAttachments ?? false);
+      const matchModeValue = campaignData.matchMode || campaignData.match_mode || 'auto';
+
+      let rawTags = campaignData.tags || [];
+      if (typeof rawTags === 'string') {
+        try { rawTags = JSON.parse(rawTags); } catch { rawTags = rawTags ? [rawTags] : []; }
+      }
+      let tagsList = Array.isArray(rawTags) ? [...rawTags] : [];
+      tagsList = tagsList.filter(t => !String(t).startsWith('dyn_att:') && !String(t).startsWith('match_mode:'));
+      if (isDynamic) {
+        tagsList.push('dyn_att:true');
+        tagsList.push(`match_mode:${matchModeValue}`);
+      }
   
-      // Prepara i dati della campagna
+      // Prepara i dati della campagna (SOLO colonne SQL reali)
       const campaign = {
         user_id: user.id,
         campaign_name: campaignData.campaignName,
@@ -143,15 +180,13 @@ export const useCampaigns = () => {
         tracking_enabled: campaignData.trackingEnabled !== false,
         open_tracking: campaignData.openTracking !== false,
         click_tracking: campaignData.clickTracking !== false,
-        tags: campaignData.tags || [],
+        tags: tagsList,
         notes: campaignData.notes || null,
         resend_api_key: localStorage.getItem('resend_api_key') || null,
         reply_to: campaignData.replyTo || campaignData.reply_to || null,
         builder_blocks: campaignData.builderBlocks || campaignData.builder_blocks || null,
         is_builder_template: campaignData.isBuilderTemplate || campaignData.is_builder_template || false,
         campaign_mode: campaignData.campaignMode || campaignData.campaign_mode || 'standard',
-        is_dynamic_attachments: Boolean(campaignData.isDynamicAttachments ?? campaignData.is_dynamic_attachments ?? campaignData.dynamicAttachments ?? false),
-        match_mode: campaignData.matchMode || campaignData.match_mode || 'auto',
       };
   
       console.log('💾 Campaign object da salvare:', campaign); // ✅ DEBUG
@@ -171,7 +206,7 @@ export const useCampaigns = () => {
           .single();
   
         if (error) throw error;
-        result = data;
+        result = normalizeCampaignData(data);
   
         // Aggiorna la lista locale
         setCampaigns(prev => 
@@ -185,7 +220,7 @@ export const useCampaigns = () => {
           .single();
   
         if (error) throw error;
-        result = data;
+        result = normalizeCampaignData(data);
   
         // Aggiungi alla lista locale
         setCampaigns(prev => [result, ...prev]);
@@ -264,7 +299,7 @@ export const useCampaigns = () => {
 
       if (error) throw error;
 
-      return { success: true, data };
+      return { success: true, data: normalizeCampaignData(data) };
     } catch (error) {
       console.error('❌ Errore nel caricamento campagna:', error);
       return { success: false, error: error.message };

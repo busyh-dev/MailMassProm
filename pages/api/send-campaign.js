@@ -136,7 +136,7 @@ export default async function handler(req, res) {
         console.log(`🔍 Recupero allegati per campagna ${campaign_id} da database...`);
         const { data: dbCamp, error: campErr } = await supabase
           .from('campaigns')
-          .select('attachments, is_dynamic_attachments, match_mode')
+          .select('attachments, tags')
           .eq('id', campaign_id)
           .maybeSingle();
         
@@ -145,11 +145,19 @@ export default async function handler(req, res) {
             ? dbCamp.attachments
             : JSON.parse(dbCamp.attachments || '[]');
           console.log(`📎 Recuperati ${rawAttachments.length} allegati dal database.`);
-          if (isDynamic === undefined && dbCamp.is_dynamic_attachments !== undefined) {
-            isDynamic = dbCamp.is_dynamic_attachments;
+          
+          let dbTags = dbCamp.tags;
+          if (typeof dbTags === 'string') {
+            try { dbTags = JSON.parse(dbTags); } catch { dbTags = dbTags ? [dbTags] : []; }
           }
-          if (dbCamp.match_mode) {
-            effectiveMatchMode = dbCamp.match_mode;
+          if (Array.isArray(dbTags)) {
+            if (isDynamic === undefined && (dbTags.includes('dyn_att:true') || dbTags.includes('dynamic_attachments'))) {
+              isDynamic = true;
+            }
+            const mm = dbTags.find(t => String(t).startsWith('match_mode:'));
+            if (mm) {
+              effectiveMatchMode = mm.replace('match_mode:', '');
+            }
           }
         }
       } catch (dbAttErr) {
