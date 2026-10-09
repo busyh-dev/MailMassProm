@@ -956,17 +956,27 @@ useEffect(() => {
               <button
                 onClick={async () => {
                   try {
-                    await Promise.all([
-                      supabase.from('contact_lists').delete().eq('id', confirmDeleteList.id),
-                      supabase.from('contact_labels').delete().eq('id', confirmDeleteList.id),
-                      supabase.from('contact_labels').delete().eq('nome', confirmDeleteList.name),
-                      supabase.from('list_contacts').delete().eq('list_id', confirmDeleteList.id).catch(() => {})
-                    ]);
+                    const { error } = await supabase
+                      .from('contact_lists')
+                      .delete()
+                      .eq('id', confirmDeleteList.id);
+
+                    if (error) throw error;
+
+                    // Pulizia opzionale silenziosa in background
+                    try {
+                      await supabase.from('list_contacts').delete().eq('listId', confirmDeleteList.id);
+                    } catch (_) {}
+                    try {
+                      await supabase.from('list_contacts').delete().eq('list_id', confirmDeleteList.id);
+                    } catch (_) {}
+
                     toast.success(`Lista "${confirmDeleteList.name}" eliminata`);
                     setConfirmDeleteList(null);
                     loadLists();
-                  } catch {
-                    toast.error('Errore durante l\'eliminazione della lista');
+                  } catch (err) {
+                    console.error('Errore eliminazione lista:', err);
+                    toast.error(`Errore durante l'eliminazione: ${err?.message || 'Errore database'}`);
                   }
                 }}
                 className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 shadow-sm"
