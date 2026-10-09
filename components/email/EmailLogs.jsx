@@ -105,8 +105,10 @@ const EmailLogs = ({ logsProp, logsLoadingProp, contactLabels = [], tagLabels = 
   }, [logs]);
 
   const filteredLogs = logs.filter((log) => {
-    const subject = log.campaigns?.subject || log.campaigns?.campaign_name || "";
-    const matchSearch = subject.toLowerCase().includes(searchTerm.toLowerCase());
+    const subject = log.campaigns?.subject || log.campaigns?.campaign_name || log.subject || "";
+    const email = log.recipient_email || "";
+    const term = searchTerm.toLowerCase();
+    const matchSearch = subject.toLowerCase().includes(term) || email.toLowerCase().includes(term);
     const matchStatus = filter === "all" || log.status === filter;
     return matchSearch && matchStatus;
   });

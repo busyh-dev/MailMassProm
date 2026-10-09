@@ -1075,7 +1075,6 @@ const loadEmailLogs = useCallback(async () => {
         campaigns ( * )
       `)
       .eq("user_id", session.user.id)
-      .not('campaigns', 'is', null)
       .order("sent_at", { ascending: false });
 
     if (error) throw error;

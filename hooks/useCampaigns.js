@@ -73,7 +73,8 @@ export const useCampaigns = () => {
 
       let query = supabase
         .from('campaigns')
-        .select('*');
+        .select('*')
+        .neq('status', 'deleted');
 
       if (!isSuperAdminUser) {
         query = query.eq('user_id', session.user.id);
@@ -307,23 +308,41 @@ export const useCampaigns = () => {
   };
 
  
-  // 🗑️ Elimina campagna
-const deleteCampaign = async (campaignId) => {
+  // 🗑️ Elimina campagna (preserva lo storico invii per le campagne già inviate)
+  const deleteCampaign = async (campaignId) => {
     try {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       
       if (userError) throw userError;
       if (!user) throw new Error("Utente non autenticato");
   
-      const { error } = await supabase
-        .from("campaigns")
-        .delete()
-        .eq("id", campaignId)
-        .eq("user_id", user.id);
+      // Controlla se la campagna ha già record nello storico invii
+      const { data: existingLogs } = await supabase
+        .from("campaign_logs")
+        .select("id")
+        .eq("campaign_id", campaignId)
+        .limit(1);
+
+      if (existingLogs && existingLogs.length > 0) {
+        // Se la campagna ha già invii storici, la impostiamo come 'deleted'
+        // così scompare dalla schermata campagne ma TUTTO lo storico invii rimane intatto al 100%
+        const { error } = await supabase
+          .from("campaigns")
+          .update({ status: "deleted", updated_at: new Date().toISOString() })
+          .eq("id", campaignId)
+          .eq("user_id", user.id);
+        if (error) throw error;
+      } else {
+        // Se non ha log di invio (es. bozza mai inviata), possiamo rimuoverla
+        const { error } = await supabase
+          .from("campaigns")
+          .delete()
+          .eq("id", campaignId)
+          .eq("user_id", user.id);
+        if (error) throw error;
+      }
   
-      if (error) throw error;
-  
-      // Aggiorna lo stato locale rimuovendo la campagna
+      // Aggiorna lo stato locale rimuovendo la campagna dall'elenco attivo
       setCampaigns(prev => prev.filter(c => c.id !== campaignId));
   
       return { success: true, message: "Campagna eliminata correttamente" };
