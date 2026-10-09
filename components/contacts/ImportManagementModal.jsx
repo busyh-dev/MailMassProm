@@ -177,19 +177,40 @@ export default function ImportManagementModal({
       const keys = Object.keys(row);
       const getVal = (possibleKeys) => {
         for (const pk of possibleKeys) {
-          const matchedKey = keys.find(k => k.toLowerCase().replace(/[^a-z]/g, '') === pk.toLowerCase().replace(/[^a-z]/g, ''));
-          if (matchedKey && row[matchedKey]) return row[matchedKey].toString().trim();
+          const matchedKey = keys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === pk.toLowerCase().replace(/[^a-z0-9]/g, ''));
+          if (matchedKey && row[matchedKey] !== undefined && row[matchedKey] !== null) {
+            return row[matchedKey].toString().trim();
+          }
         }
         return '';
       };
 
-      const cf = getVal(['codicefiscale', 'codice_fiscale', 'cf', 'taxcode']).toUpperCase();
-      const nominativo = getVal(['nominativo', 'nome_cognome', 'nomecognome', 'name']);
-      const email = getVal(['email', 'mail', 'e-mail']).toLowerCase();
+      let cf = getVal(['codicefiscale', 'codice_fiscale', 'cf', 'taxcode', 'codfisc', 'codice']).toUpperCase().replace(/[^A-Z0-9]/g, '');
+      
+      // Fallback regex per Codice Fiscale italiano
+      if (!cf || cf.length < 6) {
+        const cfRegex = /\b([A-Z]{6}[0-9LMNPQRSTUV]{2}[A-EHLMPR-T][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z])\b/i;
+        for (const k of keys) {
+          const val = String(row[k] || '');
+          const m = val.match(cfRegex);
+          if (m && m[1]) {
+            cf = m[1].toUpperCase();
+            break;
+          }
+        }
+      }
 
-      let firstName = '';
-      let lastName = '';
-      if (nominativo) {
+      const firstNameVal = getVal(['nome', 'firstname', 'first_name']);
+      const lastNameVal = getVal(['cognome', 'lastname', 'last_name']);
+      let nominativo = getVal(['nominativo', 'nome_cognome', 'nomecognome', 'name', 'discente', 'partecipante', 'nominativo_discente']);
+      if (!nominativo && (firstNameVal || lastNameVal)) {
+        nominativo = `${firstNameVal} ${lastNameVal}`.trim();
+      }
+      const email = getVal(['email', 'mail', 'e_mail', 'e-mail', 'indirizzo_email', 'indirizzoemail']).toLowerCase();
+
+      let firstName = firstNameVal || '';
+      let lastName = lastNameVal || '';
+      if (!firstName && !lastName && nominativo) {
         const parts = nominativo.split(' ').filter(Boolean);
         if (parts.length === 1) {
           firstName = parts[0];
@@ -204,7 +225,7 @@ export default function ImportManagementModal({
       return {
         id: `att-${index}-${Date.now()}`,
         codiceFiscale: cf,
-        nominativo,
+        nominativo: nominativo || (email ? email.split('@')[0] : 'Discente'),
         firstName,
         lastName,
         email,
@@ -335,7 +356,7 @@ export default function ImportManagementModal({
       // 3. Carica tutti i contatti esistenti dell'utente per evitare conflitti e recuperare gli ID
       const { data: existingFromDB } = await supabase
         .from('contacts')
-        .select('id, email, name, contact_label_id')
+        .select('id, email, name, contact_label_id, note, custom_fields')
         .eq('user_id', user.id);
 
       const existingEmailMap = new Map();
@@ -357,16 +378,46 @@ export default function ImportManagementModal({
         }
 
         const fullName = (row.nominativo || `${row.firstName || ''} ${row.lastName || ''}`).trim() || rawEmail;
+        const cfValue = (row.codiceFiscale || '').toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+        // Prepara metadati anagrafica
+        const metaObj = {};
+        if (cfValue) {
+          metaObj.codiceFiscale = cfValue;
+          metaObj.cf = cfValue;
+        }
+        if (row.dataNascita) metaObj.dataNascita = row.dataNascita;
+        if (row.luogoNascita) metaObj.luogoNascita = row.luogoNascita;
+        if (row.provinciaNascita) metaObj.provinciaNascita = row.provinciaNascita;
+        if (row.sesso) metaObj.sesso = row.sesso;
+        if (row.cap) metaObj.cap = row.cap;
+
+        const anagraficaTag = Object.keys(metaObj).length > 0 ? `<!--ANAGRAFICA:${JSON.stringify(metaObj)}-->` : null;
+        const customFieldsObj = cfValue ? { codiceFiscale: cfValue, cf: cfValue } : {};
 
         if (existingEmailMap.has(rawEmail)) {
-          // Contatto già presente nel DB: usiamo l'ID esistente e aggiorniamo l'etichetta
+          // Contatto già presente nel DB: usiamo l'ID esistente e aggiorniamo l'etichetta/anagrafica
           const existing = existingEmailMap.get(rawEmail);
+          const updatePayload = { 
+            updated_at: new Date().toISOString() 
+          };
           if (finalLabelId) {
-            await supabase.from('contacts').update({ 
-              contact_label_id: finalLabelId, 
-              updated_at: new Date().toISOString() 
-            }).eq('id', existing.id);
+            updatePayload.contact_label_id = finalLabelId;
           }
+          if (anagraficaTag) {
+            let prevNote = typeof existing.note === 'string' ? existing.note : '';
+            const cleanPrevNote = prevNote.replace(/<!--ANAGRAFICA:[\s\S]*?-->/g, '').trim();
+            updatePayload.note = cleanPrevNote ? `${cleanPrevNote}\n${anagraficaTag}` : anagraficaTag;
+            
+            let existingCustom = existing.custom_fields || {};
+            if (typeof existingCustom === 'string') {
+              try { existingCustom = JSON.parse(existingCustom); } catch (_) { existingCustom = {}; }
+            }
+            updatePayload.custom_fields = { ...existingCustom, ...customFieldsObj };
+          }
+
+          await supabase.from('contacts').update(updatePayload).eq('id', existing.id);
+
           if (finalTagId) {
             try {
               await supabase.from('contact_tags').insert({
@@ -383,12 +434,12 @@ export default function ImportManagementModal({
             contact_label_id: finalLabelId || existing.contact_label_id,
             firstName: row.firstName,
             lastName: row.lastName,
-            codiceFiscale: row.codiceFiscale,
-            customFields: { codiceFiscale: row.codiceFiscale },
+            codiceFiscale: cfValue || existing.codiceFiscale,
+            customFields: { ...(existing.custom_fields || {}), ...customFieldsObj },
           });
           successCount++;
         } else {
-          // Nuovo contatto: inserimento pulito nel database con etichetta
+          // Nuovo contatto: inserimento pulito nel database con etichetta, note anagrafiche e custom_fields
           const newContactId = crypto.randomUUID();
           const newContact = {
             id: newContactId,
@@ -397,6 +448,8 @@ export default function ImportManagementModal({
             email: rawEmail,
             status: 'active',
             contact_label_id: finalLabelId || null,
+            note: anagraficaTag || null,
+            custom_fields: customFieldsObj,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           };
@@ -425,8 +478,8 @@ export default function ImportManagementModal({
               ...newContact,
               firstName: row.firstName,
               lastName: row.lastName,
-              codiceFiscale: row.codiceFiscale,
-              customFields: { codiceFiscale: row.codiceFiscale },
+              codiceFiscale: cfValue,
+              customFields: customFieldsObj,
             });
             successCount++;
           }

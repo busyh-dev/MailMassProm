@@ -109,6 +109,8 @@ const ImportContactsModal = ({ show, onClose, onImport, existingContacts }) => {
       const periodicita_canale = mapping.periodicita_canale ? row[mapping.periodicita_canale]?.trim() : null;
       const copertura_canale = mapping.copertura_canale ? row[mapping.copertura_canale]?.trim() : null;
       
+      const codice_fiscale = mapping.codice_fiscale ? row[mapping.codice_fiscale]?.trim()?.toUpperCase().replace(/[^A-Z0-9]/g, '') : null;
+      
       const tags = mapping.tags
         ? row[mapping.tags]?.split(";").map(t => t.trim()).filter(Boolean)
         : [];
@@ -133,6 +135,7 @@ const ImportContactsModal = ({ show, onClose, onImport, existingContacts }) => {
       if (name && email) {
         validContacts.push({
           id: Date.now() + i, name, email, email_2,
+          codice_fiscale,
           settore, testata, contact_labels, canale, ruolo, area,
           tipologia_canale, periodicita_canale, copertura_canale,
           tags,
@@ -284,6 +287,10 @@ const ImportContactsModal = ({ show, onClose, onImport, existingContacts }) => {
   
           // ✅ Insert contatto — solo insert, niente upsert
           const contactId = crypto.randomUUID();
+          const cfValue = contact.codice_fiscale ? contact.codice_fiscale.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') : null;
+          const anagraficaTag = cfValue ? `<!--ANAGRAFICA:${JSON.stringify({ codiceFiscale: cfValue, cf: cfValue })}-->` : null;
+          const customFieldsObj = cfValue ? { codiceFiscale: cfValue, cf: cfValue } : {};
+
           const { error: contactError } = await supabase.from('contacts').insert({
             id: contactId,
             user_id: user.id,
@@ -300,6 +307,8 @@ const ImportContactsModal = ({ show, onClose, onImport, existingContacts }) => {
             copertura_canale_id: coperturaId,
             contact_label_id: labelId,
             testata_id: testataId,
+            note: anagraficaTag || null,
+            custom_fields: customFieldsObj,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           });
@@ -435,6 +444,7 @@ try {
   const mappingFields = [
     { key: "name", label: "Colonna Nome *" },
     { key: "email", label: "Colonna Email Principale *" },
+    { key: "codice_fiscale", label: "Codice Fiscale (opzionale)" },
     { key: "email_2", label: "Email Secondaria (opzionale)" },
     { key: "tags", label: "Tag (opzionale) — separati da ;" },
     { key: "tag_labels", label: "Sotto-etichette Tag (opzionale) — separate da ;" },
