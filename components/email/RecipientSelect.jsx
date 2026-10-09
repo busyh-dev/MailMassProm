@@ -93,10 +93,12 @@ const RecipientSelect = ({
   onChange,
   contacts = [],
   className = '',
+  onResolvedContactsChange,
 }) => {
   const { tags, createTag, loading: tagsLoading } = useTags();
   const [showAddTagModal, setShowAddTagModal] = useState(false);
   const [pendingTag, setPendingTag] = useState(null);
+  const [internalContacts, setInternalContacts] = useState([]);
   
   // Modale elenco nomi + email contatti per tutte le liste
   const [showContactsModal, setShowContactsModal] = useState(false);
@@ -213,16 +215,43 @@ const RecipientSelect = ({
       }
     };
     loadLabels();
-  }, []);
+  // ✅ Carica contatti dal database se contacts prop non è ancora popolato
+  React.useEffect(() => {
+    if (!contacts || contacts.length === 0) {
+      const fetchInternalContacts = async () => {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const userId = session?.user?.id;
+          if (!userId) return;
+          const { data, error } = await supabase
+            .from('contacts')
+            .select('*')
+            .eq('user_id', userId)
+            .limit(50000);
+          if (!error && data && data.length > 0) {
+            setInternalContacts(data);
+          }
+        } catch (e) {
+          console.error('Errore caricamento contatti in RecipientSelect:', e);
+        }
+      };
+      fetchInternalContacts();
+    }
+  }, [contacts]);
+
+  const effectiveContacts = useMemo(() => {
+    if (contacts && contacts.length > 0) return contacts;
+    return internalContacts;
+  }, [contacts, internalContacts]);
 
   const activeContacts = useMemo(() => 
-    contacts.filter(c => {
+    effectiveContacts.filter(c => {
       if (!c || !c.email) return false;
       if (!c.status) return true;
       const s = String(c.status).trim().toLowerCase();
       return s !== 'inactive' && s !== 'disiscritto' && s !== 'bounced' && s !== 'blocked' && s !== 'unsubscribed' && s !== 'disabled';
     }), 
-    [contacts]
+    [effectiveContacts]
   );
 
   // ✅ Opzioni basate sulla modalità filtro con conteggi esatti e senza doppioni
@@ -347,34 +376,42 @@ const RecipientSelect = ({
       options.push(opt);
     };
 
-    // 1. Liste contatti reali
+    // 1. Liste contatti reali (esclude liste vuote/eliminate con 0 contatti)
     (contactLabels || []).forEach(l => {
       const opt = buildLabelOption(l);
-      const norm = normalizeName(l.nome);
-      if (norm) seenNames.add(norm);
-      addOptionUnique(opt);
+      if (opt.count > 0) {
+        const norm = normalizeName(l.nome);
+        if (norm) seenNames.add(norm);
+        addOptionUnique(opt);
+      }
     });
 
     // 2. Tag (evita doppioni con lo stesso nome di una lista nella vista "Tutte")
     if (filterMode === 'all' || filterMode === 'tag') {
       (tags || []).forEach(t => {
-        const norm = normalizeName(t.label || t.value);
-        if (filterMode === 'all' && norm && seenNames.has(norm)) {
-          return; // evita di duplicare la stessa voce con icona diversa
+        const opt = buildTagOption(t);
+        if (opt.count > 0) {
+          const norm = normalizeName(t.label || t.value);
+          if (filterMode === 'all' && norm && seenNames.has(norm)) {
+            return; // evita di duplicare la stessa voce con icona diversa
+          }
+          if (norm) seenNames.add(norm);
+          addOptionUnique(opt);
         }
-        if (norm) seenNames.add(norm);
-        addOptionUnique(buildTagOption(t));
       });
     }
 
     // 3. Sotto-etichette
     if (filterMode === 'all' || filterMode === 'tag_label') {
       (tagLabels || []).forEach(tl => {
-        const norm = normalizeName(tl.label);
-        if (filterMode === 'all' && norm && seenNames.has(norm)) {
-          return;
+        const opt = buildTagLabelOption(tl);
+        if (opt.count > 0) {
+          const norm = normalizeName(tl.label);
+          if (filterMode === 'all' && norm && seenNames.has(norm)) {
+            return;
+          }
+          addOptionUnique(opt);
         }
-        addOptionUnique(buildTagLabelOption(tl));
       });
     }
 
@@ -553,6 +590,13 @@ const RecipientSelect = ({
 
     return Array.from(matchedMap.values());
   }, [value, activeContacts, contactLabels, tagLabels]);
+
+  // ✅ Comunica i contatti risolti al componente padre
+  React.useEffect(() => {
+    if (typeof onResolvedContactsChange === 'function') {
+      onResolvedContactsChange(resolvedContactsList);
+    }
+  }, [resolvedContactsList, onResolvedContactsChange]);
 
   const recipientCount = resolvedContactsList.length;
 

@@ -3841,6 +3841,7 @@ const [tiptapEditor, setTiptapEditor] = useState(null);
     // 👥 Aggiungi l'hook per caricare gli account
   const { accounts, defaultAccount, loading: loadingAccounts } = useEmailAccounts();
   const [localContacts, setLocalContacts] = useState([]);
+  const [resolvedSelectedContacts, setResolvedSelectedContacts] = useState([]);
 
     const [cc, setCc] = useState(campaign.cc || "");
   
@@ -4639,6 +4640,7 @@ const confirmExit = () => {
   value={recipientList}
   onChange={setRecipientList}
   contacts={contacts && contacts.length > 0 ? contacts : localContacts}
+  onResolvedContactsChange={setResolvedSelectedContacts}
 />
             {/* 📎 Allegati */}
             <div>
@@ -4776,12 +4778,14 @@ const confirmExit = () => {
               <MatchPreviewModal
                 isOpen={showMatchPreview}
                 onClose={() => setShowMatchPreview(false)}
-                contacts={resolveSelectedContacts(
-                  recipientList,
-                  (contacts && contacts.length > 0 ? contacts : localContacts),
-                  tagLabels,
-                  contactLabels
-                )}
+                contacts={resolvedSelectedContacts && resolvedSelectedContacts.length > 0
+                  ? resolvedSelectedContacts
+                  : resolveSelectedContacts(
+                      recipientList,
+                      (contacts && contacts.length > 0 ? contacts : localContacts),
+                      tagLabels,
+                      contactLabels
+                    )}
                 attachments={attachments}
                 matchMode={matchMode}
               />
@@ -14001,6 +14005,7 @@ const [showSingleBlockEditor, setShowSingleBlockEditor] = useState(false);
 const [editingSingleBlock, setEditingSingleBlock] = useState(null);
 const [blockEditorRestoreLock, setBlockEditorRestoreLock] = useState(false); // ← Nuovo
 const [localContacts, setLocalContacts] = useState([]);
+const [resolvedSelectedContacts, setResolvedSelectedContacts] = useState([]);
 // Funzione per caricare TUTTI gli account
 const fetchAllAccounts = async () => {
   setLoadingAllAccounts(true);
@@ -17556,7 +17561,9 @@ const resolveRecipientEmailsModal = (recipientList, contacts, tagLabels = [], sa
   // ✅ LOGICA DI INVIO COMPLETA E ALLINEATA AL RE-INVIO
   const proceedWithSend = async (accountObj) => {
     try {
-      const recipients = resolveRecipientEmails(recipientList, (localContacts && localContacts.length > 0) ? localContacts : (contacts || []), tagLabels, contactLabels);
+      const recipients = (resolvedSelectedContacts && resolvedSelectedContacts.length > 0)
+        ? resolvedSelectedContacts.map(c => c.email).filter(Boolean)
+        : resolveRecipientEmails(recipientList, (contacts && contacts.length > 0) ? contacts : (localContacts || []), tagLabels, contactLabels);
 
       if (!recipients || recipients.length === 0) {
         toast.error("⚠️ Nessun destinatario valido trovato per questa campagna!");
@@ -17637,7 +17644,9 @@ const resolveRecipientEmailsModal = (recipientList, contacts, tagLabels = [], sa
       const campaignId = saveResult.data?.id;
 
       // 3) Prepara contatti per tokens e matching attestati/CF
-      const allContactList = (localContacts && localContacts.length > 0) ? localContacts : (contacts || []);
+      const allContactList = (resolvedSelectedContacts && resolvedSelectedContacts.length > 0)
+        ? resolvedSelectedContacts
+        : ((contacts && contacts.length > 0) ? contacts : (localContacts || []));
       const contactsForSend = (allContactList || [])
         .filter(c => recipients.includes(c.email))
         .map(c => ({
@@ -26679,7 +26688,8 @@ onClick={() => {
             <RecipientSelect
               value={recipientList}
               onChange={setRecipientList}
-              contacts={localContacts}
+              contacts={contacts && contacts.length > 0 ? contacts : localContacts}
+              onResolvedContactsChange={setResolvedSelectedContacts}
             />
           </div>
 
@@ -26687,12 +26697,14 @@ onClick={() => {
             isOpen={showMatchPreview}
             onClose={() => setShowMatchPreview(false)}
             onVerified={(ok) => setMatchVerified(ok)}
-            contacts={resolveSelectedContacts(
-              recipientList,
-              (localContacts && localContacts.length > 0 ? localContacts : contacts),
-              tagLabels,
-              contactLabels
-            )}
+            contacts={resolvedSelectedContacts && resolvedSelectedContacts.length > 0
+              ? resolvedSelectedContacts
+              : resolveSelectedContacts(
+                  recipientList,
+                  (contacts && contacts.length > 0 ? contacts : localContacts),
+                  tagLabels,
+                  contactLabels
+                )}
             attachments={attachments}
             matchMode={matchMode}
           />

@@ -956,7 +956,12 @@ useEffect(() => {
               <button
                 onClick={async () => {
                   try {
-                    await supabase.from('contact_lists').delete().eq('id', confirmDeleteList.id);
+                    await Promise.all([
+                      supabase.from('contact_lists').delete().eq('id', confirmDeleteList.id),
+                      supabase.from('contact_labels').delete().eq('id', confirmDeleteList.id),
+                      supabase.from('contact_labels').delete().eq('nome', confirmDeleteList.name),
+                      supabase.from('list_contacts').delete().eq('list_id', confirmDeleteList.id).catch(() => {})
+                    ]);
                     toast.success(`Lista "${confirmDeleteList.name}" eliminata`);
                     setConfirmDeleteList(null);
                     loadLists();
