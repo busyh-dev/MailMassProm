@@ -215,6 +215,8 @@ const RecipientSelect = ({
       }
     };
     loadLabels();
+  }, []);
+
   // ✅ Carica contatti dal database se contacts prop non è ancora popolato
   React.useEffect(() => {
     if (!contacts || contacts.length === 0) {
@@ -377,14 +379,16 @@ const RecipientSelect = ({
     };
 
     // 1. Liste contatti reali (esclude liste vuote/eliminate con 0 contatti)
-    (contactLabels || []).forEach(l => {
-      const opt = buildLabelOption(l);
-      if (opt.count > 0) {
-        const norm = normalizeName(l.nome);
-        if (norm) seenNames.add(norm);
-        addOptionUnique(opt);
-      }
-    });
+    if (filterMode === 'all' || filterMode === 'label') {
+      (contactLabels || []).forEach(l => {
+        const opt = buildLabelOption(l);
+        if (opt.count > 0) {
+          const norm = normalizeName(l.nome);
+          if (norm) seenNames.add(norm);
+          addOptionUnique(opt);
+        }
+      });
+    }
 
     // 2. Tag (evita doppioni con lo stesso nome di una lista nella vista "Tutte")
     if (filterMode === 'all' || filterMode === 'tag') {
