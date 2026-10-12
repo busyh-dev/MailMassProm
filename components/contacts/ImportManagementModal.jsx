@@ -354,10 +354,14 @@ export default function ImportManagementModal({
       }
 
       // 3. Carica tutti i contatti esistenti dell'utente per evitare conflitti e recuperare gli ID
-      const { data: existingFromDB } = await supabase
+      const { data: existingFromDB, error: fetchErr } = await supabase
         .from('contacts')
-        .select('id, email, name, contact_label_id, note, custom_fields')
+        .select('id, email, name, contact_label_id, note')
         .eq('user_id', user.id);
+
+      if (fetchErr) {
+        console.warn("⚠️ Avviso recupero contatti esistenti:", fetchErr.message);
+      }
 
       const existingEmailMap = new Map();
       (existingFromDB || []).forEach(c => {
@@ -366,6 +370,7 @@ export default function ImportManagementModal({
 
       let successCount = 0;
       let errorCount = 0;
+      const errorDetails = [];
       const importedContacts = [];
       const importedContactIds = [];
 
@@ -393,7 +398,6 @@ export default function ImportManagementModal({
         if (row.cap) metaObj.cap = row.cap;
 
         const anagraficaTag = Object.keys(metaObj).length > 0 ? `<!--ANAGRAFICA:${JSON.stringify(metaObj)}-->` : null;
-        const customFieldsObj = cfValue ? { codiceFiscale: cfValue, cf: cfValue } : {};
 
         if (existingEmailMap.has(rawEmail)) {
           // Contatto già presente nel DB: usiamo l'ID esistente e aggiorniamo l'etichetta/anagrafica
@@ -408,38 +412,36 @@ export default function ImportManagementModal({
             let prevNote = typeof existing.note === 'string' ? existing.note : '';
             const cleanPrevNote = prevNote.replace(/<!--ANAGRAFICA:[\s\S]*?-->/g, '').trim();
             updatePayload.note = cleanPrevNote ? `${cleanPrevNote}\n${anagraficaTag}` : anagraficaTag;
-            
-            let existingCustom = existing.custom_fields || {};
-            if (typeof existingCustom === 'string') {
-              try { existingCustom = JSON.parse(existingCustom); } catch (_) { existingCustom = {}; }
+          }
+
+          const { error: updateErr } = await supabase.from('contacts').update(updatePayload).eq('id', existing.id);
+          if (updateErr) {
+            console.error(`❌ Errore aggiornamento riga ${i + 1} (${rawEmail}):`, updateErr);
+            errorCount++;
+            if (errorDetails.length < 3) errorDetails.push(updateErr.message);
+          } else {
+            if (finalTagId) {
+              try {
+                await supabase.from('contact_tags').insert({
+                  id: crypto.randomUUID(),
+                  contact_id: existing.id,
+                  tag_id: finalTagId,
+                  created_at: new Date().toISOString(),
+                });
+              } catch (e) {}
             }
-            updatePayload.custom_fields = { ...existingCustom, ...customFieldsObj };
+            importedContactIds.push(String(existing.id));
+            importedContacts.push({
+              ...existing,
+              contact_label_id: finalLabelId || existing.contact_label_id,
+              firstName: row.firstName,
+              lastName: row.lastName,
+              codiceFiscale: cfValue || existing.codiceFiscale,
+            });
+            successCount++;
           }
-
-          await supabase.from('contacts').update(updatePayload).eq('id', existing.id);
-
-          if (finalTagId) {
-            try {
-              await supabase.from('contact_tags').insert({
-                id: crypto.randomUUID(),
-                contact_id: existing.id,
-                tag_id: finalTagId,
-                created_at: new Date().toISOString(),
-              });
-            } catch (e) {}
-          }
-          importedContactIds.push(String(existing.id));
-          importedContacts.push({
-            ...existing,
-            contact_label_id: finalLabelId || existing.contact_label_id,
-            firstName: row.firstName,
-            lastName: row.lastName,
-            codiceFiscale: cfValue || existing.codiceFiscale,
-            customFields: { ...(existing.custom_fields || {}), ...customFieldsObj },
-          });
-          successCount++;
         } else {
-          // Nuovo contatto: inserimento pulito nel database con etichetta, note anagrafiche e custom_fields
+          // Nuovo contatto: inserimento pulito nel database con etichetta e note anagrafiche
           const newContactId = crypto.randomUUID();
           const newContact = {
             id: newContactId,
@@ -449,10 +451,12 @@ export default function ImportManagementModal({
             status: 'active',
             contact_label_id: finalLabelId || null,
             note: anagraficaTag || null,
-            custom_fields: customFieldsObj,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           };
+
+          if (row.cap) newContact.cap = row.cap;
+          if (row.provinciaNascita) newContact.provincia = row.provinciaNascita;
 
           const { error: insertErr } = await supabase
             .from('contacts')
@@ -461,6 +465,7 @@ export default function ImportManagementModal({
           if (insertErr) {
             console.error(`❌ Errore inserimento riga ${i + 1} (${rawEmail}):`, insertErr);
             errorCount++;
+            if (errorDetails.length < 3) errorDetails.push(insertErr.message);
           } else {
             if (finalTagId) {
               try {
@@ -479,7 +484,6 @@ export default function ImportManagementModal({
               firstName: row.firstName,
               lastName: row.lastName,
               codiceFiscale: cfValue,
-              customFields: customFieldsObj,
             });
             successCount++;
           }
@@ -563,7 +567,16 @@ export default function ImportManagementModal({
         }
       }
 
-      toast.success(`🎉 Importazione completata! ${successCount} discenti importati/collegati con Etichetta e Tag.`);
+      if (successCount > 0) {
+        toast.success(`🎉 Importazione completata! ${successCount} discenti importati/collegati con Etichetta e Tag.`);
+        if (errorCount > 0) {
+          toast.error(`⚠️ ${errorCount} contatti non sono stati importati a causa di errori.`);
+        }
+      } else {
+        const detailMsg = errorDetails.length > 0 ? ` Dettaglio: ${errorDetails[0]}` : '';
+        toast.error(`❌ Nessun contatto importato su ${selectedAttendees.length}.${detailMsg}`);
+      }
+
       if (onContactsImported) onContactsImported(importedContacts);
       onClose();
 

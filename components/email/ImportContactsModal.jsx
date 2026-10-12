@@ -289,7 +289,6 @@ const ImportContactsModal = ({ show, onClose, onImport, existingContacts }) => {
           const contactId = crypto.randomUUID();
           const cfValue = contact.codice_fiscale ? contact.codice_fiscale.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') : null;
           const anagraficaTag = cfValue ? `<!--ANAGRAFICA:${JSON.stringify({ codiceFiscale: cfValue, cf: cfValue })}-->` : null;
-          const customFieldsObj = cfValue ? { codiceFiscale: cfValue, cf: cfValue } : {};
 
           const { error: contactError } = await supabase.from('contacts').insert({
             id: contactId,
@@ -308,7 +307,6 @@ const ImportContactsModal = ({ show, onClose, onImport, existingContacts }) => {
             contact_label_id: labelId,
             testata_id: testataId,
             note: anagraficaTag || null,
-            custom_fields: customFieldsObj,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           });
