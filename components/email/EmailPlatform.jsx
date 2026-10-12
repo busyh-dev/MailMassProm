@@ -3101,7 +3101,16 @@ const confirmSend = async () => {
         body: JSON.stringify(payload),
       });
 
-      const result = await response.json();
+      let result;
+      const responseText = await response.text();
+      try {
+        result = JSON.parse(responseText);
+      } catch (err) {
+        if (response.status === 413) {
+          throw new Error("Errore 413: Dimensione allegati eccessiva per il server (Request Entity Too Large).");
+        }
+        throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+      }
       if (!result.success) throw new Error(result.message || "Errore SMTP");
 
       successCount = result.sent;
@@ -3123,12 +3132,11 @@ const confirmSend = async () => {
         bcc: emailBcc,
         subject: emailSubject,
         html: content,
-         attachments: [],
-        campaign_id: campaignToSend.id, // ✅ AGGIUNGI
-        // ✅ AGGIUNGI
-  contacts: contacts
-  .filter(c => recipients.includes(c.email))
-  .map(c => ({ id: c.id, email: c.email })),
+        attachments: [],
+        campaign_id: campaignToSend.id,
+        contacts: contacts
+          .filter(c => recipients.includes(c.email))
+          .map(c => ({ id: c.id, email: c.email })),
       };
 
       const response = await fetch("/api/resend/send", {
@@ -3137,7 +3145,16 @@ const confirmSend = async () => {
         body: JSON.stringify(payload),
       });
 
-      const result = await response.json();
+      let result;
+      const responseText = await response.text();
+      try {
+        result = JSON.parse(responseText);
+      } catch (err) {
+        if (response.status === 413) {
+          throw new Error("Errore 413: Dimensione allegati eccessiva per il server (Request Entity Too Large).");
+        }
+        throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+      }
       if (!result.success) throw new Error(result.message || "Errore Resend");
 
       successCount = result.sent || recipients.length;
@@ -17663,6 +17680,11 @@ const resolveRecipientEmailsModal = (recipientList, contacts, tagLabels = [], sa
       const currentUserId = user?.id || session?.user?.id;
 
       // 4) Invio tramite SMTP/Brevo o Resend
+      // Se la campagna ha già un ID salvato e gli allegati superano la soglia critica per Vercel (limite 4.5MB),
+      // non inviamo l'intero array base64 nel body: il backend caricherà gli allegati direttamente dal DB tramite campaign_id.
+      const isPayloadTooLarge = validAttachments.length > 2 || validAttachments.reduce((acc, a) => acc + (a.content?.length || 0), 0) > 800000;
+      const attachmentsForPayload = (campaignId && isPayloadTooLarge) ? [] : validAttachments;
+
       if (accountObj.provider === "brevo" || (accountObj.smtp && accountObj.provider !== "resend")) {
         console.log('🚀 Invio Nuova Campagna via SMTP a:', recipients.length, 'destinatari');
         const payload = {
@@ -17673,7 +17695,7 @@ const resolveRecipientEmailsModal = (recipientList, contacts, tagLabels = [], sa
           bcc: emailBcc,
           subject: emailSubject,
           html: htmlContent,
-          attachments: validAttachments,
+          attachments: attachmentsForPayload,
           smtp: accountObj.smtp,
           campaign_id: campaignId,
           contacts: contactsForSend,
@@ -17687,7 +17709,16 @@ const resolveRecipientEmailsModal = (recipientList, contacts, tagLabels = [], sa
           body: JSON.stringify(payload),
         });
 
-        const result = await response.json();
+        let result;
+        const responseText = await response.text();
+        try {
+          result = JSON.parse(responseText);
+        } catch (err) {
+          if (response.status === 413) {
+            throw new Error("Errore 413: Dimensione allegati eccessiva per il server (Request Entity Too Large).");
+          }
+          throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+        }
         if (!result.success) throw new Error(result.message || "Errore durante l'invio SMTP");
 
         successCount = result.sent || recipients.length;
@@ -17708,7 +17739,7 @@ const resolveRecipientEmailsModal = (recipientList, contacts, tagLabels = [], sa
           bcc: emailBcc,
           subject: emailSubject,
           html: htmlContent,
-          attachments: validAttachments,
+          attachments: attachmentsForPayload,
           campaign_id: campaignId,
           contacts: contactsForSend,
           dynamicAttachments: isDynamicAttachments || false,
@@ -17721,7 +17752,16 @@ const resolveRecipientEmailsModal = (recipientList, contacts, tagLabels = [], sa
           body: JSON.stringify(payload),
         });
 
-        const result = await response.json();
+        let result;
+        const responseText = await response.text();
+        try {
+          result = JSON.parse(responseText);
+        } catch (err) {
+          if (response.status === 413) {
+            throw new Error("Errore 413: Dimensione allegati eccessiva per il server (Request Entity Too Large).");
+          }
+          throw new Error(responseText && responseText.length < 300 ? responseText : `Errore risposta server (${response.status}): ${response.statusText}`);
+        }
         if (!result.success) throw new Error(result.message || "Errore durante l'invio Resend");
 
         successCount = result.sent || recipients.length;

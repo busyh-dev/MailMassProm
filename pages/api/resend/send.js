@@ -213,7 +213,13 @@ export default async function handler(req, res) {
             }),
           });
 
-          const data = await response.json();
+          let data;
+          const resText = await response.text();
+          try {
+            data = JSON.parse(resText);
+          } catch (_) {
+            data = { message: resText || `Errore HTTP ${response.status}` };
+          }
 
           if (!response.ok) {
             console.error(`❌ Errore invio a ${contact.email}:`, data);
@@ -295,7 +301,13 @@ export default async function handler(req, res) {
       }),
     });
 
-    const data = await response.json();
+    let data;
+    const resText = await response.text();
+    try {
+      data = JSON.parse(resText);
+    } catch (_) {
+      data = { message: resText || `Errore HTTP ${response.status}` };
+    }
 
     if (!response.ok) {
       console.error("❌ Errore Resend:", data);
