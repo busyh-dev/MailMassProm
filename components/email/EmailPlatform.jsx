@@ -1833,6 +1833,98 @@ const resolveRecipientEmails = (recipientList, contacts = [], tagLabels = [], sa
   return Array.from(emailSet).filter(Boolean);
 };
 
+// 🛡️ Risoluzione asincrona dei destinatari con fallback diretto sul Database (per contact_lists e contact_labels)
+const resolveRecipientsWithDbFallback = async (recipientList, contacts = [], tagLabels = [], savedLists = [], user_id = null) => {
+  let emails = resolveRecipientEmails(recipientList, contacts, tagLabels, savedLists);
+  if (emails.length > 0) return emails;
+
+  let rawItems = [];
+  if (typeof recipientList === 'string') {
+    try {
+      const p = JSON.parse(recipientList);
+      rawItems = Array.isArray(p) ? p : [recipientList];
+    } catch {
+      rawItems = recipientList.split(',').map(s => s.trim().replace(/^['"\[\]{}]+|['"\[\]{}]+$/g, '')).filter(Boolean);
+    }
+  } else if (Array.isArray(recipientList)) {
+    rawItems = recipientList;
+  }
+
+  const emailSet = new Set();
+  for (const raw of rawItems) {
+    if (!raw) continue;
+    let s = String(raw).trim();
+    if (s.includes('@')) {
+      emailSet.add(s);
+      continue;
+    }
+    let target = s;
+    if (s.includes(':')) {
+      target = s.split(':').slice(1).join(':').trim();
+    }
+
+    // 1. Cerca in contact_lists tramite ID o nome
+    try {
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(target);
+      let query = supabase.from('contact_lists').select('id, contact_ids');
+      if (isUUID) {
+        query = query.eq('id', target);
+      } else {
+        query = query.ilike('name', `%${target}%`);
+      }
+      const { data: dbLists } = await query;
+
+      if (dbLists && dbLists.length > 0) {
+        for (const dbList of dbLists) {
+          const ids = parseContactIds(dbList.contact_ids);
+          if (ids.length > 0) {
+            for (let i = 0; i < ids.length; i += 100) {
+              const batchIds = ids.slice(i, i + 100);
+              const { data: cData } = await supabase
+                .from('contacts')
+                .select('id, email, status')
+                .in('id', batchIds);
+              (cData || []).filter(isContactActive).forEach(c => {
+                if (c.email) emailSet.add(c.email.trim());
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Fallback contact_lists err:", e);
+    }
+
+    // 2. Cerca in contact_labels tramite ID o nome
+    try {
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(target);
+      let query = supabase.from('contact_labels').select('id');
+      if (isUUID) {
+        query = query.eq('id', target);
+      } else {
+        query = query.ilike('nome', `%${target}%`);
+      }
+      const { data: dbLabels } = await query;
+
+      if (dbLabels && dbLabels.length > 0) {
+        for (const dbLbl of dbLabels) {
+          const { data: cData } = await supabase
+            .from('contacts')
+            .select('id, email, status')
+            .eq('contact_label_id', dbLbl.id);
+          (cData || []).filter(isContactActive).forEach(c => {
+            if (c.email) emailSet.add(c.email.trim());
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Fallback contact_labels err:", e);
+    }
+  }
+
+  return Array.from(emailSet).filter(Boolean);
+};
+
 // 🎯 Risolve esclusivamente gli oggetti contatto appartenenti alle liste/destinatari selezionati
 const resolveSelectedContacts = (recipientList, contacts = [], tagLabels = [], savedLists = []) => {
   if (!recipientList || (Array.isArray(recipientList) && recipientList.length === 0)) {
@@ -2102,11 +2194,15 @@ const fetchContactLabels = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const [{ data: labelsData }, { data: listsData }, { data: junctionData }] = await Promise.all([
+    const [labelsRes, listsRes, junctionRes] = await Promise.all([
       supabase.from('contact_labels').select('*').eq('user_id', user.id).order('nome', { ascending: true }),
-      supabase.from('contact_lists').select('*').eq('user_id', user.id).then(res => res.data || []).catch(() => []),
-      supabase.from('list_contacts').select('*').then(res => res.data || []).catch(() => []),
+      supabase.from('contact_lists').select('*').eq('user_id', user.id),
+      supabase.from('list_contacts').select('*'),
     ]);
+
+    const labelsData = labelsRes?.data || [];
+    const listsData = listsRes?.data || [];
+    const junctionData = junctionRes?.data || [];
 
     const combined = [];
     const seen = new Set();
@@ -2786,7 +2882,7 @@ if (!accountData) {
 
     // ✅ Risolvi i destinatari reali (gestisce tag:, label:, tag_label:, all)
     const recipients = resolveRecipientEmails(
-      campaignToSend.recipient_list,
+      campaignToSend.recipient_list || campaignToSend.recipients,
       contacts,
       tagLabels,
       contactLabels
