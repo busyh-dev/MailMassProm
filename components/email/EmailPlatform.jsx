@@ -1068,20 +1068,89 @@ const loadEmailLogs = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
 
-    const { data, error } = await supabase
+    const { data: logsData, error } = await supabase
       .from("campaign_logs")
       .select(`
-        id, campaign_id, user_id, recipient_email, status, sent_at,
+        id, campaign_id, user_id, recipient_email, recipient_name, status, sent_at,
         campaigns ( * )
       `)
       .eq("user_id", session.user.id)
       .order("sent_at", { ascending: false });
 
-    if (error) throw error;
-    setEmailLogs(data || []);
+    let finalLogs = logsData || [];
+
+    // Fallback: recupera invii da campaign_recipients / campaigns per le campagne inviate
+    try {
+      const { data: sentCampaigns } = await supabase
+        .from('campaigns')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .eq('status', 'sent')
+        .order('sent_at', { ascending: false });
+
+      if (sentCampaigns && sentCampaigns.length > 0) {
+        const loggedCampaignIds = new Set(finalLogs.map(l => l.campaign_id).filter(Boolean));
+        const missingCampaigns = sentCampaigns.filter(c => !loggedCampaignIds.has(c.id));
+
+        if (missingCampaigns.length > 0) {
+          const missingIds = missingCampaigns.map(c => c.id);
+          const { data: missingRecs } = await supabase
+            .from('campaign_recipients')
+            .select('*')
+            .in('campaign_id', missingIds);
+
+          const missingCampMap = new Map(missingCampaigns.map(c => [c.id, c]));
+          const syntheticLogs = [];
+
+          (missingRecs || []).forEach(r => {
+            syntheticLogs.push({
+              id: r.id,
+              campaign_id: r.campaign_id,
+              user_id: session.user.id,
+              recipient_email: r.email,
+              recipient_name: r.name,
+              status: r.status || 'sent',
+              sent_at: r.sent_at || missingCampMap.get(r.campaign_id)?.sent_at || new Date().toISOString(),
+              campaigns: missingCampMap.get(r.campaign_id) || null,
+            });
+          });
+
+          // Se una campagna non ha record in campaign_recipients, estrai dai suoi recipient_list
+          missingCampaigns.forEach(mc => {
+            const hasRecs = (missingRecs || []).some(r => r.campaign_id === mc.id);
+            if (!hasRecs) {
+              const rList = Array.isArray(mc.recipient_list) ? mc.recipient_list : (mc.recipients || []);
+              rList.forEach((r, idx) => {
+                const email = typeof r === 'string' ? r : r?.email;
+                if (email && email.includes('@')) {
+                  syntheticLogs.push({
+                    id: `${mc.id}-${idx}`,
+                    campaign_id: mc.id,
+                    user_id: session.user.id,
+                    recipient_email: email,
+                    recipient_name: typeof r === 'object' ? r.name : '',
+                    status: mc.status || 'sent',
+                    sent_at: mc.sent_at || mc.created_at || new Date().toISOString(),
+                    campaigns: mc,
+                  });
+                }
+              });
+            }
+          });
+
+          if (syntheticLogs.length > 0) {
+            finalLogs = [...finalLogs, ...syntheticLogs].sort((a, b) => new Date(b.sent_at || 0) - new Date(a.sent_at || 0));
+          }
+        }
+      }
+    } catch (fallbackErr) {
+      console.warn("⚠️ Fallback log storico:", fallbackErr);
+    }
+
+    setEmailLogs(finalLogs);
   } catch (err) {
     if (err.message?.includes('Auth session missing')) return;
-    console.error("❌ Errore:", err);
+    console.error("❌ Errore caricamento logs:", err);
   } finally {
     setEmailLogsLoading(false);
   }
@@ -2156,6 +2225,8 @@ const fetchTestate = async () => {
 // ✅ Sostituisci con activeTab che già esiste in EmailPlatform
 useEffect(() => {
   if (activeTab === 'contacts') {
+    if (typeof fetchContacts === 'function') fetchContacts();
+    if (typeof fetchContactLabels === 'function') fetchContactLabels();
     fetchTestate();
     fetchSectors();
     fetchChannels();
@@ -2164,6 +2235,16 @@ useEffect(() => {
     fetchPeriodicitaCanale();
     fetchCoperturaCanale();
     fetchTags();
+  } else if (activeTab === 'campaigns') {
+    if (typeof loadCampaigns === 'function') loadCampaigns();
+    if (typeof fetchContactLabels === 'function') fetchContactLabels();
+  } else if (activeTab === 'logs') {
+    if (typeof loadEmailLogs === 'function') loadEmailLogs();
+    if (typeof loadCampaigns === 'function') loadCampaigns();
+  } else if (activeTab === 'dashboard') {
+    if (typeof loadCampaigns === 'function') loadCampaigns();
+    if (typeof loadEmailLogs === 'function') loadEmailLogs();
+    if (typeof fetchContacts === 'function') fetchContacts();
   }
 }, [activeTab]);
 
@@ -8126,6 +8207,8 @@ const [recipients, setRecipients] = useState([]);
   setShowSendingProgress={setShowSendingProgress}
   setSendingProgress={setSendingProgress}
   loadCampaigns={loadCampaigns}
+  loadEmailLogs={loadEmailLogs}
+  fetchContactLabels={fetchContactLabels}
   contacts={contacts}
   onSaveDraft={() => {}}
   setActiveTab={setActiveTab}
@@ -13906,6 +13989,8 @@ const CampaignModal = ({
   setShowSendingProgress,
   setSendingProgress,
   loadCampaigns,
+  loadEmailLogs,
+  fetchContactLabels,
 }) => {
 
   console.log('🔍 CampaignModal render:', {
