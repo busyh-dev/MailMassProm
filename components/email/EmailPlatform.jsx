@@ -5204,6 +5204,7 @@ const ViewCampaignModal = ({
   setShowEditModal,
   setSelectedCampaign,
   onDuplicate,
+  onResend,
 }) => {
   const [showAll, setShowAll] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -5846,9 +5847,16 @@ useEffect(() => {
     <>
       {/* Pulsante REINVIA (invia subito) */}
       <button
-        onClick={handleResend}
+        onClick={() => {
+          if (typeof onResend === 'function') {
+            onClose();
+            onResend(campaign);
+          } else {
+            handleResend();
+          }
+        }}
         disabled={loading}
-        className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white py-2 px-5 rounded-lg font-medium transition"
+        className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white py-2 px-5 rounded-lg font-medium transition cursor-pointer"
       >
         <Send className="w-4 h-4" />
         {loading ? "Invio..." : `Reinvia Email ${(campaign.resend_count || 0) > 0 ? `(${campaign.resend_count})` : ''}`}
@@ -5964,6 +5972,7 @@ const Campaigns = ({
   campaigns,           // ✅ DA PROPS
   loading,             // ✅ DA PROPS
   loadCampaigns,       // ✅ DA PROPS
+  loadEmailLogs,       // ✅ DA PROPS
   deleteCampaignProp: deleteCampaignDB,
   saveCampaignProp: saveCampaign,
   updateCampaignAfterSendProp: updateCampaignAfterSend,
@@ -6468,10 +6477,46 @@ const [recipients, setRecipients] = useState([]);
         recipients = rawRecipients.split(',').map(s => s.trim().replace(/^['"\[\]{}]+|['"\[\]{}]+$/g, '')).filter(s => s.includes('@'));
       }
 
+      // Fallback 2: recupera destinatari da campaign_recipients se salvati in precedenza
+      if (recipients.length === 0 && campaignToResend?.id) {
+        try {
+          const { data: dbRecs } = await supabase
+            .from('campaign_recipients')
+            .select('email')
+            .eq('campaign_id', campaignToResend.id);
+          if (dbRecs && dbRecs.length > 0) {
+            recipients = [...new Set(dbRecs.map(r => r.email).filter(e => e && e.includes('@')))];
+          }
+        } catch (_) {}
+      }
+
+      // Fallback 3: recupera destinatari da campaign_logs se presenti
+      if (recipients.length === 0 && campaignToResend?.id) {
+        try {
+          const { data: dbLogs } = await supabase
+            .from('campaign_logs')
+            .select('recipient_email')
+            .eq('campaign_id', campaignToResend.id);
+          if (dbLogs && dbLogs.length > 0) {
+            recipients = [...new Set(dbLogs.map(l => l.recipient_email).filter(e => e && e.includes('@')))];
+          }
+        } catch (_) {}
+      }
+
+      // Fallback 4: se contacts locale era vuoto, recupera da DB
+      if (recipients.length === 0 && rawRecipients) {
+        try {
+          const { data: dbConts } = await supabase.from('contacts').select('*').eq('user_id', currentUserId);
+          if (dbConts && dbConts.length > 0) {
+            recipients = resolveRecipientEmails(rawRecipients, dbConts, tagLabels, contactLabels);
+          }
+        } catch (_) {}
+      }
+
       console.log('✅ Recipients risolti:', recipients.length);
 
       if (recipients.length === 0) {
-        throw new Error("Nessun destinatario valido trovato per questa campagna");
+        throw new Error("Nessun destinatario valido trovato per questa campagna. Verifica che la lista contatti associata contenga indirizzi email validi.");
       }
 
       // ✅ AGGIORNA TOTALE DESTINATARI
@@ -6715,37 +6760,50 @@ const [recipients, setRecipients] = useState([]);
 
       // ✅ Salva log di re-invio
       try {
+        const contactMap = new Map((contacts || []).map(c => [c.email?.toLowerCase(), c.name || c.nominativo || '']));
         const logsPayload = recipients.map(email => ({
           campaign_id: campaignToResend.id,
           user_id: currentUserId,
           recipient_email: email,
+          recipient_name: contactMap.get(email?.toLowerCase()) || '',
           status: 'sent',
           sent_at: new Date().toISOString(),
         }));
         await supabase.from('campaign_logs').insert(logsPayload);
+
+        // Aggiorna o inserisce anche in campaign_recipients per consistenza
+        const recPayload = recipients.map(email => ({
+          campaign_id: campaignToResend.id,
+          user_id: currentUserId,
+          email: email,
+          name: contactMap.get(email?.toLowerCase()) || '',
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+        }));
+        await supabase.from('campaign_recipients').upsert(recPayload, { onConflict: 'campaign_id,email', ignoreDuplicates: false }).catch(() => {});
       } catch (logErr) {
         console.warn('⚠️ Log error:', logErr);
       }
 
       await loadCampaigns();
+      if (typeof loadEmailLogs === 'function') {
+        try { await loadEmailLogs(); } catch (_) {}
+      }
       setSendingId(null);
       toast.success(`✅ Campagna reinviata (${newResendCount}° invio) a ${successCount} destinatari!`, { duration: 4000 });
   
     } catch (err) {
       console.error("❌ Errore re-invio:", err);
-      // ✅ MOSTRA ERRORE NEL MODALE
+      // ✅ MOSTRA ERRORE NEL MODALE (senza auto-chiusura così l'utente può leggerlo e premere OK)
       setSendingProgress({
         current: 0,
-        total: 0,
+        total: (recipients && recipients.length) || 0,
+        failedCount: (recipients && recipients.length) || 1,
         status: 'error',
-        message: `❌ ${err.message}`
+        campaignName: campaignToResend?.campaign_name || campaignToResend?.name || campaignToResend?.subject,
+        completedAt: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        message: `❌ ${err.message || 'Errore imprevisto durante il re-invio'}`
       });
-      
-      // Chiudi dopo 3.5 secondi
-      setTimeout(() => {
-        setShowSendingProgress(false);
-        setCampaignToResend(null);
-      }, 3500);
     } finally {
       setShowResendConfirm(false);
     }
@@ -12910,6 +12968,12 @@ return (
             <div>
               <div className="text-sm font-medium text-gray-900">{c.name}</div>
               <div className="text-sm text-gray-500">{c.email}</div>
+              {(c.codiceFiscale || c.codice_fiscale) && (
+                <div className="mt-1 inline-flex items-center gap-1 text-[11px] font-mono font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  <span>🪪 CF:</span>
+                  <span>{c.codiceFiscale || c.codice_fiscale}</span>
+                </div>
+              )}
             </div>
           </td>
           

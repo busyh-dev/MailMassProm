@@ -437,6 +437,7 @@ export default function ImportManagementModal({
               firstName: row.firstName,
               lastName: row.lastName,
               codiceFiscale: cfValue || existing.codiceFiscale,
+              codice_fiscale: cfValue || existing.codiceFiscale,
             });
             successCount++;
           }
@@ -484,6 +485,7 @@ export default function ImportManagementModal({
               firstName: row.firstName,
               lastName: row.lastName,
               codiceFiscale: cfValue,
+              codice_fiscale: cfValue,
             });
             successCount++;
           }

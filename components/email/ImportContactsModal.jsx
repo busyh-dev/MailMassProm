@@ -10,6 +10,7 @@ const ImportContactsModal = ({ show, onClose, onImport, existingContacts }) => {
   const [mapping, setMapping] = useState({ 
     name: "", 
     email: "", 
+    codice_fiscale: "",
     email_2: "",
     tags: "",
     tag_labels: "",  // ✅ AGGIUNGI
@@ -75,6 +76,21 @@ const ImportContactsModal = ({ show, onClose, onImport, existingContacts }) => {
           }
           setCsvHeaders(headers);
           setParsedData(results.data);
+
+          // Rilevamento automatico colonne
+          setMapping(prev => {
+            const nextMap = { ...prev };
+            const clean = str => (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const findCol = (candidates) => headers.find(h => candidates.some(c => clean(h) === clean(c))) || '';
+            
+            if (!nextMap.name) nextMap.name = findCol(['name', 'nome', 'nominativo', 'nome_cognome', 'discente', 'partecipante']);
+            if (!nextMap.email) nextMap.email = findCol(['email', 'mail', 'e_mail', 'e-mail', 'indirizzo_email']);
+            if (!nextMap.codice_fiscale) nextMap.codice_fiscale = findCol(['codicefiscale', 'codice_fiscale', 'cf', 'codfisc', 'taxcode', 'codice']);
+            if (!nextMap.contact_labels) nextMap.contact_labels = findCol(['contact_labels', 'etichetta', 'etichette', 'lista']);
+            if (!nextMap.tags) nextMap.tags = findCol(['tags', 'tag']);
+            return nextMap;
+          });
+
           setStep(2);
         },
         error: () => toast.error("Errore nella lettura del file CSV"),
@@ -244,9 +260,33 @@ const ImportContactsModal = ({ show, onClose, onImport, existingContacts }) => {
         seenEmails.add(email);
         return true;
       });
-  
+
+      // ✅ Aggiorna contatti già esistenti con Codice Fiscale se presente nel file
+      const existingToUpdate = selectedContacts.filter(c => existingEmailMap.has(c.email.toLowerCase().trim()) && c.codice_fiscale);
+      let updatedExistingCount = 0;
+      for (const contact of existingToUpdate) {
+        try {
+          const existingId = existingEmailMap.get(contact.email.toLowerCase().trim());
+          const cfValue = contact.codice_fiscale.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (cfValue) {
+            const anagraficaTag = `<!--ANAGRAFICA:${JSON.stringify({ codiceFiscale: cfValue, cf: cfValue })}-->`;
+            const { error: upErr } = await supabase.from('contacts').update({
+              note: anagraficaTag,
+              updated_at: new Date().toISOString()
+            }).eq('id', existingId);
+            if (!upErr) updatedExistingCount++;
+          }
+        } catch (_) {}
+      }
+
       if (newContacts.length === 0) {
-        toast.error("⚠️ Tutti i contatti sono già presenti o duplicati");
+        if (updatedExistingCount > 0) {
+          toast.success(`✅ ${updatedExistingCount} contatti esistenti aggiornati con il Codice Fiscale!`);
+          if (onImport) onImport([]);
+          handleClose();
+        } else {
+          toast.error("⚠️ Tutti i contatti sono già presenti o duplicati");
+        }
         setImportProgress(prev => ({ ...prev, show: false }));
         return;
       }
