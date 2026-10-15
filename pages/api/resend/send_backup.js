@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { getPublicBaseUrl } from "../../../lib/trackingUrl";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -12,7 +13,7 @@ const injectTracking = (html, campaignId, recipientEmail) => {
     return html;
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || '';
+  const baseUrl = getPublicBaseUrl().replace(/\/+$/, '');
 
   console.log('✅ Tracking iniettato:', { 
     campaignId, 
@@ -22,8 +23,9 @@ const injectTracking = (html, campaignId, recipientEmail) => {
   
   const encodedEmail = encodeURIComponent(recipientEmail);
 
-  // ✅ Pixel apertura 1x1
-  const trackingPixel = `<img src="${baseUrl}/api/track/open?campaign_id=${campaignId}&recipient=${encodedEmail}" width="1" height="1" style="display:none;border:0;" alt="" />`;
+  // ✅ Pixel apertura 1x1 trasparente con fallback compatibilità client di posta
+  const openPixelUrl = `${baseUrl}/api/track/open?campaign_id=${encodeURIComponent(campaignId)}&recipient=${encodedEmail}`;
+  const trackingPixel = `<img src="${openPixelUrl}" width="1" height="1" border="0" style="width:1px !important; min-width:1px !important; height:1px !important; min-height:1px !important; border:0 !important; margin:0 !important; padding:0 !important; opacity:0.01 !important;" alt="" />`;
 
   // ✅ Riscrivi i link per tracciare i click
   let trackedHtml = html.replace(

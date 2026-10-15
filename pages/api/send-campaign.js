@@ -16,9 +16,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+import { getPublicBaseUrl } from "../../lib/trackingUrl";
+
 function prepareTrackableHtml(html, campaignId, recipient, baseUrl) {
   if (!html) return html;
 
+  const effectiveBaseUrl = (baseUrl || getPublicBaseUrl()).replace(/\/+$/, '');
   let trackableHtml = html;
 
   // 1. Sostituzione dei link per il tracciamento dei click
@@ -28,15 +31,15 @@ function prepareTrackableHtml(html, campaignId, recipient, baseUrl) {
       if (originalUrl.includes('/api/track/')) {
         return match;
       }
-      const trackingClickUrl = `${baseUrl}/api/track/click?campaign_id=${encodeURIComponent(campaignId)}&recipient=${encodeURIComponent(recipient)}&url=${encodeURIComponent(originalUrl)}`;
+      const trackingClickUrl = `${effectiveBaseUrl}/api/track/click?campaign_id=${encodeURIComponent(campaignId)}&recipient=${encodeURIComponent(recipient)}&url=${encodeURIComponent(originalUrl)}`;
       return `href=${quote}${trackingClickUrl}${quote}`;
     });
   }
 
   // 2. Iniezione del Pixel di Tracciamento per le Aperture (Open Rate)
   if (campaignId) {
-    const openPixelUrl = `${baseUrl}/api/track/open?campaign_id=${encodeURIComponent(campaignId)}&recipient=${encodeURIComponent(recipient)}`;
-    const pixelTag = `<img src="${openPixelUrl}" width="1" height="1" style="display:none !important; min-height:1px !important; width:1px !important; border:0; margin:0;" alt="" />`;
+    const openPixelUrl = `${effectiveBaseUrl}/api/track/open?campaign_id=${encodeURIComponent(campaignId)}&recipient=${encodeURIComponent(recipient)}`;
+    const pixelTag = `<img src="${openPixelUrl}" width="1" height="1" border="0" style="width:1px !important; min-width:1px !important; height:1px !important; min-height:1px !important; border:0 !important; margin:0 !important; padding:0 !important; opacity:0.01 !important;" alt="" />`;
 
     if (trackableHtml.includes('</body>')) {
       trackableHtml = trackableHtml.replace('</body>', `${pixelTag}</body>`);
@@ -230,10 +233,8 @@ export default async function handler(req, res) {
       } catch (_) {}
     }
 
-    // Calcola il Base URL per il tracciamento
-    const protocol = req.headers['x-forwarded-proto'] || 'http';
-    const host = req.headers.host || 'localhost:3000';
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `${protocol}://${host}`;
+    // Calcola il Base URL per il tracciamento (usa sempre il dominio pubblico valido)
+    const baseUrl = getPublicBaseUrl(req);
 
     // Conta successi e fallimenti
     let sent = 0;

@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { matchAttachmentsForContact } from "../../../lib/matchAttachments";
+import { getPublicBaseUrl } from "../../../lib/trackingUrl";
 
 export const config = {
   api: {
@@ -16,17 +17,18 @@ const supabase = createClient(
 );
 
 // ✅ Inietta pixel apertura e traccia i link
-const injectTracking = (html, campaignId, recipientEmail) => {
+const injectTracking = (html, campaignId, recipientEmail, baseUrl) => {
   if (!campaignId || !html) {
     console.log('⚠️ injectTracking: campaignId o html mancante', { campaignId });
     return html;
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || '';
+  const effectiveBaseUrl = (baseUrl || getPublicBaseUrl()).replace(/\/+$/, '');
   const encodedEmail = encodeURIComponent(recipientEmail);
 
-  // ✅ Pixel apertura 1x1
-  const trackingPixel = `<img src="${baseUrl}/api/track/open?campaign_id=${campaignId}&recipient=${encodedEmail}" width="1" height="1" style="display:none;border:0;" alt="" />`;
+  // ✅ Pixel apertura 1x1 trasparente con fallback compatibilità client di posta
+  const openPixelUrl = `${effectiveBaseUrl}/api/track/open?campaign_id=${encodeURIComponent(campaignId)}&recipient=${encodedEmail}`;
+  const trackingPixel = `<img src="${openPixelUrl}" width="1" height="1" border="0" style="width:1px !important; min-width:1px !important; height:1px !important; min-height:1px !important; border:0 !important; margin:0 !important; padding:0 !important; opacity:0.01 !important;" alt="" />`;
 
   // ✅ Riscrivi i link per tracciare i click (escludi tracking e unsubscribe)
   let trackedHtml = html.replace(
@@ -34,7 +36,7 @@ const injectTracking = (html, campaignId, recipientEmail) => {
     (match, url) => {
       if (url.includes('/api/track') || url.includes('unsubscribe')) return match;
       const encodedUrl = encodeURIComponent(url);
-      return `href="${baseUrl}/api/track/click?campaign_id=${campaignId}&recipient=${encodedEmail}&url=${encodedUrl}"`;
+      return `href="${effectiveBaseUrl}/api/track/click?campaign_id=${encodeURIComponent(campaignId)}&recipient=${encodedEmail}&url=${encodedUrl}"`;
     }
   );
 
@@ -49,8 +51,8 @@ const injectTracking = (html, campaignId, recipientEmail) => {
 };
 
 // ✅ Genera token disiscrizione e sostituisce i placeholder nell'HTML
-const injectUnsubscribeLinks = async (html, contactId, contactEmail, campaignId) => {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || '';
+const injectUnsubscribeLinks = async (html, contactId, contactEmail, campaignId, baseUrl) => {
+  const effectiveBaseUrl = (baseUrl || getPublicBaseUrl()).replace(/\/+$/, '');
 
   // Genera token univoco per questo contatto
   const token = crypto.randomUUID();
@@ -124,6 +126,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    const baseUrl = getPublicBaseUrl(req);
     const recipients = Array.isArray(to) ? to : [to];
 
     // Recupera allegati dal database se non inviati nel payload per evitare superamento limiti Vercel
@@ -175,11 +178,12 @@ export default async function handler(req, res) {
             html,
             contact.id,
             contact.email,
-            campaign_id
+            campaign_id,
+            baseUrl
           );
 
           // 2. Inietta tracking
-          personalizedHtml = injectTracking(personalizedHtml, campaign_id, contact.email);
+          personalizedHtml = injectTracking(personalizedHtml, campaign_id, contact.email, baseUrl);
 
           // 3. Smistamento Allegati Dinamici (Attestati Nominativi)
           let recipientAttachments = rawAttachments;
@@ -263,7 +267,8 @@ export default async function handler(req, res) {
           html,
           contactData.id,
           contactData.email,
-          campaign_id
+          campaign_id,
+          baseUrl
         );
       } else {
         // Rimuovi i placeholder se non troviamo il contatto
@@ -280,7 +285,7 @@ export default async function handler(req, res) {
         .replace(/\{\{PREFERENCES_LINK\}\}/g, '#');
     }
 
-    const trackedHtml = injectTracking(finalHtml, campaign_id, recipientForTracking);
+    const trackedHtml = injectTracking(finalHtml, campaign_id, recipientForTracking, baseUrl);
 
     const validBulkAttachments = filterValidAttachments(rawAttachments);
 

@@ -34,12 +34,12 @@ export default async function handler(req, res) {
       if (recipient && recipient !== 'bulk') {
         try {
           const targetEmail = decodeURIComponent(recipient).toLowerCase().trim();
+          const now = new Date().toISOString();
           await supabase
             .from('campaign_recipients')
             .update({
-              opened: true,
-              read: true,
-              read_at: new Date().toISOString()
+              clicked_at: now,
+              opened_at: now
             })
             .eq('campaign_id', campaign_id)
             .eq('email', targetEmail);
